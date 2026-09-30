@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Duel.gold · play real people (test network)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/game/core/base.css">
+<link rel="stylesheet" href="/play/app.css">
+</head>
+<body>
+<header class="top" id="top">
+  <a class="logo" href="/play/" aria-label="Duel.gold home">DUEL<span>.gold</span></a>
+  <span class="tag" id="netTag">Test network · no real money</span>
+  <div class="top-right" id="topRight"></div>
+</header>
+<main id="main" aria-live="polite"><p class="dg-muted pad">Loading…</p></main>
+<div id="toasts" role="status" aria-live="polite"></div>
+
+<script src="/play/vendor/ethers.umd.min.js"></script>
+<script src="/game/core/sdk.js"></script>
+<script type="module" src="/play/app.js"></script>
+</body>
+</html>

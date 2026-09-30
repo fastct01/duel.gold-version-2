@@ -1,0 +1,24 @@
+{
+  "name": "duel-gold-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Duel.gold backend: wallet-signature auth, testnet deposits/withdrawals, escrow ledger and real-player matchmaking.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/index.js",
+    "chain": "node scripts/local-chain.js",
+    "test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 \"test/**/*.test.js\"",
+    "dev": "node --disable-warning=ExperimentalWarning scripts/dev-stack.js"
+  },
+  "dependencies": {
+    "ethers": "^6.13.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "hardhat": "^2.26.0",
+    "playwright-core": "^1.63.0"
+  }
+}

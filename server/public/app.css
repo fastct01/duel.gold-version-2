@@ -1,0 +1,77 @@
+/* Duel.gold PvP client — layout only. Colours, type and controls come from /game/core/base.css. */
+html,body{margin:0}
+body{min-height:100vh;padding-bottom:env(safe-area-inset-bottom,0)}
+.pad{padding:24px 16px}
+.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;padding:10px 16px;padding-top:calc(10px + env(safe-area-inset-top,0));background:rgba(10,10,11,.86);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.logo{font-family:var(--f-display);font-weight:600;font-size:20px;letter-spacing:-.01em;color:var(--fg);text-decoration:none}
+.logo span{color:var(--gold)}
+.tag{font-size:12px;color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);border-radius:var(--r-pill);padding:2px 10px}
+.top-right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0}
+.pill{display:inline-flex;gap:6px;align-items:baseline;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px 12px;font-size:13px;color:var(--muted);white-space:nowrap}
+.pill b{color:var(--fg);font-weight:600}
+#main{width:100%;max-width:880px;margin:0 auto;padding:16px;display:grid;gap:16px}
+h2.dg-h{font-size:22px}
+h3.dg-h{font-size:17px}
+.lede{color:var(--muted);margin:6px 0 0;max-width:60ch}
+.grid2{display:grid;gap:16px;grid-template-columns:1fr}
+@media(min-width:760px){.grid2{grid-template-columns:1fr 1fr}}
+.field{display:grid;gap:6px;min-width:0}
+.field label,.label{font-size:13px;color:var(--muted)}
+input[type=text],input[type=number],select{width:100%;min-height:42px;background:var(--panel-2);color:var(--fg);border:1px solid var(--line-2);border-radius:12px;padding:8px 12px;font:inherit}
+input::placeholder{color:#6a6a70}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.mono-box{font-family:var(--f-mono);font-size:13px;background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;word-break:break-all;user-select:all}
+.bal{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.bal .dg-stat b{font-size:19px;overflow-wrap:anywhere}
+.list{display:grid;gap:0}
+.list .row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid var(--line);font-size:14px;flex-wrap:wrap}
+.list .row:first-child{border-top:0}
+.sub{color:var(--muted);font-size:13px}
+.err{color:var(--bad);font-size:13px;min-height:1em}
+.ok{color:var(--good)}
+details.dg-box>summary{cursor:pointer;font-weight:500}
+details.dg-box[open]>summary{margin-bottom:12px}
+
+/* versus card */
+.vs{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;text-align:center}
+.vs .who{min-width:0}
+.vs .who b{display:block;font-family:var(--f-display);font-size:20px;overflow-wrap:anywhere}
+.vs .who.you b{color:var(--gold)} .vs .who.rival b{color:var(--rival)}
+.vs .x{color:var(--muted);font-size:13px}
+.big{font-family:var(--f-display);font-weight:600;font-size:clamp(34px,9vw,56px);line-height:1;letter-spacing:-.02em}
+.rules{margin:0;padding-left:18px;color:var(--fg)}
+.rules li{margin:3px 0}
+.spin{width:64px;height:64px;border-radius:50%;border:3px solid var(--line-2);border-top-color:var(--gold);animation:spin 1s linear infinite;margin:6px auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* play */
+.bar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.race{display:grid;gap:6px}
+.race .lane{display:grid;grid-template-columns:minmax(0,104px) 1fr auto;gap:8px;align-items:center;font-size:13px}
+.race .lane>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.race .track{height:8px;background:rgba(255,255,255,.1);border-radius:99px;overflow:hidden}
+.race .fill{height:100%;width:0;border-radius:99px;transition:width .25s}
+.race .you .fill{background:var(--gold)} .race .rival .fill{background:var(--rival)}
+#stage{max-width:860px;width:100%;min-height:240px}
+.confirm{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+/* result */
+.result-head{text-align:center;padding:8px 0}
+.result-head.win .big{color:var(--good)} .result-head.loss .big{color:var(--bad)} .result-head.draw .big,.result-head.void .big{color:var(--gold)}
+.scoreline{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;text-align:center;align-items:center}
+.scoreline b{font-family:var(--f-mono);font-size:26px;display:block}
+
+#toasts{position:fixed;left:0;right:0;bottom:calc(16px + env(safe-area-inset-bottom,0));display:grid;gap:8px;justify-items:center;pointer-events:none;z-index:50;padding:0 16px}
+.toast{pointer-events:none;background:var(--panel-3);border:1px solid var(--line-2);border-radius:12px;padding:10px 16px;font-size:14px;max-width:min(92vw,460px);box-shadow:0 8px 30px rgba(0,0,0,.5)}
+.toast.bad{border-color:var(--bad)} .toast.good{border-color:var(--good)} .toast.gold{border-color:var(--gold)}
+
+@media(max-width:420px){
+  .top{gap:6px 8px}
+  .top-right{width:100%;justify-content:space-between}
+  .pill .nm,.pill .lbl{display:none}
+  .top-right .out{min-height:34px;padding:5px 12px}
+  .bal{gap:8px}
+  .bal .dg-stat{padding:10px 12px}
+  .bal .dg-stat b{font-size:17px}
+  .vs{grid-template-columns:1fr;gap:4px}
+}
