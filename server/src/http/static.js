@@ -27,10 +27,15 @@ export function attachStatic(router, cfg) {
       let stat;
       try { stat = fs.statSync(file); } catch { return false; }
       if (!stat.isFile()) return false;
+      /* no-cache = always revalidate; the validators make that a cheap 304 and guarantee an edited file is picked up on reload */
+      const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+      if (req.headers["if-none-match"] === etag) { res.writeHead(304, { etag, "cache-control": "no-cache" }); res.end(); return true; }
       res.writeHead(200, {
         "content-type": TYPES[path.extname(file)] || "application/octet-stream",
         "content-length": stat.size,
         "cache-control": "no-cache",
+        etag,
+        "last-modified": stat.mtime.toUTCString(),
         "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' ws: wss:; img-src 'self' data:",
         "x-frame-options": "DENY",
       });

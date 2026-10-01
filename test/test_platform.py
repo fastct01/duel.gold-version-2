@@ -2,9 +2,9 @@
     python3 build.py --test-games _samples.js      -> dist/test.html
     python3 test/test_platform.py
 
-Covers: age gate (adult + under-18), every tab at 360/1280 with no horizontal scroll, Duel now in every format
+Covers: no age gate or cool-off, every tab at 360/1280 with no horizontal scroll, Duel now in every format
 (1v1 race, 1v1 versus, 2v2, FFA, tournament win + lose, Duel Mix), escrow/payout/Elo arithmetic, forfeit, rematch,
-custom stake validation, daily bonus, loss limit, cool-off, favourites, friend challenge, club join, shop purchase,
+custom stake validation, daily bonus, loss limit, favourites, friend challenge, club join, shop purchase,
 Watch race + spectate, localStorage blocked, throwing games refunded, 0 and 30 registered games, console errors.
 Screenshots go to test/shots/platform-*.png.
 """
@@ -58,11 +58,11 @@ def no_hscroll(page, label):
     check(sw <= iw, f"{label}: horizontal scroll {sw} > {iw}")
 
 
-def boot(page, age="adult", speed=4):
+def boot(page, speed=4):
     page.goto(URL)
     page.wait_for_function("window.DGApp && document.querySelector('#view-home').children.length > 0")
-    page.evaluate("DGApp.close(); DGApp.set({limits: {loss: 0, remind: 0, coolUntil: 0, pending: null}}); DGApp.reset(); document.querySelectorAll('.modal-back').forEach(m => m.remove())")
-    page.evaluate(f"DGApp.set({{age: {repr(age) if age else 'null'}}}); DGApp.setSpeed({speed}); DGApp.go('home')")
+    page.evaluate("DGApp.close(); DGApp.set({limits: {loss: 0, remind: 0, pending: null}}); DGApp.reset(); document.querySelectorAll('.modal-back').forEach(m => m.remove())")
+    page.evaluate(f"DGApp.setSpeed({speed}); DGApp.go('home')")
 
 
 def st(page):
@@ -138,19 +138,9 @@ def test_tabs(page, w):
     page.goto(URL)
     page.evaluate("DGApp.close(); localStorage.clear()")
     page.reload()
-    page.wait_for_selector("[data-test=age-gate]", timeout=5000)
-    outside = 0
-    for _ in range(6):
-        page.keyboard.press("Tab")
-        if not page.evaluate("!!document.activeElement.closest('[data-test=age-gate]')"):
-            outside += 1
-    check(outside == 0, "Tab trapped in the age gate")
-    shot(page, f"agegate-{w}", full=False)
-    check(page.is_visible("#ageAdult") and page.is_visible("#ageMinor"), "age gate buttons")
-    page.keyboard.press("Escape")
-    check(page.is_visible("[data-test=age-gate]"), "age gate not dismissable by Escape")
-    page.click("#ageAdult")
-    check(st(page)["age"] == "adult", "adult stored")
+    page.wait_for_function("window.DGApp && DG.__appReady === true", timeout=5000)
+    check(page.query_selector("[data-test=age-gate]") is None, "no age gate on first visit")
+    check("age" not in st(page), "no age stored")
     page.evaluate("DGApp.setSpeed(4)")
     for t in TABS:
         page.evaluate(f"DGApp.go('{t}')")
@@ -383,7 +373,7 @@ def test_mix(page, w):
 
 
 def test_forfeit_and_stakes(page, w):
-    print(f"[{w}] forfeit, custom stake, bonus, loss limit, cool-off")
+    print(f"[{w}] forfeit, custom stake, bonus, loss limit")
     boot(page)
     g0 = gold(page)
     page.evaluate("DGApp.startMatch({game:'sample-tap', format:'1v1', stake:100})")
@@ -459,18 +449,9 @@ def test_forfeit_and_stakes(page, w):
     check(page.evaluate("DGApp.startMatch({game:'sample-tap', stake:50})") == "", "limit off after 24 h -> staked ok")
     page.evaluate("DGApp.close()")
     check(gold(page) == 10000 - 100, "closing during matchmaking refunds")
-    # cool-off
+    # no cool-off or age section
     page.evaluate("DGApp.go('settings')")
-    page.click("#cool-24h")
-    page.click("#confirmYes")
-    err = page.evaluate("DGApp.startMatch({game:'sample-tap', stake:50})")
-    check("Cool-off" in err, f"cool-off blocks stakes: {err}")
-    check(page.evaluate("DGApp.startMatch({game:'sample-tap', stake:0})") == "", "cool-off allows free play")
-    page.evaluate("DGApp.close()")
-    page.evaluate("DGApp.go('tournaments')")
-    check(page.is_disabled("#join-weekend"), "cool-off blocks paid tournaments")
-    page.evaluate("DGApp.go('settings')")
-    check("Active" in page.inner_text("#coolState"), "cool-off state shown")
+    check(page.query_selector("#coolBox") is None and page.query_selector("#ageBox") is None, "no cool-off or age section")
     # session reminder
     page.click("#remind-15")
     check(st(page)["limits"]["remind"] == 15, "reminder set")
@@ -631,45 +612,12 @@ def test_errors_and_scale(page, w):
     check(unexpected == [], f"unexpected errors: {unexpected}")
 
 
-def test_minor(w):
-    print(f"[{w}] under-18")
-    with browser_page(width=w, height=800) as page:
-        page.goto(URL)
-        page.wait_for_selector("[data-test=age-gate]")
-        page.click("#ageMinor")
-        s = st(page)
-        check(s["age"] == "minor", "minor stored")
-        check(page.is_disabled("#dnS-50") and page.is_disabled("#dnS-custom"), "stakes disabled for minors")
-        check("under-18" in page.inner_text("#dnBlock").lower(), "minor explanation")
-        err = page.evaluate("DGApp.startMatch({game:'sample-tap', stake:50})")
-        check("under-18" in err, f"minor stake refused: {err}")
-        page.evaluate("DGApp.setSpeed(4)")
-        page.select_option("#dnGame", "sample-tap")
-        page.click("#dnFind")
-        tap_round(page, win=True)
-        last = wait_result(page)
-        check(last["outcome"] == "win" and last["payout"] == 0 and gold(page) == 10000, "minor free play works")
-        page.click("#resBack")
-        page.evaluate("DGApp.go('tournaments')")
-        check(page.is_disabled("#join-weekend") and not page.is_disabled("#join-daily"), "minor: paid tournaments off, free on")
-        page.evaluate("DGApp.go('settings')")
-        check(page.query_selector("#ageAgain") is None, "minor: no self-upgrade button")
-        check("can't be changed here" in page.inner_text("#ageLocked"), "minor: explains age can't change")
-        page.evaluate("DGP.ageGate(true)")
-        check(page.query_selector("[data-test=age-gate]") is None, "minor: age gate cannot be reopened")
-        page.click("#resetBtn"); page.click("#confirmYes")
-        check(st(page)["age"] == "minor", "minor: reset keeps the answer")
-        shot(page, f"minor-home-{w}", full=False)
-        check(console_errors(page) == [], f"console errors: {console_errors(page)}")
-
-
 def test_no_storage(w):
     print(f"[{w}] localStorage blocked")
     with browser_page(width=w, height=800) as page:
         page.add_init_script("Object.defineProperty(window,'localStorage',{get(){throw new Error('blocked')}})")
         page.goto(URL)
-        page.wait_for_selector("[data-test=age-gate]")
-        page.click("#ageAdult")
+        page.wait_for_function("window.DGApp && DG.__appReady === true", timeout=15000)
         check(page.evaluate("DGApp.storage().ok") is False, "storage flagged unavailable")
         page.evaluate("DGApp.setSpeed(4)")
         page.evaluate("DGApp.startMatch({game:'sample-tap', stake:100})")
@@ -722,7 +670,7 @@ def test_qa_fixes(page, w):
     check(gold(page) == 10000, "rejected stakes take no gold")
 
     # 1. reload mid-match: staked → forfeit counted (history, today.net, rating, loss limit), notice shown
-    page.evaluate("DGApp.set({limits:{loss:1000, remind:0, coolUntil:0, pending:null}})")
+    page.evaluate("DGApp.set({limits:{loss:1000, remind:0, pending:null}})")
     page.evaluate("DGApp.startMatch({game:'sample-tap', format:'1v1', stake:900})")
     page.wait_for_function("DGApp.current() && DGApp.current().phase === 'ready'", timeout=10000)
     opp = page.evaluate("DGApp.current()")["opps"][0]
@@ -738,7 +686,7 @@ def test_qa_fixes(page, w):
     err = page.evaluate("DGApp.startMatch({game:'sample-tap', stake:900})")
     check("loss limit" in err, f"reload cannot bypass loss limit: {err}")
     # reload during matchmaking → refund
-    page.evaluate("DGApp.set({limits:{loss:0, remind:0, coolUntil:0, pending:null}})")
+    page.evaluate("DGApp.set({limits:{loss:0, remind:0, pending:null}})")
     page.evaluate("DGApp.setSpeed(0.05)")
     g0 = gold(page)
     page.evaluate("DGApp.startMatch({game:'sample-tap', format:'ffa', stake:300})")
@@ -870,13 +818,13 @@ def test_qa_fixes(page, w):
     shot(page, f"qa-result-toast-{w}", full=False)
     page.click("#resBack")
 
-    # 2. reset keeps limits + age
-    page.evaluate("DGApp.set({limits:{loss:500, remind:0, coolUntil: Date.now() + 3600000, pending:null}})")
+    # 2. reset keeps limits
+    page.evaluate("DGApp.set({limits:{loss:500, remind:0, pending:null}})")
     page.evaluate("DGApp.go('settings')")
     page.click("#resetBtn"); page.click("#confirmYes")
     s = st(page)
-    check(s["limits"]["loss"] == 500 and s["limits"]["coolUntil"] > 0 and s["age"] == "adult", "reset keeps limits, cool-off and age")
-    page.evaluate("DGApp.set({limits:{loss:0, remind:0, coolUntil:0, pending:null}})")
+    check(s["limits"]["loss"] == 500, "reset keeps limits")
+    page.evaluate("DGApp.set({limits:{loss:0, remind:0, pending:null}})")
     # 4. lowering applies now, raising waits 24 h
     page.evaluate("DGApp.go('settings')")
     page.click("#loss-2500")
@@ -889,16 +837,16 @@ def test_qa_fixes(page, w):
     check("takes effect at" in page.inner_text("#lossMsg") and page.is_visible("#lossPending"), "pending time shown")
     page.fill("#lossCustom", "800"); page.click("#lossSet")
     check(st(page)["limits"]["loss"] == 800 and st(page)["limits"]["pending"] is None, "lowering cancels a pending raise")
-    page.evaluate("DGApp.set({limits:{loss:0, remind:0, coolUntil:0, pending:null}})")
+    page.evaluate("DGApp.set({limits:{loss:0, remind:0, pending:null}})")
 
     # 20. loss limit hit: single message, Free auto-selected
     page.evaluate("DGApp.go('home')")
     page.click("#dnS-250")
-    page.evaluate("DGApp.set({limits:{loss:100, remind:0, coolUntil:0, pending:null}, today: Object.assign(DGApp.state().today, {net: -100})})")
+    page.evaluate("DGApp.set({limits:{loss:100, remind:0, pending:null}, today: Object.assign(DGApp.state().today, {net: -100})})")
     txt = page.inner_text("#duelNow")
     check(txt.count("loss limit reached") == 1, f"block message shown once ({txt.count('loss limit reached')})")
     check(page.get_attribute("#dnS-0", "aria-pressed") == "true" and not page.is_disabled("#dnFind"), "Free auto-selected, Find enabled")
-    page.evaluate("DGApp.set({limits:{loss:0, remind:0, coolUntil:0, pending:null}, today: Object.assign(DGApp.state().today, {net: 0})})")
+    page.evaluate("DGApp.set({limits:{loss:0, remind:0, pending:null}, today: Object.assign(DGApp.state().today, {net: 0})})")
 
     # 12. Duel Mix never repeats a game; says so when it fills from other categories
     page.evaluate("""(() => { const base = {kind:'race', formats:['1v1','mix'], skill:5, luck:1, blurb:'b', rules:['r'], play(ctx){ ctx.timeout(()=>ctx.end({score:5}), 50); }, bot(){ return {score:1, timeline:[[1,1]]}; }};
@@ -1030,7 +978,6 @@ def test_preview(w):
     with browser_page(width=w, height=780 if w < 400 else 900) as page:
         page.goto(prev)
         page.wait_for_function("window.DGApp && DG.__appReady === true", timeout=15000)
-        page.click("#ageAdult")
         n = page.evaluate("DG.games.length")
         check(n >= 20, f"{n} games registered in the full build")
         check(page.is_hidden("#loadErrors") or "undefined" not in page.inner_text("#loadErrors"), "load errors readable")
@@ -1225,7 +1172,7 @@ def test_reset(page, w):
     page.click("#confirmYes")
     check(gold(page) == 10000, "reset restores defaults")
     page.wait_for_timeout(200)
-    check(page.query_selector("[data-test=age-gate]") is None and st(page)["age"] == "adult", "reset keeps the age answer")
+    check(page.query_selector("[data-test=age-gate]") is None, "no age gate after reset")
 
 
 def main():
@@ -1244,7 +1191,6 @@ def main():
             test_social_profile(page, w)
             test_reset(page, w)
             test_errors_and_scale(page, w)
-        test_minor(w)
         test_no_storage(w)
     test_corrupt_state(1280)
     test_load_errors(1280)

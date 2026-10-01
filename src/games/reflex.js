@@ -635,7 +635,7 @@
 
   DG.registerGame({
     id: "darts", name: "Darts Nine", category: "precision", kind: "race", formats: ALL,
-    skill: 7, luck: 2, cashEligible: true, duration: "60 s", pack: "reflex",
+    skill: 7, luck: 2, cashEligible: true, duration: "up to 100 s", pack: "reflex", // 9 × 10 s clock + flights and visit pauses
     blurb: "Nine darts, highest total wins. Steady the wobbling sight and release on target.",
     rules: [
       "Point at the board. The sight wobbles on a fixed path everyone shares.",

@@ -88,11 +88,17 @@ export function loadConfig(env = process.env, overrides = {}) {
       durationFactor: Number(env.MATCH_DURATION_FACTOR || 1.5),
       durationScale: Number(env.MATCH_DURATION_SCALE || 1),
       queueTimeoutMs: int(env.QUEUE_TIMEOUT_MS, 90000, "QUEUE_TIMEOUT_MS", 20),
+      /* invite-only lobbies: how long an unclaimed lobby (and the host's escrowed stake) stays open */
+      lobbyTtlMs: int(env.LOBBY_TTL_MS, 30 * 60000, "LOBBY_TTL_MS", 20),
+      /* random matchmaking without an invite; off by default (private-code tickets still work) */
+      publicQueue: bool(env.PUBLIC_QUEUE, false),
       disconnectQueueMs: int(env.QUEUE_DISCONNECT_MS, 10000, "QUEUE_DISCONNECT_MS", 0),
       ratingBase: int(env.RATING_WINDOW, 60, "RATING_WINDOW", 0),
       ratingGrowthPerSec: int(env.RATING_WINDOW_GROWTH, 15, "RATING_WINDOW_GROWTH", 0),
       ratingMax: int(env.RATING_WINDOW_MAX, 600, "RATING_WINDOW_MAX", 0),
       pairIntervalMs: int(env.PAIR_INTERVAL_MS, 1000, "PAIR_INTERVAL_MS", 10),
+      /* how long the public lobby snapshot (GET /v1/lobby) may be served from memory */
+      lobbyCacheMs: int(env.LOBBY_CACHE_MS, 1500, "LOBBY_CACHE_MS", 0),
       maxScore: Number(env.MAX_SCORE || 1e7),
       strikesBeforeBan: int(env.STRIKES_BEFORE_BAN, 3, "STRIKES_BEFORE_BAN", 1),
       banMs: int(env.QUEUE_BAN_MS, 5 * 60000, "QUEUE_BAN_MS", 0),

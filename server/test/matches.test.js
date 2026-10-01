@@ -129,7 +129,7 @@ test("forfeit during play loses immediately; the opponent is paid without finish
 
 test("free play (stake 0) moves no money but still rates players", async () => {
   const h = await boot();
-  const a = await h.player({ fund: 0n, adult: false }), b = await h.player({ fund: 0n, adult: false });
+  const a = await h.player({ fund: 0n }), b = await h.player({ fund: 0n });
   const m = await h.pair(a, b, { stake: 0n });
   assert.equal(m.a.stake, "0");
   await h.begin(a, b, m.id);

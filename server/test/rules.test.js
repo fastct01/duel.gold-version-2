@@ -85,7 +85,7 @@ test("the catalog loads the real game packs: race games are PvP-ready, versus ga
   const cfg = loadConfig({ NODE_ENV: "test" });
   const cat = loadCatalog({ gamesDir: cfg.gamesDir, log: createLogger("silent") });
   const all = cat.list();
-  assert.equal(all.length, 22);
+  assert.equal(all.length, 23);
   assert.equal(all.filter((g) => g.pvp).length, 14);
   for (const g of all) assert.equal(g.pvp, g.kind === "race", g.id);
   assert.ok(all.every((g) => g.maxSeconds >= 30 && g.maxSeconds <= 600), "every game has a sane time limit");

@@ -35,6 +35,18 @@
       if (ok) st.format = ok;
     }
   }
+  /* A game can add its own setup section (def.setup: time control, colour, …). Values are kept per game in st.gopts
+     and seeded from the game's saved preferences. Returns null for games without one. */
+  function gameSetup(st) {
+    const g = P.game(st.pick), def = g && g.raw && g.raw.setup;
+    if (!def) return null;
+    st.gopts = st.gopts || {};
+    if (!st.gopts[g.id]) { let v = null; try { v = def.load(); } catch (e) { v = null; } st.gopts[g.id] = v || def.defaults(); }
+    return { g, def, values: st.gopts[g.id] };
+  }
+  const setupCall = (fn, d) => { try { return fn(); } catch (e) { console.error("[Duel.gold] game setup error", e); return d; } };
+  const setupSummary = (gs) => (gs ? setupCall(() => String(gs.def.summary(gs.values) || ""), "") : "");
+  const findSmall = (st, gs, stake) => pickLabel(st.pick) + (setupSummary(gs) ? " · " + setupSummary(gs) : "") + " · " + P.fmtName(st.format) + " · " + (stake > 0 ? fmt(stake) : "Free");
   P.duelPanelHTML = function (px, st) {
     const games = P.games();
     if (!games.length) {
@@ -65,6 +77,9 @@
     let err = st.customOn ? (Number.isFinite(stake) ? P.stakeError(stake) : "Enter a whole number of gold.") : P.stakeError(stake);
     if (err && err === block) err = ""; // already shown under the stake chips
     if (!err && formatReason(st, st.format)) err = formatReason(st, st.format);
+    const gs = gameSetup(st);
+    const gsHTML = gs ? '<div class="dn-field dn-gset" data-test="game-setup">' + setupCall(() => gs.def.html(gs.values, { px, rating: P.rating(gs.g.id), esc }), "") + "</div>" : "";
+    if (!err && gs) err = setupCall(() => gs.def.validate(gs.values), "") || "";
     const tourNote = st.format === "tournament" ? " Entry fee = stake." : "";
     const note = err ? "" : P.potNote(st.format, stake || 0) + tourNote;
     const opp = st.opponent ? '<div class="dn-opp" data-test="dn-opponent"><span class="dg-eyebrow">Challenge</span><b class="dg-rival">' + esc(st.opponent.name) + '</b><span class="dg-mono dg-muted">' + fmt(st.opponent.rating) + '</span><button class="dg-btn slim" id="' + px + 'OppX">Remove</button></div>' : "";
@@ -76,11 +91,11 @@
       '<div class="dn-search"><label class="sr" for="' + px + 'Search">Search games</label><input class="inp" type="search" id="' + px + 'Search" placeholder="Search games" value="' + esc(st.search) + '" autocomplete="off">' +
       '<label class="sr" for="' + px + 'Game">Specific game</label><select class="inp" id="' + px + 'Game">' + opts + "</select></div></div>" +
       '<div class="dn-field"><span class="dg-eyebrow" id="' + px + 'FmtL">Format</span><div class="chips scroller" role="group" aria-labelledby="' + px + 'FmtL">' + fchips + "</div>" +
-      (fwhyTxt.length ? '<p class="dn-why">' + fwhyTxt.map(esc).join(" ") + "</p>" : "") + "</div>" +
+      (fwhyTxt.length ? '<p class="dn-why">' + fwhyTxt.map(esc).join(" ") + "</p>" : "") + "</div>" + gsHTML +
       '<div class="dn-field"><span class="dg-eyebrow" id="' + px + 'StakeL">Stake · gold</span><div class="chips scroller" role="group" aria-labelledby="' + px + 'StakeL">' + schips + "</div>" +
       (st.customOn ? '<div class="dn-custom"><label for="' + px + 'Custom">Custom stake (10 to ' + fmt(P.S.gold) + ')</label><input class="inp dg-mono" id="' + px + 'Custom" inputmode="numeric" value="' + esc(st.custom) + '" placeholder="e.g. 300"></div>' : "") +
       (block ? '<p class="dn-why warn" id="' + px + 'Block">' + esc(block) + "</p>" : "") + "</div>" +
-      '<button class="cta" id="' + px + 'Find" data-test="find"' + (err ? " disabled" : "") + '><span>Find opponent</span><small>' + esc(pickLabel(st.pick)) + " · " + esc(P.fmtName(st.format)) + " · " + (stake > 0 ? fmt(stake) : "Free") + "</small></button>" +
+      '<button class="cta" id="' + px + 'Find" data-test="find"' + (err ? " disabled" : "") + '><span>Find opponent</span><small>' + esc(findSmall(st, gs, stake)) + "</small></button>" +
       '<p class="dn-note' + (err ? " err" : "") + '" id="' + px + 'Note" aria-live="polite">' + esc(err || note) + "</p>";
   };
   P.bindDuel = function (root, px, st, rerender, onStarted) {
@@ -102,18 +117,23 @@
     if (cu) cu.oninput = () => {
       st.custom = cu.value;
       const v = dnStake(st);
-      const err = Number.isFinite(v) ? P.stakeError(v) || formatReason(st, st.format) : "Enter a whole number of gold.";
+      const gs = gameSetup(st);
+      const err = Number.isFinite(v) ? P.stakeError(v) || formatReason(st, st.format) || (gs ? setupCall(() => gs.def.validate(gs.values), "") : "") : "Enter a whole number of gold.";
       const note = root.querySelector("#" + px + "Note"), find = root.querySelector("#" + px + "Find");
       note.textContent = err || P.potNote(st.format, v); note.classList.toggle("err", !!err);
       find.disabled = !!err;
-      find.querySelector("small").textContent = pickLabel(st.pick) + " · " + P.fmtName(st.format) + " · " + (v > 0 ? fmt(v) : "Free");
+      find.querySelector("small").textContent = findSmall(st, gs, v);
     };
+    const gs = gameSetup(st);
+    if (gs) setupCall(() => gs.def.bind(root, gs.values, { px, change: () => { setupCall(() => gs.def.save(gs.values)); rerender(); } }));
     const ox = root.querySelector("#" + px + "OppX");
     if (ox) ox.onclick = () => { st.opponent = null; rerender(); };
     const find = root.querySelector("#" + px + "Find");
     if (find) find.onclick = () => {
       const stake = dnStake(st);
-      const err = M.start({ game: st.pick, format: st.format, stake: Number.isFinite(stake) ? stake : -1, opponent: st.opponent || undefined });
+      const gs2 = gameSetup(st);
+      const options = gs2 ? { game: gs2.g.id, values: JSON.parse(JSON.stringify(gs2.values)) } : undefined;
+      const err = M.start({ game: st.pick, format: st.format, stake: Number.isFinite(stake) ? stake : -1, opponent: st.opponent || undefined, options });
       if (err) { const n = root.querySelector("#" + px + "Note"); n.textContent = err; n.classList.add("err"); return; }
       if (onStarted) onStarted();
     };
@@ -481,7 +501,7 @@
     el.innerHTML =
       '<div class="prof-head"><div class="avatar' + (frame ? " f-" + esc(frame) : "") + '" aria-hidden="true">' + esc((S.name || "Y").slice(0, 1).toUpperCase()) + "</div>" +
       '<div><h2 class="dg-h prof-name" id="profName"' + (color ? ' style="color:' + esc(color) + '"' : "") + ">" + esc(S.name) + "</h2>" +
-      '<p class="dg-muted">' + (title ? '<span class="dg-gold">' + esc(title) + "</span> · " : "") + esc(P.division(ov)) + " division · " + (S.age === "minor" ? "Free play account" : "Demo account") + "</p></div>" +
+      '<p class="dg-muted">' + (title ? '<span class="dg-gold">' + esc(title) + "</span> · " : "") + esc(P.division(ov)) + " division · " + "Demo account" + "</p></div>" +
       '<button class="dg-btn prof-set" data-go="settings">Settings</button></div>' +
       '<div class="tiles" id="statTiles">' +
       tile("Player rating", fmt(ov), esc(P.division(ov)), "tRating") +
@@ -524,18 +544,13 @@
   V.settings = function (el) {
     const S = P.S; P.ensureToday();
     const L = S.limits;
-    const cool = P.coolOn();
     const lossOpts = [0, 1000, 2500, 5000];
     const custom = L.loss > 0 && !lossOpts.includes(L.loss);
-    el.innerHTML = sectionHead("Settings", '<span class="dg-muted">Responsible play</span>') +
+    el.innerHTML = sectionHead("Settings", '<span class="dg-muted">Account</span>') +
       '<div class="two">' +
       '<div class="dg-stack">' +
       '<section class="dg-box" id="todayBox"><div class="box-h"><h3 class="dg-h">Today</h3><span class="dg-eyebrow">' + esc(P.dayKey()) + "</span></div>" +
       '<div class="tiles small"><div class="dg-stat"><span class="dg-eyebrow">Played</span><b id="tdPlayed">' + S.today.played + '</b></div><div class="dg-stat"><span class="dg-eyebrow">W–L–D</span><b>' + S.today.w + "–" + S.today.l + "–" + S.today.d + '</b></div><div class="dg-stat"><span class="dg-eyebrow">Net gold</span><b id="tdNet" class="' + (S.today.net > 0 ? "dg-good" : S.today.net < 0 ? "dg-bad" : "") + '">' + P.signed(S.today.net) + '</b></div><div class="dg-stat"><span class="dg-eyebrow">Session</span><b id="tdSession">' + Math.floor((Date.now() - P.sessionStart) / 60000) + " min</b></div></div></section>" +
-      '<section class="dg-box" id="ageBox"><div class="box-h"><h3 class="dg-h">Age</h3></div><p class="dg-note">' +
-      (S.age === "adult" ? "You confirmed you are 18 or older." : S.age === "minor" ? "Under-18 account: free play only. Stakes, staked tournaments and cash are switched off." : "Not confirmed.") + "</p>" +
-      (S.age === "minor" ? '<p class="dg-note" id="ageLocked">Age can\'t be changed here — a real product would verify ID.</p>' : "") +
-      (S.age == null ? '<button class="dg-btn" id="ageAgain">Confirm age</button>' : "") + "</section>" +
       '<section class="dg-box" id="lossBox"><div class="box-h"><h3 class="dg-h">Daily loss limit</h3><span class="dg-eyebrow">Gold</span></div>' +
       '<p class="dg-note">Staked play stops for the day once your net loss reaches the limit. Lowering it applies at once; raising or removing it takes effect after 24 hours. Lost today: <b class="dg-mono">' + fmt(P.lossToday()) + "</b>" + (L.loss ? " of " + fmt(L.loss) : "") + ".</p>" +
       (L.pending ? '<p class="dg-note pending" id="lossPending">Change to ' + (L.pending.loss ? fmt(L.pending.loss) : "off") + " takes effect at " + esc(new Date(L.pending.at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })) + ".</p>" : "") +
@@ -543,9 +558,6 @@
       '<div class="dg-row lim-custom"><label class="sr" for="lossCustom">Custom limit</label><input class="inp dg-mono" id="lossCustom" inputmode="numeric" placeholder="Custom" value="' + (custom ? L.loss : "") + '"><button class="dg-btn" id="lossSet">Set</button></div><p class="dg-note" id="lossMsg">' + esc(setMsg.loss) + "</p></section>" +
       '<section class="dg-box" id="remindBox"><div class="box-h"><h3 class="dg-h">Session reminder</h3></div><p class="dg-note">A reminder shows time played and today\'s result.</p><div class="chips" role="group" aria-label="Session reminder">' +
       [0, 15, 30, 60].map((v) => '<button class="dg-chip" id="remind-' + v + '" data-remind="' + v + '" aria-pressed="' + (L.remind === v) + '">' + (v ? "Every " + v + " min" : "Off") + "</button>").join("") + "</div></section>" +
-      '<section class="dg-box" id="coolBox"><div class="box-h"><h3 class="dg-h">Cool-off</h3></div>' +
-      (cool ? '<p class="dg-note" id="coolState"><b class="dg-gold">Active</b> until ' + esc(new Date(L.coolUntil).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })) + ". Staked play is blocked; free play is allowed. A cool-off cannot be ended early.</p>"
-        : '<p class="dg-note" id="coolState">Take a break from staked play. Free play stays open. Once started, a cool-off cannot be ended early.</p><div class="dg-row"><button class="dg-btn" id="cool-24h" data-cool="1">24 hours</button><button class="dg-btn" id="cool-7d" data-cool="7">7 days</button></div>') + "</section>" +
       "</div>" +
       '<div class="dg-stack">' +
       '<section class="dg-box cash-box" id="cash"><div class="box-h"><h3 class="dg-h">' + P.icon("lock", "sm") + ' Cash wallet</h3><span class="dg-eyebrow">Locked</span></div>' +
@@ -555,7 +567,7 @@
       '<section class="dg-box"><div class="box-h"><h3 class="dg-h">Player name</h3></div><form class="dg-row" id="nameForm"><label class="sr" for="nameInp">Player name</label><input class="inp" id="nameInp" maxlength="16" value="' + esc(S.name) + '"><button class="dg-btn" type="submit">Save</button></form></section>' +
       '<section class="dg-box"><div class="box-h"><h3 class="dg-h">About</h3></div><p class="dg-note"><a href="#fair" id="fairLink" class="tap-link">How Duel.gold works</a> · identical seeds, skill/luck meters, rating-based matchmaking and the 10% fee.</p>' +
       '<p class="dg-note" id="storageNote">' + (P.storage.ok ? "Progress is saved in this browser." : "This browser blocks storage, so progress lasts only until you close the page.") + "</p></section>" +
-      '<section class="dg-box danger-box"><div class="box-h"><h3 class="dg-h">Reset demo data</h3></div><p class="dg-note">Clears gold, ratings, history and achievements on this device. Age, loss limit and cool-off are kept.</p><button class="dg-btn danger" id="resetBtn">Reset demo data</button></section>' +
+      '<section class="dg-box danger-box"><div class="box-h"><h3 class="dg-h">Reset demo data</h3></div><p class="dg-note">Clears gold, ratings, history and achievements on this device. Your loss limit and reminder are kept.</p><button class="dg-btn danger" id="resetBtn">Reset demo data</button></section>' +
       "</div></div>";
     const setLimit = (v) => {
       const r = P.setLossLimit(v);
@@ -570,20 +582,13 @@
       setLimit(+t);
     };
     el.querySelectorAll("[data-remind]").forEach((b) => (b.onclick = () => { L.remind = +b.dataset.remind; P.commit(); P.scheduleReminder(); }));
-    el.querySelectorAll("[data-cool]").forEach((b) => (b.onclick = () => {
-      const days = +b.dataset.cool;
-      P.confirm({ title: "Start a " + (days === 1 ? "24-hour" : "7-day") + " cool-off?", text: "Staked play will be blocked until it ends. Free play stays open. You cannot end it early.", ok: "Start cool-off", testId: "cool-confirm",
-        onOk: () => { L.coolUntil = P.clock.now() + days * 86400000; P.commit(); P.toast("Cool-off started."); } });
-    }));
-    const aa = el.querySelector("#ageAgain");
-    if (aa) aa.onclick = () => P.ageGate(true);
     el.querySelector("#nameForm").onsubmit = (e) => {
       e.preventDefault();
       const n = el.querySelector("#nameInp").value.replace(/\s+/g, " ").trim().slice(0, 16);
       if (n) { S.name = n; P.commit(); P.toast("Name saved."); }
     };
-    el.querySelector("#resetBtn").onclick = () => P.confirm({ title: "Reset demo data?", text: "This clears gold, ratings, history and achievements on this device. Your age answer, loss limit and any cool-off stay in place. It cannot be undone.", ok: "Reset", danger: true, testId: "reset-confirm",
-      onOk: () => { P.reset(); P.toast("Demo data reset."); if (!P.S.age) setTimeout(() => P.ageGate(), 0); } });
+    el.querySelector("#resetBtn").onclick = () => P.confirm({ title: "Reset demo data?", text: "This clears gold, ratings, history and achievements on this device. Your loss limit and reminder stay in place. It cannot be undone.", ok: "Reset", danger: true, testId: "reset-confirm",
+      onOk: () => { P.reset(); P.toast("Demo data reset."); } });
   };
 
   /* ================= Fairness ================= */
@@ -597,7 +602,7 @@
         ["Formats", "2v2 adds team scores. FFA pays 70% / 30% of the net pot to 1st and 2nd. Tournaments pay 60% / 25% / 7.5% / 7.5%. Payouts round down to whole gold."],
         ["Simulated opponents", "In this prototype every opponent is a bot playing the same seeded challenge at a skill set by its rating."],
         ["What production needs", "Scores would be verified on a server that replays each seed and input log, plus identity checks, location checks and a licensed payment provider for any cash play."],
-        ["Responsible play", "Set a daily loss limit, session reminders or a cool-off at any time in Settings. Under-18 accounts play free only."]]
+        ["Account", "Set a daily loss limit or session reminders at any time in Settings."]]
         .map((x) => '<div class="fair-i"><b>' + esc(x[0]) + '</b><p class="dg-muted">' + esc(x[1]) + "</p></div>").join("") + "</div>";
   };
 })();

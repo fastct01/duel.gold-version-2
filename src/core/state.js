@@ -129,8 +129,7 @@
       club: null,
       ach: {},
       cos: { owned: [], frame: "", title: "", color: "" },
-      age: null,
-      limits: { loss: 0, remind: 0, coolUntil: 0, pending: null },
+      limits: { loss: 0, remind: 0, pending: null },
       bonusDate: "",
       today: { date: "", played: 0, w: 0, l: 0, d: 0, net: 0 },
       week: { key: "", dp: 0 },
@@ -159,7 +158,7 @@
     s.today = { date: str(td.date, "", 10), played: int(td.played, 0), w: int(td.w, 0), l: int(td.l, 0), d: int(td.d, 0), net: Number.isFinite(td.net) ? Math.round(td.net) : 0 };
     const wk = obj(raw.week); s.week = { key: str(wk.key, "", 10), dp: int(wk.dp, 0) };
     const L = obj(raw.limits);
-    s.limits = { loss: int(L.loss, 0), remind: [0, 15, 30, 60].includes(L.remind) ? L.remind : 0, coolUntil: int(L.coolUntil, 0), pending: null };
+    s.limits = { loss: int(L.loss, 0), remind: [0, 15, 30, 60].includes(L.remind) ? L.remind : 0, pending: null };
     if (isObj(L.pending) && Number.isFinite(L.pending.loss) && Number.isFinite(L.pending.at)) s.limits.pending = { loss: int(L.pending.loss, 0), at: int(L.pending.at, 0) };
     const fl = obj(raw.flags); s.flags = { challenged: int(fl.challenged, 0), mixWins: int(fl.mixWins, 0), tourWins: int(fl.tourWins, 0) };
     const cos = obj(raw.cos);
@@ -178,11 +177,10 @@
     s.favs = Array.isArray(raw.favs) ? raw.favs.filter((x) => typeof x === "string") : [];
     if (Array.isArray(raw.friends)) s.friends = raw.friends.filter((f) => isObj(f) && typeof f.name === "string" && f.name.trim()).map((f) => ({ name: f.name.slice(0, 20), rating: num(f.rating, 1200), added: !!f.added }));
     s.club = typeof raw.club === "string" ? raw.club : null;
-    s.age = raw.age === "adult" || raw.age === "minor" ? raw.age : null;
     s.bonusDate = str(raw.bonusDate, "", 10);
     /* an unfinished match left behind by a reload/close (settled on boot by match.js) */
     const a = raw.active;
-    s.active = isObj(a) && typeof a.game === "string" ? { game: a.game, gn: str(a.gn, a.game, 60), format: str(a.format, "1v1", 12), stake: int(a.stake, 0), escrow: int(a.escrow, 0), phase: str(a.phase, "mm", 12), opp: Number.isFinite(a.opp) ? a.opp : 1200, vs: str(a.vs, "", 80), tour: isObj(a.tour) ? { id: str(a.tour.id, ""), once: str(a.tour.once, "") } : null } : null;
+    s.active = isObj(a) && typeof a.game === "string" ? { game: a.game, gn: str(a.gn, a.game, 60), format: str(a.format, "1v1", 12), stake: int(a.stake, 0), escrow: int(a.escrow, 0), phase: str(a.phase, "mm", 12), opp: Number.isFinite(a.opp) ? a.opp : 1200, vs: str(a.vs, "", 80), unrated: a.unrated === true, tour: isObj(a.tour) ? { id: str(a.tour.id, ""), once: str(a.tour.once, "") } : null } : null;
     return s;
   }
   P.storage = { ok: true, error: "" };
@@ -204,11 +202,10 @@
     P.save();
     for (const fn of listeners) { try { fn(); } catch (e) { console.error("[Duel.gold] render error", e); } }
   };
-  /* Reset clears progress but keeps the age answer and responsible-play limits (loss limit, pending change, cool-off). */
+  /* Reset clears progress but keeps the responsible-play limits (loss limit, pending change, reminder). */
   P.reset = function () {
-    const keep = { age: P.S.age, limits: JSON.parse(JSON.stringify(P.S.limits)) };
+    const keep = { limits: JSON.parse(JSON.stringify(P.S.limits)) };
     P.S = defaults();
-    P.S.age = keep.age;
     P.S.limits = keep.limits;
     P.commit();
   };
@@ -319,13 +316,9 @@
     const lim = P.S.limits.loss;
     return lim > 0 ? Math.max(0, lim - P.lossToday()) : Infinity;
   };
-  P.coolOn = () => P.S.limits.coolUntil > P.clock.now();
   /* reason staked play is blocked entirely, or "" */
   P.stakeBlock = function () {
     const S = P.S;
-    if (S.age === "minor") return "Stakes are off: under-18 accounts play free only.";
-    if (S.age !== "adult") return "Confirm your age to play for stakes.";
-    if (P.coolOn()) return "Cool-off active until " + new Date(S.limits.coolUntil).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) + ". Free play only.";
     if (S.limits.loss > 0 && P.lossRoom() <= 0) return "Daily loss limit reached. Free play only until midnight.";
     return "";
   };

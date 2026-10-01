@@ -61,7 +61,7 @@ All settings are environment variables; see [`.env.example`](.env.example). Prod
 | Wallet sign-in | `src/auth.js` |
 | Deposits / sweeps / withdrawals | `src/wallet/*` |
 | Matchmaking and matches | `src/matches/*` |
-| Age, loss limit, cool-off | `src/responsible.js` |
+| Daily loss limit | `src/responsible.js` |
 | REST / WebSocket | `src/http/*`, `src/ws/gateway.js` |
 | Client SDK (Node and browser) | `client/duel-client.js` |
 | Browser client | `public/` |
@@ -102,12 +102,23 @@ join queue ─▶ found ─▶ both press Ready ─▶ playing ─▶ settled
 - Pairing: same game and stake, rating within ±60 widening 15/second up to ±600. A private code (`code`) pairs two friends regardless of rating.
 - No-show or decline: match voided, everyone refunded, the absent player gets a strike; 3 strikes = 5-minute queue ban.
 - Settlement is one DB transaction guarded by a compare-and-set on the match state, so a submit, a forfeit and the deadline timer racing each other settle it exactly once.
-- Restart recovery: queued tickets are refunded, unstarted matches voided, running matches keep their deadline.
+- Restart recovery: queued tickets are refunded (open invite lobbies are restored, see above), unstarted matches voided, running matches keep their deadline.
 - Only **race** games (14 of 22) are playable person-vs-person. The 8 **versus** games embed an AI opponent in the client; a human-vs-human version needs a server-side rules referee per game.
+
+### How lobbies work (invite-only play)
+
+Random matchmaking is **off by default** (`PUBLIC_QUEUE=1` turns it back on; without it `POST /v1/queue` and WS `queue.join` without a `code` fail with 403 `PUBLIC_QUEUE_DISABLED`). Players meet through invite lobbies:
+
+1. The host calls `POST /v1/lobbies {game, stake}`. The server generates an 8-character code (alphabet without 0/O/1/I/L, from `crypto.randomInt`) and holds the host's stake exactly like a queue ticket, in `escrow:ticket:<id>`. All stake checks apply (balance, loss limit, queue ban). One open lobby per player; a hosting player cannot queue, host another, or join someone else's (409 `ALREADY_ACTIVE`).
+2. The client shows `<origin>/play/?join=<CODE>`. Anyone may `GET /v1/lobbies/:code` (public, rate-limited per IP, host display name only, never an address or user id; the code is case-insensitive).
+3. A friend calls `POST /v1/lobbies/:code/join`. The guest's stake is escrowed in their own ticket and the two tickets are paired immediately through the same path as the queue (stakes move to `escrow:match:<id>`; host is seat 0). Both players receive `match.found`; Ready, play and settlement are unchanged.
+4. The host can `DELETE /v1/lobbies/:code` (stake refunded), or it expires after `LOBBY_TTL_MS` (default 30 minutes; stake refunded, `lobby.closed` sent).
+
+Races: node:sqlite is synchronous, so a join runs start to finish without interleaving. The first joiner flips the host ticket to `matched` (compare-and-set inside the match transaction); a second joiner sees the lobby closed before any of their money moves and gets 409 `LOBBY_CLOSED`. Cancel vs. join resolves the same way: one of them wins, the other gets `LOBBY_CLOSED`, nobody is charged twice. Restarts: open lobbies are restored from the `tickets` table (same escrow, expiry timer re-armed for the time left), and lobbies already past their expiry are refunded once on boot.
 
 ### Responsible play (enforced server-side)
 
-18+ attestation before any stake · daily loss limit (lowering applies at once, raising or removing takes 24 h; stakes in escrow count as at risk) · cool-off of 24 h or 7 days blocks staked play and can never be shortened · withdrawals are never blocked by any of these.
+Daily loss limit: lowering it applies at once, raising or removing it takes 24 h, and stakes in escrow count as at risk. Withdrawals are never blocked by it.
 
 ## API
 
@@ -119,12 +130,17 @@ Amounts are decimal wei strings, times are epoch milliseconds, errors are `{ "er
 | `POST /v1/auth/login` `{address, nonce, signature}` | → `{token, me}` |
 | `POST /v1/auth/logout` | |
 | `GET /v1/config` · `/v1/games` · `/v1/health` · `/v1/leaderboard?game=` | public |
-| `GET/PATCH /v1/me` | profile, balances, limits, active queue/match, ratings |
-| `POST /v1/me/age` `{adult:true}` · `PUT /v1/me/loss-limit` `{amount\|null}` · `POST /v1/me/cool-off` `{hours}` | |
+| `GET /v1/lobby` | public live activity: `{at, online, playing, games[{game, waiting, playing, stakes[]}], recent[]}`; aggregates only, private-code play excluded, cached ~1.5 s (`LOBBY_CACHE_MS`) |
+| `GET/PATCH /v1/me` | profile, balances, limits, active queue/lobby/match (`active.kind` = `queue` / `lobby` / `match`), ratings |
+| `PUT /v1/me/loss-limit` `{amount\|null}` | set, lower or (after 24 h) raise or remove the daily loss limit |
 | `GET /v1/wallet` | deposit address, chain, balances, limits |
 | `GET /v1/wallet/history` · `/deposits` · `/withdrawals` | |
 | `POST /v1/wallet/withdraw` `{amount}` + `Idempotency-Key` | to your sign-in address only |
-| `POST /v1/queue` `{game, stake, code?}` · `DELETE /v1/queue` | |
+| `POST /v1/lobbies` `{game, stake}` | host an invite lobby, `201 {lobby}` |
+| `GET /v1/lobbies/:code` | public, `{lobby}`; unknown code 404 `LOBBY_NOT_FOUND` |
+| `POST /v1/lobbies/:code/join` | `{match}`; errors `LOBBY_NOT_FOUND` 404, `LOBBY_CLOSED` 409, `LOBBY_OWN` 409 + stake/limit errors |
+| `DELETE /v1/lobbies/:code` | host only, `{lobby}` closed and refunded (`LOBBY_NOT_HOST` 403, `LOBBY_CLOSED` 409 if already matched) |
+| `POST /v1/queue` `{game, stake, code?}` · `DELETE /v1/queue` | public queue needs `PUBLIC_QUEUE=1`; with a private `code` it always works |
 | `POST /v1/matches/:id/ready` · `/submit` `{score}` · `/forfeit` · `GET /v1/matches[/:id]` | |
 | `GET /v1/admin/audit` · `/solvency` · `/flags` | `Authorization: Bearer $ADMIN_TOKEN` |
 
@@ -132,9 +148,9 @@ Amounts are decimal wei strings, times are epoch milliseconds, errors are `{ "er
 
 First message within 5 s: `{"type":"auth","token":"…"}`. Requests may carry an `id` and are answered with `{"type":"ack","id","ok",…}`.
 
-Requests: `queue.join` `{game, stake, code?}` · `queue.leave` · `match.ready` `{matchId}` · `match.progress` `{matchId, score}` · `match.submit` `{matchId, score}` · `match.forfeit` `{matchId}` · `sync` · `ping`.
+Requests: `queue.join` `{game, stake, code?}` · `queue.leave` · `lobby.create` `{game, stake}` → `{lobby}` · `lobby.close` `{code?}` → `{lobby}` · `match.ready` `{matchId}` · `match.progress` `{matchId, score}` · `match.submit` `{matchId, score}` · `match.forfeit` `{matchId}` · `sync` · `ping`.
 
-Events: `hello`, `sync`, `queue.joined|left|expired`, `match.found`, `match.opponent_ready`, **`match.start` `{seed, startAt, submitDeadline}`**, `match.opponent_progress`, `match.opponent_finished`, `match.result`, `match.void`, `wallet.updated`.
+Events: `hello`, `sync`, `queue.joined|left|expired`, `lobby.created` `{lobby}`, `lobby.closed` `{lobby}` (cancelled/expired), `match.found`, `match.opponent_ready`, **`match.start` `{seed, startAt, submitDeadline}`**, `match.opponent_progress`, `match.opponent_finished`, `match.result`, `match.void`, `wallet.updated`.
 
 ```js
 import { DuelClient } from "./client/duel-client.js";
@@ -156,7 +172,7 @@ What is **not** solved, by design of this prototype:
 
 1. **Scores are reported by the player's own client.** The server picks the seed and the clock, delivers the seed once to a single socket, enforces deadlines and flags scores over 3× the strongest bot on that seed (`/v1/admin/flags`; advisory, it never changes a result). A modified client can still lie or run a solver. Real-money play needs server-side replay/verification of each game.
 2. **Custodial keys in one process** protected only by the mnemonic. Production would use a KMS/HSM, cold storage, hot-wallet limits and dual control.
-3. **Sybil/collusion.** Anyone can create wallets; two accounts can throw matches to each other (the 10% fee makes it costly, not impossible). No KYC, geo or age *verification* — age is a checkbox.
+3. **Sybil/collusion.** Anyone can create wallets; two accounts can throw matches to each other (the 10% fee makes it costly, not impossible). No KYC or geo verification.
 4. **Single instance.** SQLite and in-memory queues; no horizontal scaling. Rate limits are per process.
 5. Login supports normal (EOA) wallets only, not EIP-1271 smart-contract wallets. Player display names are user-supplied text; clients must escape them.
 
@@ -167,7 +183,7 @@ What is **not** solved, by design of this prototype:
 | Suite | Covers |
 |---|---|
 | `ledger`, `rules` | balance exactness beyond 2^53, atomicity, overdraft, idempotency, audit tamper detection, pairing, Elo, catalog |
-| `auth`, `responsible` | signatures, replay, expiry, bans, limit delays, cool-off |
+| `auth`, `responsible` | signatures, replay, expiry, bans, loss-limit delays |
 | `wallet.chain` | **real local EVM node:** confirmations, restart safety, sweeps, withdrawals, crash and failure paths, refunds, testnet guard |
 | `matches`, `matchmaking` | every outcome and its exact arithmetic, escrow, no-shows, seed delivery, races, restart recovery |
 | `api` | error shapes, admin, CORS/origin, limits, static-file safety, socket abuse |

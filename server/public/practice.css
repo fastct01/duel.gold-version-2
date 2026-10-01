@@ -1,0 +1,51 @@
+/* Practice vs a bot (views/practice.js). Builds on the .lb-card / .lb-btn / .lb-chip / .lb-find look from lobby.css. */
+.pr-card{gap:16px}
+.pr-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.pr-title{font-size:clamp(26px,4vw,34px)}
+.pr-back-ico{transform:scaleX(-1)}
+.pr-blurb{margin:0;font-size:15px;line-height:1.5;color:#c9c9cf;max-width:70ch}
+.pr-grid{display:grid;gap:16px;grid-template-columns:minmax(0,1fr)}
+@media(min-width:860px){.pr-grid{grid-template-columns:minmax(0,1.3fr) minmax(260px,1fr);align-items:start}}
+.pr-rules{padding:14px 16px;border-radius:16px;background:var(--lb-in,#0C0C0E);border:1px solid rgba(255,255,255,.06);box-shadow:inset 0 1px 2px rgba(0,0,0,.6)}
+.pr-rules h3{margin:0 0 8px;font-family:var(--f-display);font-weight:500;font-size:16px;color:#F4F4F5}
+.pr-rules ol{margin:0;padding-left:20px;display:grid;gap:6px;font-size:14px;line-height:1.45;color:#d6d6db}
+.pr-rules li::marker{color:var(--gold);font-weight:600}
+.pr-side{display:grid;gap:12px}
+.pr-levels{display:grid;gap:8px}
+.pr-levels-l{font-size:13px;font-weight:500;color:var(--fg)}
+.pr-level-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.pr-level-row .lb-chip{text-align:center;min-height:40px}
+
+/* playing */
+.pr-playing{padding:16px;gap:12px}
+.pr-hud{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap}
+.pr-hud-l{display:grid;gap:1px;min-width:0;margin-right:auto}
+.pr-hud-l b{font-family:var(--f-display);font-weight:500;font-size:18px}
+.pr-status{font-size:13px;color:var(--gold-2)}
+.pr-quit{min-height:40px;padding:6px 14px;border-color:color-mix(in srgb,var(--rival) 45%,transparent);color:var(--rival)}
+.pr-race{display:grid;gap:6px}
+.pr-lane{display:grid;grid-template-columns:minmax(0,110px) 1fr auto;gap:10px;align-items:center;font-size:13px}
+.pr-lane>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+.pr-lane.you>span{color:var(--gold-2)}.pr-lane.bot>span{color:var(--rival)}
+.pr-track{height:8px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden}
+.pr-track i{display:block;height:100%;width:0;border-radius:99px;transition:width .25s}
+.pr-lane.you .pr-track i{background:var(--gold-grad,var(--gold))}.pr-lane.bot .pr-track i{background:var(--rival)}
+.pr-lane b{min-width:3ch;text-align:right}
+.pr-stage{width:100%;min-height:240px}
+
+/* result */
+.pr-result{display:grid;gap:14px;justify-items:center;text-align:center;padding:10px 0}
+.pr-result h3{margin:0;font-family:var(--f-display);font-weight:600;letter-spacing:-.03em;font-size:clamp(30px,6vw,46px);line-height:1.05;color:#F4F4F5}
+.pr-result.win h3{color:var(--gold-2)}.pr-result.loss h3{color:#e9e9ec}
+.pr-score{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:12px;align-items:stretch;width:min(100%,460px)}
+.pr-score>div{display:grid;gap:2px;align-content:center;min-width:0;padding:12px;border-radius:16px;background:var(--lb-in,#0C0C0E);border:1px solid rgba(255,255,255,.06)}
+.pr-score span{font-size:12.5px;color:var(--muted)}
+.pr-score b{font-size:26px;font-weight:600}
+.pr-score .you b{color:var(--gold-2)}.pr-score .bot b{color:var(--rival)}
+.pr-vs{align-self:center;color:var(--muted);font-size:13px}
+.pr-actions{display:grid;gap:10px}
+@media(min-width:700px){.pr-actions{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);align-items:stretch}.pr-actions .lb-btn{justify-content:center}}
+.pr-done .pr-levels{max-width:360px}
+@media(max-width:420px){.pr-lane{grid-template-columns:minmax(0,72px) 1fr auto}.pr-score b{font-size:22px}}
+@media(max-width:520px){.pr-status{order:3;flex-basis:100%}}
+@media(prefers-reduced-motion:reduce){.pr-track i{transition:none}}

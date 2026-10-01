@@ -3,7 +3,6 @@ import { bad, notFound } from "../util/errors.js";
 import { parseWei, toStr } from "../util/amounts.js";
 import { checksum } from "../util/address.js";
 import { ACCT } from "../ledger.js";
-import { COOL_OFF_HOURS } from "../responsible.js";
 
 const intParam = (v, d, min, max) => {
   if (v == null || v === "") return d;
@@ -39,8 +38,7 @@ export function registerRoutes(r, app) {
     feeBps: cfg.economy.feeBps,
     stake: { min: toStr(cfg.economy.minStake), max: toStr(cfg.economy.maxStake), tiers: cfg.economy.stakeTiers.map(toStr) },
     withdrawal: { min: toStr(cfg.economy.minWithdrawal), max: toStr(cfg.economy.maxWithdrawal), dailyCap: toStr(cfg.economy.dailyWithdrawalCap) },
-    match: { acceptMs: cfg.match.acceptMs, countdownMs: cfg.match.countdownMs, queueTimeoutMs: cfg.match.queueTimeoutMs },
-    coolOffHours: COOL_OFF_HOURS,
+    match: { acceptMs: cfg.match.acceptMs, countdownMs: cfg.match.countdownMs, queueTimeoutMs: cfg.match.queueTimeoutMs, lobbyTtlMs: cfg.match.lobbyTtlMs, publicQueue: cfg.match.publicQueue },
     websocket: "/v1/ws",
     notice: "Test network only. Funds have no real-world value.",
     ...(cfg.devFaucet ? { devFaucet: true } : {}),
@@ -53,6 +51,9 @@ export function registerRoutes(r, app) {
     if (!g) throw bad("UNKNOWN_GAME", "Pass ?game=<id>.");
     return { game: g.id, players: matches.leaderboard(g.id, intParam(query.limit, 20, 1, 100)) };
   });
+
+  /* live activity for the lobby: anonymous aggregates only, see MatchService.lobby(); `online` = distinct signed-in players with an open socket */
+  r.get("/v1/lobby", {}, () => matches.lobby(app.gateway ? app.gateway.onlineCount() : 0));
 
   /* ---------------------------------------------------------------- auth */
 
@@ -74,21 +75,10 @@ export function registerRoutes(r, app) {
 
   r.patch("/v1/me", { auth: true }, ({ user, body }) => ({ displayName: users.setDisplayName(user.id, body.displayName) }));
 
-  r.post("/v1/me/age", { auth: true }, ({ user, body }) => {
-    if (body.adult !== true) throw bad("BAD_REQUEST", "Send { \"adult\": true } to confirm you are 18 or older.");
-    responsible.attestAdult(user.id);
-    return responsible.view(user.id);
-  });
-
   r.put("/v1/me/loss-limit", { auth: true }, ({ user, body }) => {
     const value = body.amount === null ? null : parseWei(body.amount, "amount");
     const out = responsible.setLossLimit(user.id, value);
     return { ...out, responsible: responsible.view(user.id) };
-  });
-
-  r.post("/v1/me/cool-off", { auth: true }, ({ user, body }) => {
-    const until = responsible.setCoolOff(user.id, body.hours);
-    return { until, responsible: responsible.view(user.id) };
   });
 
   /* ---------------------------------------------------------------- wallet */
@@ -140,6 +130,13 @@ export function registerRoutes(r, app) {
 
   r.post("/v1/queue", { auth: true }, ({ user, body }) => ({ status: 201, body: matches.join(user.id, body) }));
   r.delete("/v1/queue", { auth: true }, ({ user }) => matches.leave(user.id));
+
+  /* invite-only lobbies. GET is public (rate-limited per IP by the API limiter) and returns the public view only. */
+  r.post("/v1/lobbies", { auth: true }, ({ user, body }) => ({ status: 201, body: { lobby: matches.createLobby(user.id, body) } }));
+  r.get("/v1/lobbies/:code", {}, ({ params }) => ({ lobby: matches.getLobby(params.code) }));
+  r.post("/v1/lobbies/:code/join", { auth: true }, ({ user, params }) => ({ match: matches.joinLobby(user.id, params.code) }));
+  r.delete("/v1/lobbies/:code", { auth: true }, ({ user, params }) => ({ lobby: matches.closeLobby(user.id, params.code) }));
+
   r.post("/v1/matches/:id/ready", { auth: true }, ({ user, params }) => matches.ready(user.id, params.id, null));
   r.post("/v1/matches/:id/submit", { auth: true }, ({ user, params, body }) => matches.submit(user.id, params.id, body));
   r.post("/v1/matches/:id/forfeit", { auth: true }, ({ user, params }) => matches.forfeit(user.id, params.id));

@@ -12,7 +12,8 @@ import { startDevStack } from "../scripts/dev-stack.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SHOTS = path.join(here, "shots");
-const CHROME = ["/opt/pw-browsers/chromium-1194/chrome-linux/chrome", "/opt/pw-browsers/chromium/chrome-linux/chrome", process.env.CHROME_PATH].find((p) => p && fs.existsSync(p));
+const pwChrome = () => { try { return chromium.executablePath(); } catch { return null; } }; // playwright's own download, if installed
+const CHROME = [process.env.CHROME_PATH, "/opt/pw-browsers/chromium-1194/chrome-linux/chrome", "/opt/pw-browsers/chromium/chrome-linux/chrome", pwChrome()].find((p) => p && fs.existsSync(p));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let stack, browser;
@@ -61,12 +62,27 @@ async function signInAndFund(page, eth = 1) {
   await until(async () => parseFloat(await text(page, "#balAvail")) >= eth, "test ETH credited to the balance");
 }
 
-async function joinFor(page, { stakeWei = "1000000000000000", code = "" } = {}) {
+/* invite-only play: the host creates a lobby and gets a link; the guest opens the link and joins */
+async function hostLobby(page, { stakeWei = "1000000000000000" } = {}) {
   await page.click(`[data-act=stake][data-v="${stakeWei}"]`);
-  if (code) await page.fill("#code", code);
-  const adult = page.locator("#adult");
-  if (await adult.count()) await adult.check();
-  await page.click("#findBtn");
+  await page.click("#createBtn");
+  await page.waitForSelector("#inviteLink", { timeout: 15000 });
+  const link = await page.inputValue("#inviteLink");
+  assert.match(link, /\/play\/\?join=[A-Z2-9]{8}$/, "invite link has a join code");
+  return link;
+}
+async function openInvite(page, link) {
+  await page.goto(link + "&test=1");
+}
+async function joinInvite(page) {
+  await page.waitForSelector("#joinBtn", { timeout: 15000 });
+  await page.click("#joinBtn");
+}
+async function pair(host, guest, opts) {
+  const link = await hostLobby(host, opts);
+  await openInvite(guest, link);
+  await joinInvite(guest);
+  return link;
 }
 
 /* play the current reaction game by firing each round with the given reaction time until the match ends */
@@ -89,8 +105,33 @@ test("two browsers: sign in, fund on-chain, play each other, win, withdraw on-ch
   await shot(a, "02-lobby-1280");
   assert.ok(await noOverflow(a));
 
-  await Promise.all([joinFor(a), joinFor(b)]);
-  await until(async () => (await view(a)) === "queue" || (await view(a)) === "found", "queue");
+  assert.equal(await a.locator("#findBtn").count(), 0, "no public matchmaking button");
+  const link = await hostLobby(a);
+  assert.equal(await view(a), "waiting");
+  assert.match(await text(a, "#hw"), /Waiting for your opponent/);
+  assert.match(await text(a, "main [data-until]"), /^\d+(s|:\d\d)$/, "the lobby expiry shows a time");
+  await shot(a, "02b-waiting-1280");
+  await a.setViewportSize({ width: 360, height: 780 });
+  assert.ok(await noOverflow(a), "the waiting room fits 360px");
+  await a.setViewportSize({ width: 1280, height: 900 });
+
+  // a signed-out visitor sees who invited them on the sign-in screen
+  const v = await open(t);
+  await openInvite(v, link);
+  await until(async () => /invited/i.test(await text(v, "main")), "invite banner on the sign-in screen");
+  assert.ok(await v.locator("#signBurner").isVisible());
+  await shot(v, "02c-invite-signedout-1280");
+  assert.deepEqual(v.errors, [], "no errors for the signed-out visitor");
+  await v.context().close();
+
+  await openInvite(b, link);
+  await b.waitForSelector("#joinBtn", { timeout: 15000 });
+  assert.match(await text(b, "#hi"), /invited/i);
+  await shot(b, "02d-invite-1280");
+  await b.setViewportSize({ width: 360, height: 780 });
+  assert.ok(await noOverflow(b), "the invite screen fits 360px");
+  await b.setViewportSize({ width: 1280, height: 900 });
+  await joinInvite(b);
   await Promise.all([a, b].map((p) => p.waitForSelector("#readyBtn", { timeout: 15000 })));
   await shot(a, "03-found-1280");
   assert.match(await text(a, "#hf"), /Opponent found/);
@@ -128,13 +169,18 @@ test("two browsers: sign in, fund on-chain, play each other, win, withdraw on-ch
   // withdraw 0.5 to the winner's own burner address, on-chain
   const addr = await a.evaluate(() => window.__duel.client.address);
   assert.equal(await stack.provider.getBalance(addr), 0n);
+  await a.click('[data-go="wallet"]'); // withdrawals live on the wallet page
+  await a.waitForSelector("#wdAmt");
   await a.fill("#wdAmt", "0.5");
   await a.click("#wdBtn");
   await until(async () => (await a.locator('[aria-label="Recent withdrawals"]').innerText()).includes("confirmed"), "withdrawal confirmed", 20000);
   assert.equal(await stack.provider.getBalance(addr), parseEther("0.5"), "the winnings arrived on-chain");
   await until(async () => (await text(a, "#balAvail")) === "0.5008", "balance after withdrawal");
-  await shot(a, "08-lobby-after-1280");
+  await shot(a, "08-wallet-after-1280");
   await a.setViewportSize({ width: 360, height: 900 });
+  assert.ok(await noOverflow(a), "wallet fits 360px");
+  await a.click('[data-go="lobby"]');
+  await a.waitForSelector("#createBtn");
   assert.ok(await noOverflow(a), "lobby fits 360px");
   await shot(a, "09-lobby-360");
 
@@ -143,22 +189,26 @@ test("two browsers: sign in, fund on-chain, play each other, win, withdraw on-ch
   assert.deepEqual(audit.problems, []);
 });
 
-test("reload restores the queue; a reload mid-match cannot resume it and offers forfeit; forfeit pays the opponent", { skip: !CHROME && "no Chromium available" }, async () => {
+test("reload restores the waiting room; closed links are refused; a reload mid-match cannot resume it; forfeit pays the opponent", { skip: !CHROME && "no Chromium available" }, async () => {
   const a = await open(), b = await open();
   await Promise.all([signInAndFund(a), signInAndFund(b)]);
 
-  // ---- reload while queued
-  await joinFor(a, { code: "RELOAD1" });
-  await until(async () => (await view(a)) === "queue", "queued");
+  // ---- reload while hosting restores the waiting room; cancelling refunds and kills the link
+  const old = await hostLobby(a);
   await a.reload();
-  await until(async () => (await view(a)) === "queue", "queue restored after reload");
-  assert.match(await text(a, "#hq"), /Finding an opponent/);
-  await a.click("#cancelQueue");
+  await until(async () => (await view(a)) === "waiting", "waiting room restored after reload");
+  assert.equal(await a.inputValue("#inviteLink"), old, "same invite link after reload");
+  await a.click("#closeLobby");
   await until(async () => (await view(a)) === "lobby", "back in the lobby");
   await until(async () => (await text(a, "#balAvail")) === "1", "stake returned");
+  await openInvite(b, old);
+  await b.waitForSelector("#inviteBack", { timeout: 15000 });
+  assert.equal(await b.locator("#joinBtn").count(), 0, "a closed lobby cannot be joined");
+  await b.click("#inviteBack");
+  await until(async () => (await view(b)) === "lobby", "guest back in the lobby");
 
-  // ---- private code pairs the two friends; reload mid-match
-  await Promise.all([joinFor(a, { code: "FRIENDS" }), joinFor(b, { code: "FRIENDS" })]);
+  // ---- the invite link pairs the two friends; reload mid-match
+  await pair(a, b);
   await Promise.all([a, b].map((p) => p.waitForSelector("#readyBtn", { timeout: 15000 })));
   await Promise.all([a.click("#readyBtn"), b.click("#readyBtn")]);
   await until(() => a.evaluate(() => !!window.__duel.ctx), "game a");
@@ -175,7 +225,7 @@ test("reload restores the queue; a reload mid-match cannot resume it and offers 
 
   // ---- in-page forfeit confirmation (no browser dialogs)
   await Promise.all([a.click("#backBtn"), b.click("#backBtn")]);
-  await Promise.all([joinFor(a, { code: "AGAIN22" }), joinFor(b, { code: "AGAIN22" })]);
+  await pair(b, a); // roles swapped: b hosts this time
   await Promise.all([a, b].map((p) => p.waitForSelector("#readyBtn", { timeout: 15000 })));
   await Promise.all([a.click("#readyBtn"), b.click("#readyBtn")]);
   await until(() => b.evaluate(() => !!window.__duel.ctx), "game b");
@@ -189,5 +239,31 @@ test("reload restores the queue; a reload mid-match cannot resume it and offers 
   assert.equal((await text(b, "[data-test=result]")).trim(), "Defeat");
 
   for (const p of [a, b]) assert.deepEqual(p.errors, []);
+  assert.deepEqual(stack.app.ledger.audit().problems, []);
+});
+
+test("Back to lobby keeps the lobby open; the red Cancel button only appears for an open lobby, and cancels it with a refund", { skip: !CHROME && "no Chromium available" }, async () => {
+  const a = await open();
+  await signInAndFund(a);
+  const funded = await text(a, "#balAvail");
+
+  // no open lobby yet: there is nothing to cancel, so no Cancel button
+  await a.click('[data-act=stake][data-v="1000000000000000"]');
+  assert.equal(await a.locator("#cancelBtn").count(), 0, "no Cancel button before a lobby is live");
+
+  // open lobby: "Back to lobby" in the waiting room leaves it open, and the same red button closes it and returns the stake
+  await hostLobby(a);
+  await a.click("#backToLobby");
+  await until(async () => (await view(a)) === "lobby", "back on the lobby page");
+  assert.ok(await a.evaluate(() => !!window.__duel.S.host), "the lobby stays open after going back");
+  await a.waitForSelector("#cancelBtn");
+  assert.match(await text(a, "#cancelBtn"), /Cancel open lobby/);
+  await a.click("#cancelBtn");
+  await until(() => a.evaluate(() => !window.__duel.S.host), "open lobby closed");
+  await until(async () => (await text(a, "#balAvail")) === funded, "stake refunded");
+  assert.ok(await a.isEnabled("#createBtn"), "a new lobby can be created");
+  await shot(a, "11-cancel-lobby-1280");
+
+  assert.deepEqual(a.errors, []);
   assert.deepEqual(stack.app.ledger.audit().problems, []);
 });

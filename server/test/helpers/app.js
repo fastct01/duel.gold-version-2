@@ -14,7 +14,7 @@ export const mETH = ETH / 1000n; // 0.001
 export const FAST = {
   match: {
     acceptMs: 500, countdownMs: 40, graceMs: 200, durationScale: 0.004, durationFactor: 1.5,
-    queueTimeoutMs: 3000, disconnectQueueMs: 150, pairIntervalMs: 40, banMs: 60000,
+    queueTimeoutMs: 3000, publicQueue: true, disconnectQueueMs: 150, pairIntervalMs: 40, banMs: 60000,
   },
   economy: { minStake: mETH / 100n, maxStake: ETH / 10n, stakeTiers: [mETH] },
   rate: { authPerMin: 1000, apiPerMin: 100000, wsPerSec: 500 },
@@ -31,14 +31,13 @@ export async function startApp(overrides = {}) {
     app,
     url: app.url,
     /* a signed-in, connected, funded player */
-    async player({ fund = 100n * mETH, adult = true, connect = true, name } = {}) {
+    async player({ fund = 100n * mETH, connect = true, name } = {}) {
       const wallet = Wallet.createRandom();
       const client = new DuelClient({ baseUrl: app.url, address: wallet.address, sign: (m) => wallet.signMessage(m) });
       await client.login();
       if (connect) await client.connect();
       const id = client.me.id;
       if (fund > 0n) helpers.credit(id, fund);
-      if (adult) await client.api("POST", "/v1/me/age", { adult: true });
       if (name) await client.api("PATCH", "/v1/me", { displayName: name });
       const p = { client, wallet, id, address: wallet.address.toLowerCase(), bal: () => app.ledger.balance(ACCT.user(id)) };
       players.push(p);

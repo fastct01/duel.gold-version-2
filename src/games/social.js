@@ -272,7 +272,7 @@
   DG.registerGame({
     id: "trivia", name: "Trivia Duel", category: "knowledge", kind: "race",
     formats: ["1v1", "2v2", "ffa", "tournament", "mix"],
-    skill: 7, luck: 3, cashEligible: false, duration: "2 min", pack: "social",
+    skill: 7, luck: 3, cashEligible: false, duration: "up to 2.5 min", pack: "social", // 10 × (12 s + 1.8 s reveal)
     blurb: "Ten multiple-choice questions. Right and fast beats right and slow.",
     rules: [
       "Everyone gets the same questions in the same order.",

@@ -11,6 +11,7 @@ SHOTS = pathlib.Path(__file__).resolve().parent / "shots"
 SHOTS.mkdir(exist_ok=True)
 FILES = ["strategy.js"]
 GAMES = ["chess", "four", "reversi", "gomoku"]
+REGISTERED = ["chess", "chess-custom", "four", "reversi", "gomoku"]  # chess-custom = Chess with its own setup (tested in test_chess_setup)
 FAILS = []
 REPORT = {}
 
@@ -146,7 +147,7 @@ def test_ui_play():
         with browser_page(width=width) as page:
             open_harness(page, FILES)
             games = page.evaluate("__games()")
-            check([g["id"] for g in games] == GAMES, f"registered games {games}")
+            check([g["id"] for g in games] == REGISTERED, f"registered games {[g['id'] for g in games]}")
             for g in games:
                 check(g["kind"] == "versus" and g["formats"] == ["1v1", "tournament"] and g["category"] == "strategy"
                       and g["hasSpectate"] and g["cashEligible"] and g["pack"] == "strategy", f"meta {g}")
@@ -450,6 +451,50 @@ def test_spectate(page):
         assert_no_errors(page, f"{game} spectate")
 
 
+def test_chess_setup(page):
+    section("Chess (your settings): time control, colour and rating options reach the game")
+    def run(seed, opts=None, speed=1):
+        o = "" if opts is None else ", options:" + json.dumps(opts)
+        page.evaluate(f"__run({{game:'chess-custom', seed:{seed}, skill:0.3, speed:{speed}{o}}})")
+        page.wait_for_timeout(120)
+        return T(page, "t.state()")
+    base = {"custom": False, "more": False, "rated": True, "range": 100}
+    s = run(5)
+    c = s["clocks"]
+    check(max(c.values()) == 600000 and min(c.values()) > 595000, f"default is 10 min, no increment ({c})")
+    s = run(5, dict(base, base=60, inc=1, color="black", rated=False))
+    check(s["human"] == "b" and max(s["clocks"].values()) <= 60000 and min(s["clocks"].values()) > 55000, f"1 | 1 as Black: human b, 1:00 clocks ({s['human']}, {s['clocks']})")
+    note = page.inner_text("[data-test=note]")
+    check("1 | 1 Bullet" in note and "Unrated" in note, f"game note shows the time control: {note!r}")
+    wait_human_or_end(page)
+    cb = T(page, "t.state().clocks.b")
+    m = T(page, "t.legalMoves()")[0]
+    T(page, f"t.playMove({json.dumps(m)})")
+    cb2 = T(page, "t.state().clocks.b")
+    check(cb2 - cb > 800, f"increment added after the move ({cb:.0f} -> {cb2:.0f})")
+    whites = [run(sd, dict(base, base=180, inc=2, color="white"))["human"] for sd in range(1, 7)]
+    check(set(whites) == {"w"}, f"'White' always plays White ({whites})")
+    rand = [run(sd, dict(base, base=180, inc=2, color="random"))["human"] for sd in range(1, 13)]
+    check(set(rand) == {"w", "b"}, f"'Random' gives both colours over seeds ({rand})")
+    s = run(5, {"base": 7, "inc": 99, "color": "purple", "rated": "x", "range": 3})
+    check(max(s["clocks"].values()) == 600000, f"invalid options fall back to the defaults ({s['clocks']})")
+    r = page.evaluate("""(() => { const g = DG.getGame('chess-custom'), S = g.setup, L = g._setup;
+      const v = Object.assign(S.defaults(), { base: 180, inc: 2 });
+      return { sum: S.summary(v), unr: S.summary(Object.assign({}, v, { rated: false, color: 'black' })), any: S.ratingRange(Object.assign({}, v, { range: 0 })),
+        r100: S.ratingRange(Object.assign({}, v, { range: 100 })), bad: S.validate({ base: 7, inc: 0, color: 'random', rated: true, range: 100 }), ok: S.validate(v),
+        cls: [L.tcClass(120, 1), L.tcClass(60, 3), L.tcClass(300, 7), L.tcClass(300, 8), L.tcClass(600, 0)] }; })()""")
+    check(r["sum"] == "3 | 2 Blitz" and r["unr"] == "3 | 2 Blitz · Unrated · as Black", f"summaries {r['sum']!r} / {r['unr']!r}")
+    check(r["any"] == 800 and r["r100"] == 100, f"rating range: Any = ±800, ±100 = 100 ({r['any']}, {r['r100']})")
+    check(r["bad"] != "" and r["ok"] == "", f"validate rejects a non-offered clock ({r['bad']!r})")
+    check(r["cls"] == ["bullet", "blitz", "blitz", "rapid", "rapid"], f"Bullet < 3 min ≤ Blitz < 10 min ≤ Rapid (base + 40 × inc): {r['cls']}")
+    run(9, dict(base, base=60, inc=0, color="white"), speed=6)
+    T(page, "t.autoplay(0.9)")
+    page.wait_for_function("window.__result !== null", timeout=120000)
+    res = page.evaluate("window.__result")
+    check(res.get("outcome") in ("win", "loss", "draw") and "1 min Bullet" in (res.get("detail") or ""), f"1 min game plays to a result ({res.get('outcome')}): {res.get('detail')!r}")
+    check(not page.evaluate("__errors"), f"no errors {page.evaluate('__errors')}")
+
+
 def test_no_chess_lib():
     section("chess without chess.js")
     with browser_page(width=400) as page:
@@ -476,6 +521,7 @@ def main():
         test_abort(page)
         test_move_timer(page)
         test_spectate(page)
+        test_chess_setup(page)
         test_strength_and_speed(page)
     test_gomoku_touch()
     test_narrow()

@@ -3,11 +3,11 @@
    Client → server   { "type": "...", "id": <any>, ...fields }        every request may carry an `id`
    Server → client   { "type": "ack", "id", "ok": true, "result" }    reply to a request that had an id
                      { "type": "ack", "id", "ok": false, "error": { "code", "message" } }
-                     plus pushed events: hello, auth.ok, sync, queue.joined/left/expired, match.found, match.opponent_ready,
+                     plus pushed events: hello, auth.ok, sync, queue.joined/left/expired, lobby.created/closed, match.found, match.opponent_ready,
                      match.start, match.opponent_progress, match.opponent_finished, match.result, match.void, wallet.updated
 
    The first message must be { "type": "auth", "token": "<bearer token from /v1/auth/login>" } within 5 seconds.
-   Requests: queue.join {game, stake, code?} · queue.leave · match.ready {matchId} · match.progress {matchId, score}
+   Requests: queue.join {game, stake, code?} · queue.leave · lobby.create {game, stake} · lobby.close {code?} · match.ready {matchId} · match.progress {matchId, score}
              match.submit {matchId, score, detail?} · match.forfeit {matchId} · sync · ping                           */
 import crypto from "node:crypto";
 import { WebSocketServer } from "ws";
@@ -35,6 +35,9 @@ export class Gateway {
     this.heartbeat = setInterval(() => this.#beat(), HEARTBEAT_MS);
     this.heartbeat.unref?.();
   }
+
+  /* signed-in players with at least one open socket (distinct users, not sockets); cheap, it is just a Map size */
+  onlineCount() { return this.byUser.size; }
 
   #upgrade(req, socket, head) {
     const url = new URL(req.url, "http://x");
@@ -152,6 +155,8 @@ export class Gateway {
       case "sync": return { me: this.meView(this.auth.users.require(uid)) };
       case "queue.join": return m.join(uid, { game: msg.game, stake: msg.stake, code: msg.code });
       case "queue.leave": return m.leave(uid);
+      case "lobby.create": return { lobby: m.createLobby(uid, { game: msg.game, stake: msg.stake }) };
+      case "lobby.close": return { lobby: m.closeLobby(uid, msg.code) };
       case "match.ready": return m.ready(uid, msg.matchId, conn.id);
       case "match.progress": m.progress(uid, msg.matchId, msg.score); return {};
       case "match.submit": return m.submit(uid, msg.matchId, { score: msg.score, detail: msg.detail });

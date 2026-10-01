@@ -26,10 +26,9 @@ test("public endpoints describe the platform without needing a session", async (
   assert.equal(cfg.feeBps, 1000);
   assert.equal(cfg.chain, null, "no chain configured in this app");
   assert.match(cfg.notice, /Test network only/);
-  assert.deepEqual(cfg.coolOffHours, [24, 168]);
 
   const { games } = (await raw(h, "GET", "/v1/games")).json;
-  assert.equal(games.length, 22);
+  assert.equal(games.length, 23);
   assert.equal(games.filter((g) => g.pvp).length, 14);
   assert.ok(games.filter((g) => g.kind === "versus").every((g) => !g.pvp), "versus games are not offered for PvP yet");
   const reaction = games.find((g) => g.id === "reaction");
@@ -79,11 +78,8 @@ test("sign-in works end to end over REST, and every failure has a stable error c
 
 test("profile and responsible-play endpoints", async () => {
   const h = await boot();
-  const p = await h.player({ connect: false, adult: false });
+  const p = await h.player({ connect: false });
   const api = p.client.api.bind(p.client);
-  assert.equal((await api("GET", "/v1/me")).responsible.adultConfirmed, false);
-  await assert.rejects(api("POST", "/v1/me/age", { adult: false }), { code: "BAD_REQUEST" });
-  assert.equal((await api("POST", "/v1/me/age", { adult: true })).adultConfirmed, true);
   assert.equal((await api("PATCH", "/v1/me", { displayName: "  Zed  Zed " })).displayName, "Zed Zed");
   await assert.rejects(api("PATCH", "/v1/me", { displayName: "<b>" }), { code: "BAD_NAME" });
 
@@ -93,11 +89,6 @@ test("profile and responsible-play endpoints", async () => {
   assert.ok(looser.effectiveAt > Date.now() + 23 * 3600000, "loosening takes 24 hours");
   await assert.rejects(api("PUT", "/v1/me/loss-limit", { amount: "0" }), { code: "BAD_LIMIT" });
   await assert.rejects(api("PUT", "/v1/me/loss-limit", { amount: "nope" }), { code: "BAD_AMOUNT" });
-
-  const cool = await api("POST", "/v1/me/cool-off", { hours: 168 });
-  assert.ok(cool.until > Date.now() + 167 * 3600000);
-  await assert.rejects(api("POST", "/v1/me/cool-off", { hours: 1 }), { code: "BAD_COOL_OFF" });
-  assert.ok((await api("GET", "/v1/me")).responsible.coolOffUntil);
 });
 
 /* ------------------------------------------------------------------ request hygiene */

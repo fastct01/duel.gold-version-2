@@ -27,7 +27,7 @@ window.__run = function(opts){
   const opp = {name:'Rival', rating: 800 + opts.skill*1400, skill: opts.skill};
   const root = document.getElementById('root');
   window.__handle = DG.start(g, { root, seed: opts.seed, mode: opts.mode, format: opts.format, speed: opts.speed,
-    me:{name:'You', rating:1300}, opponents:[opp],
+    me:{name:'You', rating:1300}, opponents:[opp], options: opts.options,
     onStatus: t => { window.__status = t; document.getElementById('status').textContent = t; },
     onProgress: s => { window.__progress.push(s); document.getElementById('prog').textContent = 'progress ' + s; },
     onEnd: r => { window.__result = r; document.getElementById('status').textContent = 'ENDED ' + JSON.stringify({score:r.score,outcome:r.outcome,myScore:r.myScore,oppScore:r.oppScore}); },

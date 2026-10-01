@@ -152,6 +152,11 @@ export class DuelClient {
   /* ------------------------------------------------------------ game helpers */
 
   joinQueue({ game, stake = "0", code } = {}) { return this.request("queue.join", { game, stake, code }); }
+  /* invite-only lobbies (REST): host creates, friend opens the link and joins */
+  async createLobby({ game, stake = "0" } = {}) { return (await this.api("POST", "/v1/lobbies", { game, stake: String(stake) })).lobby; }
+  async getLobby(code) { return (await this.api("GET", `/v1/lobbies/${encodeURIComponent(code)}`)).lobby; }
+  async joinLobby(code) { return (await this.api("POST", `/v1/lobbies/${encodeURIComponent(code)}/join`)).match; }
+  async closeLobby(code) { return (await this.api("DELETE", `/v1/lobbies/${encodeURIComponent(code)}`)).lobby; }
   leaveQueue() { return this.request("queue.leave"); }
   ready(matchId) { return this.request("match.ready", { matchId }); }
   progress(matchId, score) { this.send("match.progress", { matchId, score }); }

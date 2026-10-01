@@ -46,9 +46,9 @@ body{font-family:var(--f-body);background:
 .top-signin:hover{border-color:color-mix(in srgb,var(--gold) 55%,transparent);background:#1E1E20}
 .top-register{background:var(--gold-grad);border:1px solid #FFE27A;color:var(--on-gold);box-shadow:0 0 18px rgba(245,201,74,.25),inset 0 1px 0 rgba(255,255,255,.45)}
 .top-register:hover{filter:brightness(1.06)}
-.top-avatar{flex:none;position:relative;width:42px;height:42px;padding:2px;border-radius:50%;border:0;background:var(--gold-grad);display:grid;place-items:center}
-.top-avatar span{display:grid;place-items:center;width:100%;height:100%;border-radius:50%;background:radial-gradient(circle at 35% 30%,#2A2A2D,#131314);color:var(--gold-2);font-weight:700;font-size:16px}
-.top-avatar:hover{box-shadow:0 0 0 3px rgba(245,201,74,.18)}
+.top-avatar{flex:none;position:relative;width:42px;height:42px;padding:0;border-radius:50%;border:2px solid #333336;background:#1B1B1D;display:grid;place-items:center}
+.top-avatar span{display:grid;place-items:center;width:100%;height:100%;border-radius:50%;background:none;color:#fff;font-weight:600;font-size:17px}
+.top-avatar:hover{border-color:#48484C}
 .top-ico:focus-visible,.top-btn:focus-visible,.top-avatar:focus-visible,.pill:focus-visible,.nav-b:focus-visible,.logo:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 
 /* ---------- toasts sit under the bar ---------- */

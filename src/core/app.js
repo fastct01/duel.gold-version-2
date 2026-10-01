@@ -1,4 +1,4 @@
-/* Duel.gold platform — boot: router, header/wallet, nav, age gate, reminders, tickers, test hooks (window.DGApp). */
+/* Duel.gold platform — boot: router, header/wallet, nav, reminders, tickers, test hooks (window.DGApp). */
 (function () {
   "use strict";
   const DG = window.DG, P = window.DGP, M = P.match;
@@ -109,21 +109,6 @@
     if (!(view === "games" && document.activeElement && document.activeElement.id === "libSearch")) renderView();
   });
 
-  /* ---------------- age gate ---------------- */
-  P.ageGate = function (again) {
-    if (P.S.age === "minor") return; // no self-upgrade: a real product would verify ID
-    if (P.S.age && !again) return;
-    const m = P.modal({
-      title: "Before you play", dismissable: !!again, testId: "age-gate",
-      body: '<p class="modal-text">Duel.gold is for players aged 18+. This is a demo: gold is play money with no cash value, and every opponent is simulated.</p>' +
-        '<p class="dg-note">Under 18? You can still play every game for free. Stakes and tournaments with an entry fee stay switched off.</p>',
-      actions: [
-        { label: "I am under 18", id: "ageMinor", onClick: () => { P.S.age = "minor"; P.commit(); P.toast("Free play only. Stakes are switched off."); } },
-        { label: "I am 18 or older", id: "ageAdult", kind: "primary", onClick: () => { P.S.age = "adult"; P.commit(); } },
-      ],
-    });
-    return m;
-  };
 
   /* ---------------- session reminder ---------------- */
   let remindTimer = null;
@@ -189,7 +174,6 @@
     P.scheduleReminder();
     let rec = null;
     try { rec = M.recover(); } catch (e) { console.error("[Duel.gold] recovery error", e); }
-    if (!P.S.age) P.ageGate();
     if (rec) {
       const txt = rec.kind === "refund"
         ? "Your duel was still matchmaking when the page closed. " + (rec.amount ? fmt(rec.amount) + " gold was refunded." : "Nothing was charged.")

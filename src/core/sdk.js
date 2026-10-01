@@ -91,8 +91,9 @@
   DG.getGame = (id) => DG.games.find((g) => g.id === id);
 
   /* ---------------- match context ----------------
-     o = { root, seed, mode:'full'|'mix', format, me, opponents, teammates, speed,
-           onStatus(text), onProgress(score), onEnd(result), onError(err) }  */
+     o = { root, seed, mode:'full'|'mix', format, me, opponents, teammates, speed, options,
+           onStatus(text), onProgress(score), onEnd(result), onError(err) }
+     options: the values the player picked in the game's own setup section (def.setup), or {} */
   DG.createContext = function (o) {
     const timers = new Set(), rafs = new Set();
     let keyFns = [], cleanups = [];
@@ -111,6 +112,7 @@
       me: o.me || { name: "You", rating: 1200 },
       opponents: o.opponents || [],
       teammates: o.teammates || [],
+      options: Object.freeze(Object.assign({}, o.options && typeof o.options === "object" ? o.options : {})),
       speed,
       signal: { ended: false },
       reducedMotion: !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches),
