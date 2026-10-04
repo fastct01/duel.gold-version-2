@@ -1,5 +1,5 @@
 /* Match flow screens (waiting room, invite, queue, found, play, orphan, result) in the gold-style design system.
-   Everything is scoped under .mx; markup lives in views/match.js. Colours, type, space and motion all come from tokens.css.
+   Everything is scoped under .mx; markup lives in views/match.js. Colours, type, space and motion all come from /game/core/base.css.
    Local helpers: --mx-tone (the role colour of the block: gold = you, --danger = opponent, --ok = a win).
    Buttons here (.mx-btn) are self-contained so this module does not depend on the shared .dg-btn look. */
 .mx{--mx-tone:var(--gold-500);--mx-gold-tint:color-mix(in srgb,var(--gold-500) 10%,transparent);--mx-danger-tint:color-mix(in srgb,var(--danger) 12%,transparent);display:grid;gap:var(--sp-48);width:100%;min-width:0;align-content:start;font-family:var(--font-body)}
@@ -25,24 +25,10 @@
 .mx-err:empty{display:none}
 
 /* ---------- buttons: primary = solid gold; default = gold 1px outline; quiet = text with an underline; danger = terracotta outline ---------- */
-.mx-btn{appearance:none;-webkit-appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:var(--sp-8);min-height:48px;max-width:100%;padding:12px var(--sp-24);
-  border:1px solid var(--gold-500);border-radius:var(--radius-1);background:transparent;color:var(--gold-300);cursor:pointer;
-  font-family:var(--font-body);font-size:13px;font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;line-height:1.35;text-align:center;text-decoration:none;
-  transition:background-color var(--dur-1) var(--ease),border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease),text-decoration-color var(--dur-1) var(--ease)}
-.mx-btn .ico{width:18px;height:18px;flex:none}
-.mx-btn:hover:not(:disabled){border-color:var(--gold-300);background:var(--mx-gold-tint);color:var(--gold-100)}
-.mx-btn:disabled{opacity:.5;cursor:not-allowed}
-.mx-btn.primary{background:var(--gold-500);border-color:var(--gold-500);color:var(--ink-950)}
-.mx-btn.primary:hover:not(:disabled){background:var(--gold-300);border-color:var(--gold-300);color:var(--ink-950)}
-.mx-btn.primary:active:not(:disabled){background:var(--gold-600);border-color:var(--gold-600)}
 .mx-btn.primary:disabled{background:transparent;border-color:var(--hair-strong);color:var(--stone-400);opacity:1} /* a waiting / unavailable primary reads as status, not as a muddy gold */
-.mx-btn.lg{min-height:56px;padding:14px var(--sp-48)}
-.mx-btn.sm{min-height:44px;padding:8px var(--sp-16);font-size:12px}
 .mx-btn.quiet{border-color:transparent;background:transparent;color:var(--ivory-100);padding-inline:var(--sp-8);
   text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:6px;text-decoration-color:var(--ink-600)}
 .mx-btn.quiet:hover:not(:disabled){background:transparent;border-color:transparent;color:var(--gold-300);text-decoration-color:var(--gold-300)}
-.mx-btn.danger{border-color:var(--danger);color:var(--danger)}
-.mx-btn.danger:hover:not(:disabled){border-color:var(--danger);background:var(--mx-danger-tint);color:var(--danger)}
 #copyInvite[data-copied]{background:transparent;border-color:var(--ok);color:var(--ok)}
 .mx-actions{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-12) var(--sp-16)}
 
@@ -124,7 +110,7 @@
 
 /* ---------- invite (guest) + closed / invalid states ---------- */
 .mx-who{overflow-wrap:anywhere}
-.mx-short{display:grid;gap:var(--sp-16);padding:var(--sp-16) var(--sp-24);border:1px solid var(--hair);border-left:2px solid var(--danger);border-radius:var(--radius-2);background:var(--ink-900)}
+.mx-short{display:grid;gap:var(--sp-16);padding:var(--sp-16) var(--sp-24);border:1px solid var(--hair);border-left:1px solid var(--danger);border-radius:var(--radius-2);background:var(--ink-900)}
 .mx-short p{display:grid;gap:var(--sp-4);margin:0;font-size:var(--fs-14)}
 .mx-short b{color:var(--danger);font-size:var(--fs-16)}
 .mx-stopbox{display:grid;gap:var(--sp-24);max-width:720px;padding-top:var(--sp-48);align-content:start} /* sparse pages get the extra air */
@@ -316,7 +302,7 @@ body[data-view=play] #main{max-width:min(1280px,100%);padding-top:calc(var(--top
 }
 
 /* ---------- sign-in invite banner (markup in views/shell.js) + the top-bar open-lobby chip ---------- */
-.invite-banner{display:flex;gap:var(--sp-16);align-items:center;padding:var(--sp-16) var(--sp-24);border:1px solid var(--hair-gold);border-left:2px solid var(--gold-500);border-radius:var(--radius-2);background:var(--ink-900)}
+.invite-banner{display:flex;gap:var(--sp-16);align-items:center;padding:var(--sp-16) var(--sp-24);border:1px solid var(--hair-gold);border-left:1px solid var(--gold-500);border-radius:var(--radius-2);background:var(--ink-900)}
 .invite-banner>div{display:grid;gap:var(--sp-4);min-width:0}
 .invite-banner b{font-family:var(--font-display);font-weight:500;font-size:var(--fs-20);line-height:1.2;letter-spacing:-.01em;color:var(--ivory-100);overflow-wrap:anywhere}
 .invite-banner span:not(.ib-ava):not(.ib-ico){font-size:var(--fs-14);line-height:1.5;color:var(--stone-400)}

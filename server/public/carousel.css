@@ -1,5 +1,5 @@
 /* The lobby's game picker: a 3D "coverflow" carousel (views/lobby.js: pickerHTML / cardTpl). Everything here is scoped under .cv-.
-   Colours and fonts are Duel.gold's own (tokens.css): warm ink, gold hairlines, Fraunces for the titles, Outfit for the labels.
+   Colours and fonts come from base.css: warm ink, gold hairlines, Bodoni Moda for the titles, Manrope for the labels.
    Layout in one line: the stage (.cv) holds a backdrop (.cv-bg), the card track (.cv-track), the two double-chevron buttons (.cv-skip),
    and a dock (.cv-dock) with the position counter, the arc track and the small arrows.
    Each card carries three numbers set from JS: --o its place from the centre (-3..3), --a its distance (0..3), --sg its side (-1, 0, 1).
@@ -33,7 +33,7 @@
 @container cv (min-width:560px){.cv{--cw:max(220px,min(44cqi,330px,calc((100svh - 372px) * .6)));--ry:22deg;--stepf:.82}}
 @container cv (min-width:1000px){.cv{--cw:max(236px,min(28cqi,352px,calc((100svh - 372px) * .6)));--ry:26deg;--stepf:.9}}
 
-/* backdrop: thin orbit lines, a platform ring under the cards, a restrained warm light, a few sparkles */
+/* backdrop: engraved orbit lines and a platform ring under the cards */
 /* the backdrop fades out toward the stage's left, right and bottom edges, so the stage never reads as a box on a wide screen */
 .cv-bg{position:absolute;inset:0;z-index:0;pointer-events:none;
   -webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent),linear-gradient(180deg,#000 82%,transparent);-webkit-mask-composite:source-in;
@@ -43,21 +43,16 @@
 .cv-orbits .o1,.cv-orbits .o3{stroke:var(--hair-gold);opacity:.6}
 .cv-orbits .o2{opacity:.9}
 .cv-orbits .o4{stroke:var(--hair-gold);stroke-dasharray:1 7;opacity:.75}
-.cv-glow{position:absolute;left:50%;top:calc(var(--cv-pt) + var(--ch) * .5);width:calc(var(--cw) * 2.5);height:calc(var(--ch) * 1.1);transform:translate(-50%,-50%);
-  background:radial-gradient(closest-side,color-mix(in srgb,var(--gold-500) 8%,transparent),transparent)}
 .cv-floor{position:absolute;left:50%;top:calc(var(--cv-pt) + var(--ch) + 12px - var(--cw) * .25);width:calc(var(--cw) * 3.7);height:calc(var(--cw) * .5);transform:translateX(-50%);border-radius:50%;
   border:1px solid var(--hair-gold);background:radial-gradient(closest-side,color-mix(in srgb,var(--gold-500) 7%,transparent),transparent 80%)}
 .cv-floor::before{content:"";position:absolute;inset:-26% -10%;border-radius:50%;border:1px solid var(--hair)}
-.cv-sp{position:absolute;left:var(--x);top:var(--y);width:var(--s);height:var(--s);background:var(--ivory-100);opacity:var(--k);
-  clip-path:polygon(50% 0,60% 40%,100% 50%,60% 60%,50% 100%,40% 60%,0 50%,40% 40%)}
-.cv-sp:nth-of-type(even){background:var(--gold-300)}
 
 /* the cards sit in a perspective box; a card's own transform does the arc */
 .cv-track{position:relative;z-index:1;height:calc(var(--ch) + var(--cv-pt) + var(--cv-pb));perspective:calc(var(--cw) * 4);perspective-origin:50% 42%;touch-action:pan-y;
   -webkit-mask-image:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent);mask-image:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent)}
 .cv-card{--cv-r:6px;position:absolute;left:50%;top:var(--cv-pt);width:var(--cw);height:var(--ch);margin-left:calc(var(--cw) / -2);
   container:card / size;display:grid;grid-template-rows:auto minmax(0,1fr) auto;isolation:isolate;overflow:hidden;
-  border:1px solid var(--hair);border-radius:var(--cv-r);background:radial-gradient(130% 62% at 50% 40%,color-mix(in srgb,var(--gold-500) 8%,var(--ink-800)),var(--ink-800) 72%);
+  border:1px solid var(--hair);border-radius:var(--cv-r);background:var(--ink-900);box-shadow:var(--shadow-raised);
   z-index:calc(10 - var(--a));
   transform:translate3d(calc(var(--o) * var(--step) * (1 - .1 * (var(--a) - 1))),0,calc(var(--a) * -70px)) rotateY(calc(var(--sg) * var(--ry) * -1 * (.7 + .3 * min(var(--a),2)))) scale(calc(1 - .08 * var(--a)));
   transition:transform var(--cv-dur,.55s) var(--ease),opacity var(--cv-dur,.55s) var(--ease),visibility 0s,border-color var(--dur-1) var(--ease)}
@@ -86,7 +81,7 @@
 .cv-plus:focus-visible{outline-offset:-3px}
 
 /* the picture: the game's art in one warm gold tone (gameart.css .gart-card), with two hairline rings behind it echoing the orbits */
-.cv-art{position:relative;min-height:0;overflow:hidden}
+.cv-art{position:relative;min-height:0;overflow:hidden;background-image:var(--engrave)}
 .cv-art::before,.cv-art::after{content:"";position:absolute;left:50%;top:52%;aspect-ratio:1;border-radius:50%;border:1px solid var(--hair);transform:translate(-50%,-50%);opacity:.7}
 .cv-art::before{width:74%}
 .cv-art::after{width:112%;opacity:.45}
@@ -101,12 +96,12 @@
 .cv-acts{position:relative;z-index:2;display:flex;align-items:center;gap:8px;min-width:0}
 .cv-ctl{transition:opacity var(--dur-1) var(--ease) .1s,visibility var(--dur-1) var(--ease) .1s}
 .cv-card:not([data-c]) .cv-ctl{opacity:0;visibility:hidden}
-.cv-play{flex:0 1 auto;min-width:0;margin-right:auto;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:6px 6px 6px 16px;border:0;border-radius:var(--radius-pill);
-  background:var(--ivory-100);color:var(--ink-950);font-family:var(--font-body);font-size:11px;font-weight:600;line-height:1;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;cursor:pointer;
-  transition:background-color var(--dur-1) var(--ease)}
-.cv-play i{flex:none;width:32px;height:32px;display:grid;place-items:center;border-radius:50%;background:var(--ink-950);color:var(--ivory-100)}
+.cv-play{flex:0 1 auto;min-width:0;margin-right:auto;display:inline-flex;align-items:center;gap:10px;min-height:44px;padding:6px 6px 6px 16px;border:1px solid var(--gold-600);border-radius:var(--radius-1);
+  background:transparent;color:var(--ivory-100);font-family:var(--font-body);font-size:11px;font-weight:600;line-height:1;letter-spacing:.16em;text-transform:uppercase;white-space:nowrap;cursor:pointer;
+  transition:background-color var(--dur-1) var(--ease),border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
+.cv-play i{flex:none;width:32px;height:32px;display:grid;place-items:center;border-radius:50%;background:var(--gold-500);color:var(--ink-950)}
 .cv-play .ico{width:15px;height:15px;stroke-width:1.7}
-.cv-play:hover{background:var(--gold-100)}
+.cv-play:hover{background:var(--gold-soft);border-color:var(--gold-500);color:var(--gold-300)}
 .cv-rb{position:relative;flex:none;width:44px;height:44px;padding:0;display:grid;place-items:center;border-radius:50%;background:transparent;border:1px solid var(--hair-strong);color:var(--ivory-100);cursor:pointer;
   transition:border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease),background-color var(--dur-1) var(--ease)}
 .cv-rb .ico{width:18px;height:18px;stroke-width:1.5}
@@ -116,7 +111,7 @@
 .cv-info[aria-expanded=true]{color:var(--gold-500);border-color:var(--hair-gold);background:var(--gold-soft)}
 .cv-tb{display:grid;gap:8px;padding-top:14px;border-top:1px dotted color-mix(in srgb,var(--stone-400) 55%,transparent)}
 .cv-title{margin:0;display:grid;align-content:end;min-height:2em;font-family:var(--font-display);font-weight:500;font-size:clamp(24px,11.4cqw,40px);line-height:.98;letter-spacing:.004em;text-transform:uppercase;
-  font-variant-numeric:lining-nums;font-variation-settings:"SOFT" 100,"WONK" 1;overflow-wrap:anywhere;color:var(--ivory-100)}
+  font-variant-numeric:lining-nums;font-optical-sizing:auto;overflow-wrap:anywhere;color:var(--ivory-100)}
 .cv-title span{display:block}
 .cv-tag{margin:0;min-height:1.4em;font-family:var(--font-body);font-size:11px;font-weight:500;line-height:1.4;letter-spacing:.16em;text-transform:uppercase;color:var(--stone-400);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* a narrow card (a phone) has room for "Play" only; the rest stays in the accessible name */

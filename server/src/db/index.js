@@ -23,7 +23,8 @@ export class Db {
     for (let v = cur; v < MIGRATIONS.length; v++) {
       this.raw.exec("BEGIN IMMEDIATE");
       try {
-        this.raw.exec(MIGRATIONS[v]);
+        if (typeof MIGRATIONS[v] === "function") MIGRATIONS[v](this.raw);
+        else this.raw.exec(MIGRATIONS[v]);
         this.raw.exec(`PRAGMA user_version = ${v + 1}`);
         this.raw.exec("COMMIT");
       } catch (e) {

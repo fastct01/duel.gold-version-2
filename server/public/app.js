@@ -1,5 +1,5 @@
 import { DuelClient } from "/play/sdk/duel-client.js";
-import { makeHelpers, esc } from "/play/ui.js";
+import { makeHelpers, esc, netBadge } from "/play/ui.js";
 import * as shell from "/play/views/shell.js";
 import * as lobby from "/play/views/lobby.js";
 import * as matchUI from "/play/views/match.js";
@@ -7,6 +7,7 @@ import * as account from "/play/views/account.js";
 import * as practice from "/play/views/practice.js";
 import * as celebrate from "/play/views/celebrate.js";
 import * as gamelobby from "/play/views/gamelobby.js";
+import * as age from "/play/views/age.js";
 
 const { ethers, DG } = window;
 const $ = (s, r = document) => r.querySelector(s);
@@ -18,7 +19,7 @@ const store = {
 };
 
 /* Pages reachable from the navigation while no match is running (S.view === "lobby").
-   The leaderboard page (account.js) is hidden for now: add "leaderboard" back here and to NAV in shell.js to restore it.
+   Invite-only: there is no player search, no public queue and no leaderboard page. Games are joined with an invite link or code.
    "join" (enter an invite code) is opened from the Join button in the top bar, not from the sidebar.
    "game" is one game's own lobby page (#game/<id>, views/gamelobby.js), opened from its card in the Game library. */
 const TABS = ["lobby", "games", "tournaments", "history", "wallet", "settings", "join", "game"];
@@ -37,21 +38,19 @@ const S = {
   lobby: null,     // the lobby I am in while it waits for its start (member view: players[], role "host" | "guest"), else null
   host: null,      // that same lobby while I am its host (kept so older code paths keep working), else null
   invite: null,    // { code, lobby|null, error, loading } while the page was opened with ?join=CODE and not yet consumed
-  queue: null, match: null, result: null, startInfo: null,
+  match: null, result: null, startInfo: null,
   handle: null, myScore: 0, oppScore: 0, submitted: false, confirmForfeit: false, oppFinished: false, oppReady: false, youReady: false,
   forfeited: false, // I forfeited a match with 3+ players: it goes on for the others and I wait for its result
   seats: {},       // the other players of the running match by seat → { ready, finished, forfeited, score }; oppScore/oppReady/oppFinished summarise it
-  live: undefined, // GET /v1/lobby, refreshed every few seconds (undefined until the first answer, null if the server has no such endpoint)
-  boards: {},      // game id → leaderboard rows (GET /v1/leaderboard)
   history: null,   // GET /v1/matches?limit=30
   ui: {},          // free-form view state owned by the view modules (filters, open panels, …)
   practice: null,  // local practice game vs a bot in the Games tab (views/practice.js)
-  depositing: null, // amount (test ETH) of a deposit on its way in; Deposit buttons show "Depositing…" and stay disabled
+  depositing: null, // amount (test ETH, local chain only) of a deposit on its way in; Deposit buttons show "Depositing…" and stay disabled
 };
 
 if (S.tab === "game") S.ui.gameId = parseHash().id;
 
-const MODULES = [shell, lobby, matchUI, account, practice, celebrate, gamelobby];
+const MODULES = [shell, lobby, matchUI, account, practice, celebrate, gamelobby, age];
 const VIEWS = Object.assign({}, ...MODULES.map((m) => m.views || {}));
 const ACTIONS = Object.assign({}, ...MODULES.map((m) => m.actions || {}));
 const h = makeHelpers(S);
@@ -92,9 +91,9 @@ function pickedStake() {
 const inviteUrl = (code) => `${location.origin}/play/?join=${encodeURIComponent(code)}`;
 const ctx = { S, h, pickedStake, inviteUrl };
 const app = {
-  S, h, ctx, store, toast, http, render, find, go, act, createLobby, joinLobby, inviteUrl,
+  S, h, ctx, store, toast, http, render, go, act, createLobby, joinLobby, inviteUrl, askAge,
   api: (method, path, body, headers) => S.client.api(method, path, body, headers),
-  refreshMe, refreshWallet, loadBoard, loadHistory, loadLive,
+  refreshMe, refreshWallet, loadHistory,
 };
 
 /* render unless the player is typing: a re-render would steal focus from the field */
@@ -126,7 +125,7 @@ function render(force = false) {
   }
   const name = S.view === "lobby" ? S.tab : S.view;
   $("#main").innerHTML = (VIEWS[name] || VIEWS.lobby)(ctx);
-  /* playful page entrance (playful.css): only when the page actually changes, so background refreshes never replay it */
+  /* page entrance (app.css .pg-enter): only when the page actually changes, so background refreshes never replay it */
   if (name !== lastPage) {
     lastPage = name;
     const main = $("#main");
@@ -139,6 +138,7 @@ function render(force = false) {
 /* the bar and nav are rebuilt on every render; unchanged markup is left alone so focus, hover and the open menu survive polls */
 function setHTML(el, html) { if (el && el._html !== html) { el._html = html; el.innerHTML = html; } }
 function renderTop() {
+  setHTML($("#topNet"), netBadge(S));
   setHTML($("#topRight"), shell.topBar(ctx));
   setHTML($("#nav"), shell.nav(ctx));
 }
@@ -172,7 +172,6 @@ function go(tab, arg) {
   render(true);
   window.scrollTo(0, 0);
   if (tab === "history") loadHistory();
-  if (tab === "leaderboard" && S.pick.game) loadBoard(S.pick.game);
   if (tab === "wallet" && S.wallet) refreshWallet().then(() => render());
   if (tab === "join") { const i = document.getElementById("joinCode"); if (i && matchMedia("(pointer:fine)").matches) i.focus(); }
 }
@@ -199,27 +198,12 @@ async function refreshWallet() {
   } catch (e) { S.error = e.message; }
 }
 
-async function loadBoard(gameId) {
-  try { const r = await http(`/v1/leaderboard?game=${encodeURIComponent(gameId)}&limit=20`); S.boards[gameId] = r.players; render(); }
-  catch { S.boards[gameId] = S.boards[gameId] || []; }
-}
-
 async function loadHistory() {
   if (!S.client) return;
   try { const r = await S.client.api("GET", "/v1/matches?limit=30"); S.history = r.matches; render(); }
   catch (e) { toast(e.message, "bad"); }
 }
 
-/* live lobby numbers (who is waiting, matches running, recent results). Modules patch them in place via
-   `live(app)` so a poll never re-renders the page under the player. A server without /v1/lobby sets S.live to null. */
-let liveMissing = false;
-async function loadLive() {
-  if (liveMissing) return;
-  try { S.live = await http("/v1/lobby"); }
-  catch (e) { if (!/not found/i.test(e.message)) return; liveMissing = true; S.live = null; }
-  for (const m of MODULES) if (m.live) m.live(app);
-}
-setInterval(() => { if (S.client && !document.hidden && ["lobby", "queue", "result"].includes(S.view)) loadLive(); }, 4000);
 setInterval(() => { if (S.client && !document.hidden && S.view === "invite") loadInvite(true); }, 5000);
 
 /* ------------------------------------------------------------------ invites (?join=CODE) */
@@ -273,23 +257,11 @@ function routeInvite() {
 
 /* ------------------------------------------------------------------ sign-in / session */
 
-function burnerWallet() {
-  let key = store.get("dg.burner");
-  if (!key || !/^0x[0-9a-fA-F]{64}$/.test(key)) { key = ethers.Wallet.createRandom().privateKey; store.set("dg.burner", key); }
-  return new ethers.Wallet(key);
-}
-
 async function signIn(kind) {
   S.error = "";
-  let address, sign;
-  if (kind === "burner") {
-    const w = burnerWallet();
-    address = w.address; sign = (m) => w.signMessage(m);
-  } else {
-    if (!window.ethereum) throw new Error("No browser wallet found.");
-    const signer = await new ethers.BrowserProvider(window.ethereum).getSigner();
-    address = await signer.getAddress(); sign = (m) => signer.signMessage(m);
-  }
+  if (!window.ethereum) throw new Error("No browser wallet found. Install a wallet such as MetaMask, then reload this page.");
+  const signer = await new ethers.BrowserProvider(window.ethereum).getSigner();
+  const address = await signer.getAddress(), sign = (m) => signer.signMessage(m);
   const client = new DuelClient({ baseUrl: location.origin, address, sign, bufferEvents: false });
   await client.login();
   store.set("dg.token", client.token, "sessionStorage");
@@ -317,7 +289,6 @@ async function startSession(client) {
   if (S.invite) { if (S.invite.loading || !S.invite.lobby) await loadInvite(true); routeInvite(); }
   if (TEST) window.__duel = { client, S, get ctx() { return S.handle && S.handle.ctx; } };
   render(true);
-  loadLive();
   if (S.tab !== "lobby") go(S.tab);
 }
 
@@ -327,7 +298,7 @@ function signOut() {
     S.client.close();
   }
   store.del("dg.token", "sessionStorage");
-  Object.assign(S, { client: null, me: null, wallet: null, activity: null, view: "signin", queue: null, match: null, result: null, host: null, lobby: null, seats: {} });
+  Object.assign(S, { client: null, me: null, wallet: null, activity: null, view: "signin", match: null, result: null, host: null, lobby: null, seats: {} });
   render(true);
 }
 
@@ -384,7 +355,7 @@ function seatEvent(m, apply) {
   summariseSeats();
   return true;
 }
-/* a match was made from my lobby (or queue): everyone goes to the found screen. Safe to call twice for the same match. */
+/* a match was made from my lobby: everyone goes to the found screen. Safe to call twice for the same match. */
 function enterMatch(match) {
   if (S.match && S.match.id === match.id && ["found", "play"].includes(S.view)) return;
   clearInvite(); dropLobby();
@@ -396,12 +367,12 @@ function enterMatch(match) {
 function applyActive(active) {
   if (!active) {
     dropLobby();
-    if (["queue", "found", "orphan", "waiting"].includes(S.view)) S.view = "lobby";
+    if (["found", "orphan", "waiting"].includes(S.view)) S.view = "lobby";
     return;
   }
   if (active.kind === "lobby") { setLobby(active.lobby); if (S.view !== "invite") S.view = "waiting"; return; }
   dropLobby();
-  if (active.kind === "queue") { S.queue = active.ticket; S.view = "queue"; return; }
+  if (!active.match) { if (S.view !== "play") S.view = "lobby"; return; } // an unknown kind of activity: nothing to resume
   S.match = active.match;
   if (active.match.state === "found") { initMatchState(active.match); S.view = "found"; }
   else {
@@ -449,9 +420,6 @@ function onLobbyClosed(l) {
 
 function wire(c) {
   c.on("sync", (m) => { S.me = m.me; applyActive(m.me.active); render(true); });
-  c.on("queue.joined", (m) => { S.queue = m.ticket; S.view = "queue"; S.busy = false; render(true); });
-  c.on("queue.left", () => { S.queue = null; S.view = "lobby"; refreshMe(); });
-  c.on("queue.expired", () => { S.queue = null; S.view = "lobby"; toast("Nobody was found in time. Your stake is back.", "gold"); refreshMe(); });
   c.on("lobby.created", (m) => { if (!m.lobby) return; setLobby(m.lobby, "host"); if (S.view === "invite" || (S.view === "lobby" && S.tab === "lobby")) { S.view = "waiting"; S.busy = false; render(true); } else render(); });
   c.on("lobby.updated", (m) => onLobbyUpdated(m.lobby));
   c.on("lobby.closed", (m) => onLobbyClosed(m.lobby));
@@ -531,7 +499,7 @@ function afterForfeit(r) {
 
 function onEnded(match) {
   if (S.handle) { try { S.handle.abort(); } catch { /* already over */ } S.handle = null; }
-  S.result = match; S.match = null; S.queue = null; S.view = "result"; S.confirmForfeit = false; S.forfeited = false;
+  S.result = match; S.match = null; S.view = "result"; S.confirmForfeit = false; S.forfeited = false;
   render(true);
   refreshMe();
   if (S.wallet) refreshWallet().then(() => { if (S.view === "lobby") render(); });
@@ -577,7 +545,7 @@ async function act(name, el) {
     if (ACTIONS[name]) return await ACTIONS[name](el, app);
     switch (name) {
       case "go": go(el.dataset.go, el.dataset.arg); break;
-      case "burner": case "injected":
+      case "injected":
         el.disabled = true; try { await signIn(name); } catch (e) { S.error = e.message; render(true); } break;
       case "logout": signOut(); break;
       case "stake": S.pick.stake = el.dataset.v; render(true); break;
@@ -585,7 +553,6 @@ async function act(name, el) {
         try { await navigator.clipboard.writeText(S.wallet.depositAddress); toast("Address copied.", "good"); }
         catch { toast("Select the address and copy it.", ""); } break;
       case "faucet": return deposit(el);
-      case "find": return find(); // only for a server with publicQueue on (the game page's "Random opponent" mode)
       case "create-lobby": return createLobby();
       case "close-lobby": return closeLobby();
       case "start-lobby": return startLobby();
@@ -595,7 +562,6 @@ async function act(name, el) {
       case "share-invite": return shareInvite();
       case "join-lobby": return joinLobby();
       case "dismiss-invite": clearInvite(); S.error = ""; if (S.view === "invite") S.view = "lobby"; render(true); break;
-      case "cancel-queue": await c.leaveQueue(); break;
       case "ready": S.youReady = true; render(true); await c.ready(S.match.id); break;
       case "decline": await c.forfeit(S.match.id); break;
       case "forfeit": S.confirmForfeit = true; updatePlayBar(); break;
@@ -618,28 +584,18 @@ async function act(name, el) {
       case "limit-off": { const r = await c.api("PUT", "/v1/me/loss-limit", { amount: null }); toast(r.applied ? "Loss limit removed." : "Loss limit will be removed in 24 hours.", "gold"); await refreshMe(); break; }
     }
   } catch (e) {
+    if (e.code === "AGE_NOT_CONFIRMED") { S.busy = false; return askAge(null); }
     S.error = e.message;
-    if (["found", "lobby", "queue", "waiting", "invite"].includes(S.view)) render(true);
-    if (!["find", "create-lobby", "join-lobby"].includes(name)) toast(e.message, "bad");
+    if (["found", "lobby", "waiting", "invite"].includes(S.view)) render(true);
+    if (!["create-lobby", "join-lobby"].includes(name)) toast(e.message, "bad");
   }
 }
 
-async function find() {
-  const c = S.client;
-  S.error = "";
-  const g = S.pick.game;
-  if (!g) { S.error = "Choose a game first."; return render(true); }
-  const stake = pickedStake();
-  if (stake == null) { S.error = "Enter a stake like 0.002."; return render(true); }
-  try {
-    S.busy = true;
-    await c.joinQueue({ game: g, stake: stake.toString(), code: S.pick.code.trim() || undefined });
-  } catch (e) {
-    S.busy = false;
-    S.error = e.message;
-    render(true);
-  }
-}
+/* ---- 18+ confirmation (views/age.js) ---- */
+
+/* show the confirmation; `then` (create / join / start again) runs once the player has confirmed */
+function askAge(then) { age.ask(app, then); }
+const isAgeError = (e) => !!e && e.code === "AGE_NOT_CONFIRMED";
 
 async function createLobby() {
   if (S.busy) return;
@@ -648,6 +604,7 @@ async function createLobby() {
   if (!g) { S.error = "Choose a game first."; return render(true); }
   const stake = pickedStake();
   if (stake == null) { S.error = "Enter a stake like 0.002."; return render(true); }
+  if (age.needed(S, stake)) return askAge(createLobby); // the first staked lobby asks for the 18+ confirmation, then carries on
   S.busy = true;
   try {
     const r = await S.client.api("POST", "/v1/lobbies", { game: g, stake: stake.toString() });
@@ -656,6 +613,7 @@ async function createLobby() {
     refreshMe();
   } catch (e) {
     S.busy = false;
+    if (isAgeError(e)) { render(true); return askAge(createLobby); }
     S.error = e.status === 404 ? "Lobbies are not available on this server yet." : e.message;
     render(true);
   }
@@ -713,6 +671,7 @@ async function startLobby() {
     if (r && r.match) enterMatch(r.match);
   } catch (e) {
     S.busy = false;
+    if (isAgeError(e)) { if (S.view === "waiting") render(true); return askAge(startLobby); }
     S.error = lobbyError(e);
     if (S.view === "waiting") render(true);
   }
@@ -758,6 +717,7 @@ async function joinLobby() {
   const inv = S.invite;
   if (!inv || S.busy) return;
   S.error = "";
+  if (inv.lobby && age.needed(S, inv.lobby.stake)) return askAge(joinLobby); // a staked invite asks for the 18+ confirmation first
   S.busy = true; render(true);
   try {
     gone.delete(inv.code);
@@ -774,6 +734,7 @@ async function joinLobby() {
     } else render(true);
   } catch (e) {
     S.busy = false;
+    if (isAgeError(e)) { render(true); return askAge(joinLobby); }
     if (e.code === "LOBBY_CLOSED" || e.code === "LOBBY_NOT_FOUND" || e.code === "LOBBY_FULL") { await loadInvite(true); S.error = e.code === "LOBBY_FULL" ? lobbyError(e) : ""; }
     else if (e.code === "LOBBY_ALREADY_IN") { /* e.g. joined in another tab: the server knows where I am */
       await refreshMe(); clearInvite(); S.view = "lobby"; applyActive(S.me && S.me.active); S.error = "";
@@ -816,16 +777,19 @@ document.addEventListener("submit", async (e) => {
   if (form.dataset.busy) return; // one request at a time: a double click must not queue two withdrawals
   const kind = form.dataset.form;
   const err = $(kind === "withdraw" ? "#wdErr" : "#limErr");
-  const btn = form.querySelector("button[type=submit]");
+  const btn = e.submitter || form.querySelector("button[type=submit]");
   err.textContent = "";
   form.dataset.busy = "1";
   if (btn) { btn.disabled = true; btn.setAttribute("aria-busy", "true"); }
   try {
     if (kind === "withdraw") {
       const amount = ethers.parseEther(($("#wdAmt").value || "0").trim());
-      const r = await S.client.api("POST", "/v1/wallet/withdraw", { amount: amount.toString() }, { "idempotency-key": crypto.randomUUID() });
+      /* maxFee = the network fee the player was shown: the server refuses with FEE_CHANGED if it went up since */
+      const body = { amount: amount.toString(), ...(S.ui.wdFee != null ? { maxFee: S.ui.wdFee } : {}) };
+      const r = await S.client.api("POST", "/v1/wallet/withdraw", body, { "idempotency-key": crypto.randomUUID() });
       toast(`Withdrawal of ${h.eth(r.amount)} ${h.sym()} queued.`, "good");
       $("#wdAmt").value = "";
+      account.closeWdConfirm(app);
     } else {
       const amount = ethers.parseEther(($("#limitAmt").value || "0").trim());
       const r = await S.client.api("PUT", "/v1/me/loss-limit", { amount: amount.toString() });
@@ -833,7 +797,18 @@ document.addEventListener("submit", async (e) => {
     }
     await refreshMe();
     if (S.wallet) { await refreshWallet(); render(true); }
-  } catch (ex) { err.textContent = ex.message; }
+  } catch (ex) {
+    err.textContent = ex.message;
+    if (kind === "withdraw") {
+      const typed = ($("#wdAmt") && $("#wdAmt").value || "").trim();
+      account.closeWdConfirm(app);
+      if (ex.code === "FEE_CHANGED" && ex.extra && ex.extra.fee != null && S.wallet && typed) { // show the new fee and ask again
+        S.wallet.withdrawalFee = { ...(S.wallet.withdrawalFee || {}), fee: String(ex.extra.fee) };
+        err.textContent = `The network fee changed to ${h.eth(ex.extra.fee, 9)} ${h.sym()}. Review it and confirm again.`;
+        account.showWdConfirm(app, typed);
+      }
+    }
+  }
   finally { delete form.dataset.busy; if (btn) { btn.disabled = false; btn.removeAttribute("aria-busy"); } }
 });
 
@@ -862,6 +837,8 @@ async function loadPacks(games) {
   try {
     const [cfg, list] = await Promise.all([http("/v1/config"), http("/v1/games")]);
     S.cfg = cfg;
+    document.title = cfg.chain && cfg.chain.realMoney ? `Duel.gold · invite-only duels with real ${cfg.chain.symbol || "ETH"}`
+      : cfg.chain ? "Duel.gold · invite-only duels (test network)" : "Duel.gold · invite-only skill duels";
     S.games = list.games.filter((g) => g.pvp);
     await loadPacks(S.games);
     S.games = S.games.filter((g) => DG.getGame(g.id)); // only games whose code actually loaded

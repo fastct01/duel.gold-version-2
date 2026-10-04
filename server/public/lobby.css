@@ -1,14 +1,14 @@
-/* Lobby, game library, tournaments and the join page, in the gold design system (tokens.css).
+/* Lobby, game library, tournaments and the join page, in the gold design system (base.css).
    Everything is scoped under .lb-* / .jn-*. Other views (game page, practice, waiting room) reuse the shared pieces defined
    here: .lb-card .lb-btn .lb-link-btn .lb-chip(s) .lb-find .lb-fav .lb-meters .lb-eyebrow .lb-label .lb-title
    .lb-muted .lb-hint .lb-err .lb-empty .lb-pulse .lb-custom .lb-stakel .lb-go-note .lb-sr.
    The lobby's game picker (the 3D carousel) is in carousel.css.
-   Local tokens (all built from tokens.css): --lb-r card corner, --lb-in recessed surface, --lb-bg card surface, --lb-hit minimum
+   Local tokens (all built from base.css): --lb-r card corner, --lb-in recessed surface, --lb-bg card surface, --lb-hit minimum
    touch target, --lb-text2 body text one step below ivory, --lb-h1 large page title. */
 :root{
   --lb-r:var(--radius-2);
   --lb-in:var(--ink-950);
-  --lb-bg:var(--ink-900);
+  --lb-bg:transparent;
   --lb-hit:44px;
   --lb-text2:color-mix(in srgb,var(--ivory-100) 82%,var(--ink-900));
   --lb-h1:clamp(38px,3.6vw + 14px,60px);
@@ -34,7 +34,9 @@
 
 /* ------------------------------------------------------------ surfaces */
 .lb-card{position:relative;isolation:isolate;min-width:0;display:grid;grid-template-columns:minmax(0,1fr);gap:var(--sp-24);align-content:start;
-  padding:var(--sp-32);border-radius:var(--lb-r);background:var(--lb-bg);border:1px solid var(--hair)}
+  padding:var(--sp-32);border-radius:var(--lb-r);background:var(--lb-bg);border:1px solid var(--hair);box-shadow:var(--shadow-raised)}
+/* the same gold corner bracket as every card (base.css .dg-box) */
+.lb-card::before{content:"";position:absolute;left:-1px;top:-1px;width:var(--bracket);height:var(--bracket);pointer-events:none;background:linear-gradient(var(--gold-500),var(--gold-500)) left top/var(--bracket) 2px no-repeat,linear-gradient(var(--gold-500),var(--gold-500)) left top/2px var(--bracket) no-repeat;z-index:1}
 .lb-card-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-12);flex-wrap:wrap}
 .lb-card-head h2,.lb-card-head h3{margin:0;font-family:var(--font-display);font-weight:500;font-size:24px;line-height:1.1;letter-spacing:-.005em;color:var(--ivory-100)}
 @media(max-width:720px){.lb-card{padding:var(--sp-24) 20px;gap:20px}}
@@ -43,14 +45,9 @@
 .lb-row{display:flex;gap:var(--sp-12) var(--sp-16);flex-wrap:wrap;align-items:center}
 .lb-btn,.lb-link-btn,.lb-how,.lb-surprise,.lb-find,.lb-duel{font-family:var(--font-body);font-size:var(--fs-12);font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;text-decoration:none;
   transition:border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease),background-color var(--dur-1) var(--ease),text-decoration-color var(--dur-1) var(--ease)}
-.lb-btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:var(--lb-hit);padding:10px 20px;border-radius:var(--radius-1);background:transparent;border:1px solid var(--hair-strong);color:var(--ivory-100);cursor:pointer}
 .lb-btn .ico,.lb-link-btn .ico,.lb-find .ico,.lb-duel .ico{width:16px;height:16px;flex:none;stroke-width:1.6}
-.lb-btn:hover:not(:disabled){border-color:var(--stone-400)}
 .lb-btn.gold{border-color:var(--gold-500);color:var(--gold-500)}
 .lb-btn.gold:hover:not(:disabled){border-color:var(--gold-300);color:var(--gold-300);background:var(--gold-soft)}
-.lb-btn.primary{background:var(--gold-500);border-color:var(--gold-500);color:var(--ink-950);font-weight:600}
-.lb-btn.primary:hover:not(:disabled){background:var(--gold-300);border-color:var(--gold-300)}
-.lb-btn:disabled{opacity:.45;cursor:not-allowed}
 /* quiet text button: gold label, the underline fades in */
 .lb-link-btn,.lb-how,.lb-surprise{display:inline-flex;align-items:center;gap:8px;min-height:var(--lb-hit);padding:0;background:none;border:0;border-radius:var(--radius-1);color:var(--gold-500);cursor:pointer;
   text-decoration:underline;text-decoration-color:transparent;text-decoration-thickness:1px;text-underline-offset:.55em}
@@ -229,6 +226,8 @@
 .lb-play{background:none;gap:var(--sp-12)}
 .lb-play-in{display:flex;gap:var(--sp-12);align-items:flex-start}
 .lb-play-in .ico{width:20px;height:20px;flex:none;margin-top:2px;color:var(--gold-500);stroke-width:1.5}
+.lb-play-link{color:inherit;text-decoration:underline;text-decoration-color:var(--hair-gold);text-underline-offset:3px;transition:text-decoration-color var(--dur-1) var(--ease)}
+.lb-play-link:hover,.lb-play-link:focus-visible{text-decoration-color:var(--gold-300)}
 .lb-play-in p{margin:0;font-size:var(--fs-14);line-height:1.6;color:var(--stone-400)}.lb-play-in b{color:var(--ivory-100);font-weight:500}
 .lb-play .lb-link-btn{justify-self:start;min-height:var(--lb-hit);margin:-8px 0 -12px 32px}
 
@@ -289,7 +288,7 @@
 .lb-tour-item{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--sp-8) var(--sp-24);padding:var(--sp-32) 0;border-top:1px solid var(--hair)}
 .lb-tour-n{padding-top:6px;font-family:var(--font-display);font-size:var(--fs-20);font-weight:500;line-height:1;letter-spacing:.04em;color:var(--gold-500)}
 .lb-tour-b{display:grid;gap:var(--sp-8);min-width:0;grid-column:2}
-.lb-tour-h{margin:0;font-family:var(--font-display);font-weight:400;font-size:var(--fs-40);line-height:1.08;letter-spacing:-.015em;color:var(--ivory-100)}
+.lb-tour-h{margin:0;font-family:var(--font-display);font-weight:400;font-size:clamp(var(--fs-28),2.6vw,var(--fs-40));line-height:1.08;letter-spacing:-.015em;color:var(--ivory-100);white-space:nowrap}
 .lb-tour-meta{margin:0;font-size:var(--fs-12);font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
 .lb-tour-p{margin:var(--sp-4) 0 0;max-width:56ch;font-size:var(--fs-16);line-height:1.65;color:var(--lb-text2);text-wrap:pretty}
 .lb-soon{grid-column:2;justify-self:start;margin-top:var(--sp-8);padding:4px 10px;border:1px solid var(--hair-strong);border-radius:var(--radius-1);font-size:11px;font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400);white-space:nowrap}
@@ -347,3 +346,6 @@
 @media(max-width:720px),(pointer:coarse){.lb-cats{gap:var(--sp-8)}}
 .lb-card button:focus-visible,.lb-lib button:focus-visible{outline:1px solid var(--gold-500);outline-offset:3px}
 @media(prefers-reduced-motion:reduce){.lb-pulse{animation:none}.lb-howp{animation:none}}
+
+/* the lobby's find button: the same chamfered gold primary as base.css .dg-btn.primary */
+.lb-find{clip-path:polygon(var(--cut) 0,100% 0,100% calc(100% - var(--cut)),calc(100% - var(--cut)) 100%,0 100%,0 var(--cut))}

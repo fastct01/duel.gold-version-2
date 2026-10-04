@@ -1,5 +1,5 @@
 /* Duel.gold PvP client: app shell + shared primitives, in the gold style.
-   Every colour, size and space comes from tokens.css (--gold-*, --ink-*, --stone-400, --ivory-*, --hair*, --font-*, --fs-*, --sp-*, --radius-*).
+   Every colour, size and space comes from /game/core/base.css (--gold-*, --ink-*, --stone-400, --ivory-*, --hair*, --font-*, --fs-*, --sp-*, --radius-*).
    Shared helpers other modules may rely on: .page-h, .eyebrow, .gold-t, .tile, .skel, .rpill(.win|.loss|.draw|.void), .sr-only, .t-label,
    .dg-box (card), .dg-stat, .dg-chip, .dg-btn(.primary|.ghost|.danger|.xl|.sm), .dg-link, .field, .chips, .list .row, .mono-box, .grid2, .grid3,
    .notice, .err, .sub, .dg-note, .toast, .sec (editorial section), vars --sb-w --top-h --bar-h --pad-x.
@@ -33,15 +33,26 @@ option{background:var(--ink-800);color:var(--ivory-100)}
 .top-brand{align-self:stretch;flex:none;display:flex;align-items:center;min-width:var(--sb-w);padding-left:max(28px,calc(env(safe-area-inset-left,0px) + 16px));
   font-family:var(--font-display);font-weight:600;font-size:32px;line-height:1;letter-spacing:-.005em;color:var(--ivory-100);text-decoration:none;white-space:nowrap}
 /* the one metallic gradient on the screen: the ".gold" in the logo */
-.top-brand b{font-weight:600;color:var(--gold-500);background:var(--gold-metal);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.top-brand b{font-weight:600;color:var(--gold-500)}
 body[data-view=signin] .top-brand,body[data-view=play] .top-brand{min-width:0;padding-left:max(var(--pad-x),calc(env(safe-area-inset-left,0px) + 16px))}
 body[data-view=signin] .top-brand{padding-left:max(var(--pad-x),calc((100vw - 1280px)/2 + var(--pad-x)))}
 .top-right{display:flex;align-items:center;justify-content:flex-end;gap:var(--sp-24);min-width:0;max-width:100%}
 .top-right>*{flex:none}
-.top-right>.pill{flex:0 1 auto;min-width:0}
+.top-right>.pill{flex:none} /* the balance never gives up space; the network badge does */
+
+/* network badge: a small hairline tag next to the wordmark. Real money gets the gold frame; a test network stays stone. */
+.top-net{flex:0 1 auto;min-width:0;margin-right:auto;display:flex;align-items:center;overflow:hidden}
+.top-net:empty{display:none}
+.net-tag{display:inline-flex;align-items:center;gap:8px;min-height:26px;padding:0 10px;border:1px solid var(--hair-strong);border-radius:var(--radius-1);
+  font:500 11px/1 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400);white-space:nowrap;cursor:default}
+.net-tag i{width:6px;height:6px;flex:none;background:var(--stone-400)}
+.net-tag.real{border-color:var(--hair-gold);color:var(--gold-300)}
+.net-tag.real i{background:var(--gold-500)}
+.net-tag .nt-short{display:none}
+body[data-view=signin] .top-net{margin-left:var(--sp-24)}
 
 /* Join: a quiet text link with an underline reveal */
-.top-join{position:relative;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 2px;border:0;background:none;color:var(--stone-400);
+.top-join{position:relative;display:inline-flex;align-items:center;gap:8px;min-width:44px;min-height:44px;padding:0 2px;border:0;background:none;color:var(--stone-400);
   font:500 12px/1 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;text-decoration:none;white-space:nowrap;transition:color var(--dur-1) var(--ease)}
 .top-join .ico{width:18px;height:18px;flex:none;stroke-width:1.5;color:var(--gold-500)}
 .top-join::after{content:"";position:absolute;left:2px;right:2px;bottom:9px;height:1px;background:var(--gold-500);transform:scaleX(0);transform-origin:left;transition:transform var(--dur-2) var(--ease)}
@@ -54,7 +65,7 @@ body[data-view=signin] .top-brand{padding-left:max(var(--pad-x),calc((100vw - 12
 .top .pill{position:relative;display:grid;grid-template-columns:auto auto;justify-content:start;align-content:center;align-items:baseline;column-gap:6px;min-height:44px;padding:0 2px;
   border:0;border-radius:0;background:none;color:var(--ivory-100);text-decoration:none;white-space:nowrap}
 .top .pill .lbl{grid-column:1/-1;font:500 11px/1.2 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
-.top .pill b{font-weight:500;font-size:19px;line-height:1.2;color:var(--ivory-100);min-width:1ch;overflow:hidden;text-overflow:ellipsis;transition:color var(--dur-1) var(--ease)}
+.top .pill b{font-weight:500;font-size:19px;line-height:1.2;color:var(--ivory-100);min-width:max-content;transition:color var(--dur-1) var(--ease)}
 .top .pill em{font-style:normal;font:500 12px/1.2 var(--font-body);letter-spacing:.08em;color:var(--stone-400)}
 .top a.pill:hover b{color:var(--gold-300)}
 
@@ -135,63 +146,20 @@ h3.dg-h{font-size:22px}
 .sec-b{display:grid;gap:var(--sp-24);min-width:0;align-content:start}
 
 /* ------------------------------------------------------------ cards: hairline, near-square corners, no shadow */
-.dg-box{position:relative;border-radius:var(--radius-2);padding:clamp(20px,2.4vw,32px);background:var(--ink-900);border:1px solid var(--hair);box-shadow:none}
 .dg-stack{gap:var(--sp-16);align-content:start}
 .dg-box p{margin:0}
 .landing .err:empty{display:none}
 .tile{background:var(--ink-950);border:1px solid var(--hair);border-radius:var(--radius-1);box-shadow:none}
-.dg-stat{border-radius:var(--radius-1);padding:var(--sp-16) var(--sp-24);background:var(--ink-900);border:1px solid var(--hair);box-shadow:none;
-  font:500 12px/1.4 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
-.dg-stat b{display:block;margin-top:var(--sp-8);font-family:var(--font-display);font-weight:500;font-size:34px;line-height:1.05;letter-spacing:-.01em;text-transform:none;color:var(--ivory-100);font-variant-numeric:lining-nums tabular-nums}
 details.dg-box>summary{cursor:pointer;font-weight:500;font-size:17px}
 details.dg-box[open]>summary{margin-bottom:14px}
 
 /* ------------------------------------------------------------ controls */
-/* secondary (default): gold outline. primary: solid gold, the one per view. */
-.dg-btn{min-height:44px;padding:10px 26px;border-radius:var(--radius-1);background:transparent;border:1px solid var(--gold-600);color:var(--ivory-100);
-  display:inline-flex;align-items:center;justify-content:center;gap:10px;text-decoration:none;text-align:center;
-  font:500 12.5px/1.2 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;
-  transition:background var(--dur-1) var(--ease),border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
-.dg-btn .ico{width:17px;height:17px;flex:none;stroke-width:1.6}
-.dg-btn:hover:not(:disabled){background:var(--gold-soft);border-color:var(--gold-500);color:var(--gold-300)}
-.dg-btn:active:not(:disabled){border-color:var(--gold-600);color:var(--gold-500)}
-.dg-btn.primary{background:var(--gold-500);border-color:var(--gold-500);border-radius:var(--radius-1);color:var(--ink-950);font-weight:600;box-shadow:none}
-.dg-btn.primary:hover:not(:disabled){background:var(--gold-300);border-color:var(--gold-300);color:var(--ink-950);filter:none}
-.dg-btn.primary:active:not(:disabled){background:var(--gold-600);border-color:var(--gold-600);color:var(--ink-950)}
-.dg-btn.ghost{border-color:var(--field-line);color:var(--text-2)}
-.dg-btn.ghost:hover:not(:disabled){border-color:var(--gold-500);color:var(--gold-300)}
-.dg-btn.danger{background:transparent;border-color:color-mix(in srgb,var(--danger) 65%,transparent);color:var(--danger)}
-.dg-btn.danger:hover:not(:disabled){background:var(--danger-wash);border-color:var(--danger);color:var(--danger)}
-.dg-btn.xl{min-height:56px;padding:14px 36px;font-size:13px}
-.dg-btn.sm{min-height:40px;padding:6px 16px;font-size:12px}
-@media(pointer:coarse){.dg-btn.sm{min-height:44px}}
-.dg-btn:disabled{opacity:.4;cursor:not-allowed}
-/* quiet text button / link: underline reveals on hover and focus */
-.dg-link{position:relative;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0;border:0;background:none;color:var(--text-2);text-decoration:none;
-  font:500 12px/1.2 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;transition:color var(--dur-1) var(--ease)}
-.dg-link::after{content:"";position:absolute;left:0;right:0;bottom:10px;height:1px;background:var(--gold-500);transform:scaleX(0);transform-origin:left;transition:transform var(--dur-2) var(--ease)}
-.dg-link:hover,.dg-link:focus-visible{color:var(--gold-300)}
-.dg-link:hover::after,.dg-link:focus-visible::after{transform:scaleX(1)}
 
-/* buttons that lobby.js and match.js render with bare classes (they used to be styled in glass.css) */
-.lb-cancel,.mx-back{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:48px;padding:10px 24px;border-radius:var(--radius-1);background:transparent;cursor:pointer;text-decoration:none;
-  font:500 12.5px/1.2 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;transition:background var(--dur-1) var(--ease),border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
-.lb-cancel{width:100%;color:var(--danger);border:1px solid color-mix(in srgb,var(--danger) 65%,transparent)}
-.lb-cancel:hover:not(:disabled){background:var(--danger-wash);border-color:var(--danger)}
-.lb-cancel:disabled{opacity:.4;cursor:not-allowed}
-.mx-back{color:var(--ivory-100);border:1px solid var(--gold-600)}
-.mx-back:hover{background:var(--gold-soft);border-color:var(--gold-500);color:var(--gold-300)}
 .mx-back .ico{width:17px;height:17px;flex:none;stroke-width:1.6;transform:scaleX(-1)}
 .mx-invite-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:2px}
 .mx-invite-actions>*{flex:1 1 200px;width:auto}
 @media(max-width:420px){.mx-invite-actions>*{flex-basis:100%}}
 
-/* chips: selected = 1px gold border and gold text, never a fill */
-.dg-chip{min-height:44px;padding:6px 20px;border-radius:var(--radius-1);background:transparent;border:1px solid var(--field-line);color:var(--stone-400);
-  font:500 15px/1.2 var(--font-body);letter-spacing:.02em;transition:border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
-.dg-chip:hover:not(:disabled){background:transparent;border-color:var(--gold-600);color:var(--ivory-100)}
-.dg-chip[aria-pressed="true"]{background:transparent;border-color:var(--gold-500);color:var(--gold-500)}
-.dg-chip:disabled{opacity:.35;cursor:not-allowed}
 .chips{display:flex;flex-wrap:wrap;gap:var(--sp-8)}
 
 /* fields */
@@ -216,8 +184,10 @@ input[type=checkbox]{accent-color:var(--gold-500);width:20px;height:20px;flex:no
 .dg-note{color:var(--stone-400);font-size:14px;line-height:1.55}
 .dg-note a,.sub a,.lede a{color:var(--gold-300);text-decoration:underline;text-decoration-color:var(--hair-gold);text-underline-offset:3px;transition:text-decoration-color var(--dur-1) var(--ease)}
 .dg-note a:hover,.sub a:hover,.lede a:hover{text-decoration-color:var(--gold-300)}
-.notice{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:var(--radius-1);background:var(--ink-800);border:1px solid var(--hair);border-left:2px solid var(--gold-500);font-size:14px;line-height:1.55;color:var(--text-2)}
+.notice{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:var(--radius-1);background:var(--ink-800);border:1px solid var(--hair);border-left:1px solid var(--gold-500);font-size:14px;line-height:1.55;color:var(--text-2)}
 .notice .ico{width:18px;height:18px;flex:none;margin-top:2px;stroke-width:1.6;color:var(--gold-500)}
+.notice.warn{border-left-color:var(--danger)}
+.notice.warn .ico{color:var(--danger)}
 /* result labels: small bordered tags in the outcome colours, no fill */
 .rpill{display:inline-flex;align-items:center;gap:6px;border-radius:var(--radius-1);padding:5px 10px;font:500 11px/1 var(--font-body);letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--hair-strong);background:transparent;color:var(--stone-400);white-space:nowrap}
 .rpill.win{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 50%,transparent)}
@@ -349,12 +319,36 @@ body[data-view=signin] #main{max-width:1280px;margin-left:auto;margin-right:auto
   .sec{padding-top:var(--sp-32)}
 }
 @media(max-width:520px){.top-right:has(.top-open) .top-join span{display:none}}
+/* hosting on a phone: the balance keeps its full number; the unit stays in the link's accessible name */
+@media(max-width:400px){.top-right:has(.top-open) .pill em{display:none}}
+/* the short network name (the full one stays in the sr-only text and the title) once the bar gets busy */
+@media(max-width:1099px){.net-tag .nt-long{display:none}.net-tag .nt-short{display:inline}}
+@media(max-width:640px){.net-tag{padding:0 7px;gap:6px;min-height:24px;font-size:10px;letter-spacing:.1em}.top-net{margin-left:10px}}
+@media(max-width:400px){.net-tag i{display:none}}
 @media(max-width:440px){#topFaucet{display:none}}
 @media(max-width:400px){
   .top-brand,body[data-view=signin] .top-brand,body[data-view=play] .top-brand{font-size:22px;padding-left:max(16px,env(safe-area-inset-left,0px))}
   .top{padding-right:max(12px,env(safe-area-inset-right,0px))}
   .top-right{gap:8px}
 }
-@media(max-width:380px){.top-join span{display:none}.top-join{width:44px;justify-content:center;padding:0}}
+/* phones: Join becomes its icon (the link keeps its full accessible name) so the network badge always fits */
+@media(max-width:430px){.top-join span{display:none}.top-join{width:44px;justify-content:center;padding:0}}
 @media(max-width:359px){.top .pill em{display:none}}
 @media(prefers-reduced-motion:reduce){.acct-menu,.toast,.skel,.spin{animation:none}.toast.out{transform:none}}
+
+/* ------------------------------------------------------------ motion: one authored entrance per page change, then still */
+#main.pg-enter>*{animation:pgIn var(--dur-2) var(--ease) both}
+@keyframes pgIn{from{opacity:0;translate:0 12px}to{opacity:1;translate:0 0}}
+/* victory confetti (views/celebrate.js): a few gold and ivory pieces, once per win, never with reduced motion */
+.pl-confetti{position:fixed;height:520px;overflow:hidden;pointer-events:none;z-index:60}
+.pl-confetti i{position:absolute;top:0;width:6px;height:10px;border-radius:1px;opacity:0;animation:plFall var(--d,2.2s) cubic-bezier(.2,.6,.3,1) var(--dl,0s) 1 both}
+.pl-confetti i.dot{width:6px;height:6px;border-radius:50%}
+@keyframes plFall{0%{opacity:0;translate:0 0;rotate:0deg}8%{opacity:1}80%{opacity:1}100%{opacity:0;translate:var(--dx,0) 460px;rotate:var(--r,360deg)}}
+
+/* phones: the network badge sits under the wordmark instead of beside it, so it never competes with Join, the balance and the account */
+@media(max-width:520px){
+  .top-net{position:absolute;left:max(20px,env(safe-area-inset-left,0px));bottom:6px;margin:0;overflow:visible}
+  .top:has(.net-tag) .top-brand{align-items:flex-start;padding-top:4px}
+  .net-tag{min-height:16px;padding:0 5px;gap:5px;font-size:10px;letter-spacing:.12em}
+}
+@media(max-width:400px){.top-net{left:max(16px,env(safe-area-inset-left,0px))}}

@@ -193,13 +193,12 @@ test("GET /v1/lobbies/:code never leaks addresses or user ids", async () => {
   assert.ok(!after.toLowerCase().includes(joined.address.slice(2, 12)));
 });
 
-test("a host cannot queue, host a second lobby, or join someone else's while theirs is open", async () => {
+test("a host cannot host a second lobby, or join someone else's while theirs is open", async () => {
   const h = await boot();
   const [host, other] = [await h.player(), await h.player()];
   const mine = await mk(host);
   const theirs = await mk(other);
   await assert.rejects(mk(host), { code: "ALREADY_ACTIVE" });
-  await assert.rejects(host.client.joinQueue({ game: GAME, stake: "0" }), { code: "ALREADY_ACTIVE" });
   await assert.rejects(host.client.joinLobby(theirs.code), { code: "ALREADY_ACTIVE" });
   assert.equal((await host.client.getLobby(mine.code)).state, "open");
   assert.equal(host.bal(), 100n * mETH - STAKE, "failed attempts charged nothing");
@@ -305,16 +304,16 @@ test("a guest over their daily loss limit cannot join", async () => {
   assert.equal(g.bal(), 100n * mETH);
 });
 
-test("public queue is off unless enabled: REST and WS refuse with PUBLIC_QUEUE_DISABLED; private codes still work", async () => {
-  const h = await boot({ match: { publicQueue: false } });
+test("/v1/config advertises invite-only play: no public queue, lobby limits only", async () => {
+  const h = await boot();
+  const cfg = await fetch(`${h.url}/v1/config`).then((r) => r.json());
+  assert.equal(cfg.match.publicQueue, undefined);
+  assert.equal(cfg.match.queueTimeoutMs, undefined);
+  assert.equal(cfg.match.inviteOnly, true);
+  assert.equal(cfg.match.lobbyTtlMs, 30 * 60000);
+  assert.equal(cfg.match.lobbyMaxPlayers, 10);
   const [a, b] = [await h.player(), await h.player()];
-  await assert.rejects(a.client.joinQueue({ game: GAME, stake: "0" }), { code: "PUBLIC_QUEUE_DISABLED" });
-  await assert.rejects(a.client.api("POST", "/v1/queue", { game: GAME, stake: "0" }), { code: "PUBLIC_QUEUE_DISABLED", status: 403 });
-  assert.equal(a.bal(), 100n * mETH);
-  assert.equal((await fetch(`${h.url}/v1/config`).then((r) => r.json())).match.publicQueue, false);
-  assert.equal((await fetch(`${h.url}/v1/config`).then((r) => r.json())).match.lobbyTtlMs, 30 * 60000);
-  assert.equal((await fetch(`${h.url}/v1/config`).then((r) => r.json())).match.lobbyMaxPlayers, 10);
-  const m = await h.pair(a, b, { stake: 0, code: "friends1" });
+  const m = await h.pair(a, b, { stake: 0 });
   assert.ok(m.id);
 });
 
@@ -340,6 +339,7 @@ test("an open lobby survives a restart with its escrow and expiry; an expired on
     const w = Wallet.createRandom();
     const c = new DuelClient({ baseUrl: h2.app.url, address: w.address, sign: (m) => w.signMessage(m) });
     await c.login();
+    await c.api("POST", "/v1/me/age", { adult: true });
     h2.seq = 1000; // the harness numbers deposits from 1 and the ledger de-duplicates by that key
     h2.credit(c.me.id, 10n * mETH);
     return c;
@@ -356,18 +356,12 @@ test("an open lobby survives a restart with its escrow and expiry; an expired on
   fs.rmSync(file, { force: true }); fs.rmSync(file + "-wal", { force: true }); fs.rmSync(file + "-shm", { force: true });
 });
 
-test("lobby matches stay out of the public lobby stats and the admin audit is clean", async () => {
-  const h = await boot({ match: { lobbyCacheMs: 0 } });
+test("lobby play leaves the admin audit clean", async () => {
+  const h = await boot();
   const [host, guest] = [await h.player(), await h.player()];
   const lobby = await mk(host);
-  const l1 = await fetch(`${h.url}/v1/lobby`).then((r) => r.json());
-  assert.deepEqual(l1.games, []);
   await guest.client.joinLobby(lobby.code);
-  const l2 = await fetch(`${h.url}/v1/lobby`).then((r) => r.json());
-  assert.deepEqual(l2.games, [], "waiting guests are not queue tickets");
   await host.client.startLobby(lobby.code);
-  const l3 = await fetch(`${h.url}/v1/lobby`).then((r) => r.json());
-  assert.equal(l3.playing, 0, "a private lobby match is not counted");
   audit(h);
 });
 
@@ -551,8 +545,7 @@ test("a waiting guest sees the lobby on sync and /me, like the host", async () =
     const viaWs = await p.client.sync();
     assert.equal(viaWs.me.active.lobby.role, role);
   }
-  // a waiting guest is busy: no queueing, hosting or joining elsewhere
-  await assert.rejects(a.client.joinQueue({ game: GAME, stake: "0", code: "ABCD1234" }), { code: "ALREADY_ACTIVE" });
+  // a waiting guest is busy: no hosting or joining elsewhere
   await assert.rejects(mk(a), { code: "ALREADY_ACTIVE" });
   const other = await h.player();
   const l2 = await mk(other);

@@ -1,4 +1,4 @@
-/* Queueing, admission rules, no-shows, seed delivery, races and crash recovery. */
+/* Admission rules for staking, no-shows, seed delivery, races and crash recovery. Players meet only through invite lobbies. */
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
@@ -13,120 +13,43 @@ const boot = async (over) => { const h = await startApp(over); apps.push(h); ret
 after(async () => { for (const h of apps) await h.close().catch(() => {}); });
 
 const STAKE = mETH;
-const noMatch = (p, ms = 300) => sleep(ms).then(() => assert.equal(p.client.peek("match.found").length, 0, "should not have been matched"));
-const setRating = (h, p, game, rating) => h.app.db.run("INSERT INTO ratings (user_id, game, rating, updated_at) VALUES (?, ?, ?, 0) ON CONFLICT(user_id, game) DO UPDATE SET rating = excluded.rating", p.id, game, rating);
 const audit = (h) => assert.deepEqual(h.app.ledger.audit().problems, []);
 
 /* ------------------------------------------------------------------ who meets whom */
 
-test("only players with the same game and stake are paired", async () => {
-  const h = await boot();
-  const [a, b, c, d] = [await h.player(), await h.player(), await h.player(), await h.player()];
-  await a.client.joinQueue({ game: "reaction", stake: String(STAKE) });
-  await b.client.joinQueue({ game: "reaction", stake: String(STAKE * 2n) }); // different stake
-  await c.client.joinQueue({ game: "aim", stake: String(STAKE) }); // different game
-  await sleep(250);
-  for (const p of [a, b, c]) assert.equal(p.client.peek("match.found").length, 0);
-  await d.client.joinQueue({ game: "reaction", stake: String(STAKE) });
-  const [fa, fd] = await Promise.all([a.client.waitFor("match.found"), d.client.waitFor("match.found")]);
-  assert.equal(fa.match.id, fd.match.id);
-  assert.equal(b.client.peek("match.found").length + c.client.peek("match.found").length, 0);
-});
-
-test("the rating window starts narrow and widens with waiting, up to a cap", async () => {
-  const h = await boot({ match: { ratingBase: 50, ratingGrowthPerSec: 200, ratingMax: 500, queueTimeoutMs: 8000 } });
-  const [a, b, far] = [await h.player(), await h.player(), await h.player()];
-  setRating(h, a, "reaction", 1200); setRating(h, b, "reaction", 1500); setRating(h, far, "reaction", 2400);
-  await a.client.joinQueue({ game: "reaction", stake: String(STAKE) });
-  await b.client.joinQueue({ game: "reaction", stake: String(STAKE) });
-  await noMatch(a, 400); // 300 apart, window is only 50
-  const found = await a.client.waitFor("match.found", null, 5000); // window reaches ≥ 300 after ~2 s
-  assert.equal(found.match.opponent.ratingBefore, 1500);
-  await b.client.waitFor("match.found");
-  await a.client.forfeit(found.match.id); await sleep(50);
-
-  await far.client.joinQueue({ game: "reaction", stake: String(STAKE) });
-  const x = await h.player(); setRating(h, x, "reaction", 1200);
-  await x.client.joinQueue({ game: "reaction", stake: String(STAKE) });
-  await sleep(2600); // window is capped at 500; 2400 vs 1200 is never fair
-  assert.equal(far.client.peek("match.found").length, 0);
-});
-
-test("a private code pairs two friends of any rating, and never a stranger", async () => {
-  const h = await boot();
-  const [a, b, stranger] = [await h.player(), await h.player(), await h.player()];
-  setRating(h, a, "aim", 900); setRating(h, b, "aim", 2100);
-  await stranger.client.joinQueue({ game: "aim", stake: String(STAKE) }); // open queue, no code
-  await a.client.joinQueue({ game: "aim", stake: String(STAKE), code: "friday7" });
-  await noMatch(a);
-  await noMatch(stranger, 0);
-  await b.client.joinQueue({ game: "aim", stake: String(STAKE), code: "FRIDAY7" }); // codes are case-insensitive
-  const [fa, fb] = await Promise.all([a.client.waitFor("match.found"), b.client.waitFor("match.found")]);
-  assert.equal(fa.match.id, fb.match.id);
-  assert.equal(fa.match.private, true);
-  assert.equal(stranger.client.peek("match.found").length, 0);
-});
-
-test("one player cannot match themselves, and cannot be in two queues or matches", async () => {
+test("one player cannot be in two lobbies or matches at once, and never meets themselves", async () => {
   const h = await boot();
   const a = await h.player();
   const second = new DuelClient({ baseUrl: h.url, address: a.wallet.address, sign: (m) => a.wallet.signMessage(m) });
   second.token = a.client.token;
   await second.connect();
-  await a.client.joinQueue({ game: "aim", stake: String(STAKE) });
-  await assert.rejects(second.joinQueue({ game: "aim", stake: String(STAKE) }), { code: "ALREADY_ACTIVE" });
-  await assert.rejects(a.client.joinQueue({ game: "reaction", stake: "0" }), { code: "ALREADY_ACTIVE" });
-  await noMatch(a);
+  const { code } = await a.client.createLobby({ game: "aim", stake: String(STAKE) });
+  await assert.rejects(second.createLobby({ game: "aim", stake: String(STAKE) }), { code: "ALREADY_ACTIVE" });
+  await assert.rejects(a.client.createLobby({ game: "reaction", stake: "0" }), { code: "ALREADY_ACTIVE" });
+  await assert.rejects(a.client.joinLobby(code), { code: "LOBBY_OWN" }, "your own lobby is not an opponent");
   assert.equal(a.bal(), 100n * mETH - STAKE, "only one stake is held");
   second.close();
 });
 
-test("leaving refunds the stake; the queue times out and refunds; a dropped connection cancels the ticket", async () => {
-  const h = await boot({ match: { queueTimeoutMs: 400, disconnectQueueMs: 150 } });
-  const a = await h.player();
-  const full = a.bal();
-
-  await a.client.joinQueue({ game: "aim", stake: String(STAKE) });
-  assert.equal(a.bal(), full - STAKE);
-  await a.client.leaveQueue();
-  assert.equal(a.bal(), full);
-  await assert.rejects(a.client.leaveQueue(), { code: "NOT_QUEUED" });
-
-  await a.client.joinQueue({ game: "aim", stake: String(STAKE) });
-  await a.client.waitFor("queue.expired", null, 3000);
-  assert.equal(a.bal(), full, "expiry refunds");
-
-  const b = await h.player();
-  const fullB = b.bal();
-  await b.client.joinQueue({ game: "aim", stake: String(STAKE) });
-  b.client.close();
-  await sleep(500);
-  assert.equal(b.bal(), fullB, "a queued player who disconnects is not left holding a ghost ticket");
-  assert.equal(h.app.db.get("SELECT state FROM tickets WHERE user_id = ? ORDER BY id DESC", b.id).state, "cancelled");
-  audit(h);
-});
-
 /* ------------------------------------------------------------------ admission */
 
-test("staking is refused unless it is allowed: loss limit, funds, range, game, code", async () => {
+test("staking is refused unless it is allowed: age, loss limit, funds, range, game", async () => {
   const h = await boot();
-  const join = (p, o) => p.client.joinQueue({ game: "aim", stake: String(STAKE), ...o });
+  const host = (p, o) => p.client.createLobby({ game: "aim", stake: String(STAKE), ...o });
 
   const poor = await h.player({ fund: STAKE - 1n });
-  await assert.rejects(join(poor), { code: "INSUFFICIENT_FUNDS" });
-  assert.equal(poor.bal(), STAKE - 1n, "a refused join holds nothing");
+  await assert.rejects(host(poor), { code: "INSUFFICIENT_FUNDS" });
+  assert.equal(poor.bal(), STAKE - 1n, "a refused lobby holds nothing");
   assert.equal(h.app.db.get("SELECT COUNT(*) AS n FROM tickets WHERE user_id = ?", poor.id).n, 0);
 
   const p = await h.player();
-  await assert.rejects(join(p, { stake: "1" }), { code: "BAD_STAKE" });
-  await assert.rejects(join(p, { stake: String(ETH) }), { code: "BAD_STAKE" });
-  await assert.rejects(join(p, { stake: "1.5" }), { code: "BAD_AMOUNT" });
-  await assert.rejects(join(p, { stake: "-5" }), { code: "BAD_AMOUNT" });
-  await assert.rejects(join(p, { stake: "abc" }), { code: "BAD_AMOUNT" });
-  await assert.rejects(join(p, { game: "nope" }), { code: "UNKNOWN_GAME" });
-  await assert.rejects(join(p, { game: "chess" }), { code: "GAME_NOT_PVP" });
-  await assert.rejects(join(p, { code: "no" }), { code: "BAD_CODE" });
-  await assert.rejects(join(p, { code: "bad code!" }), { code: "BAD_CODE" });
+  await assert.rejects(host(p, { stake: "1" }), { code: "BAD_STAKE" });
+  await assert.rejects(host(p, { stake: String(ETH) }), { code: "BAD_STAKE" });
+  await assert.rejects(host(p, { stake: "1.5" }), { code: "BAD_AMOUNT" });
+  await assert.rejects(host(p, { stake: "-5" }), { code: "BAD_AMOUNT" });
+  await assert.rejects(host(p, { stake: "abc" }), { code: "BAD_AMOUNT" });
+  await assert.rejects(host(p, { game: "nope" }), { code: "UNKNOWN_GAME" });
+  await assert.rejects(host(p, { game: "chess" }), { code: "GAME_NOT_PVP" });
   assert.equal(p.bal(), 100n * mETH);
 });
 
@@ -145,19 +68,19 @@ test("the daily loss limit stops staking once losses use it up", async () => {
   const me = await a.client.api("GET", "/v1/me");
   assert.equal(me.responsible.lossToday, String(STAKE));
   assert.equal(me.responsible.lossRoom, String(STAKE / 2n));
-  await assert.rejects(a.client.joinQueue({ game: "reaction", stake: String(STAKE) }), { code: "LOSS_LIMIT", extra: { room: String(STAKE / 2n) } });
-  await a.client.joinQueue({ game: "reaction", stake: String(STAKE / 2n) }); // exactly the room left is fine
-  await a.client.leaveQueue();
-  await a.client.joinQueue({ game: "reaction", stake: "0" });
-  await a.client.leaveQueue();
+  await assert.rejects(a.client.createLobby({ game: "reaction", stake: String(STAKE) }), { code: "LOSS_LIMIT", extra: { room: String(STAKE / 2n) } });
+  const half = await a.client.createLobby({ game: "reaction", stake: String(STAKE / 2n) }); // exactly the room left is fine
+  await a.client.closeLobby(half.code);
+  const free = await a.client.createLobby({ game: "reaction", stake: "0" });
+  await a.client.closeLobby(free.code);
   const raise = await a.client.api("PUT", "/v1/me/loss-limit", { amount: String(ETH) });
   assert.equal(raise.applied, false, "raising a limit is delayed");
-  await assert.rejects(a.client.joinQueue({ game: "reaction", stake: String(STAKE) }), { code: "LOSS_LIMIT" });
+  await assert.rejects(a.client.createLobby({ game: "reaction", stake: String(STAKE) }), { code: "LOSS_LIMIT" });
 });
 
 /* ------------------------------------------------------------------ no-shows and declines */
 
-test("no-show: the match is voided, both refunded, and only the absent player gets a strike; three strikes = queue ban", async () => {
+test("no-show: the match is voided, both refunded, and only the absent player gets a strike; three strikes = a temporary ban from hosting and joining", async () => {
   const h = await boot({ match: { acceptMs: 250 } });
   const a = await h.player(), b = await h.player();
   const full = [a.bal(), b.bal()];
@@ -172,8 +95,9 @@ test("no-show: the match is voided, both refunded, and only the absent player ge
   const bRow = h.app.users.byId(b.id);
   assert.equal(bRow.strikes, 0, "the third strike resets the counter and applies the ban");
   assert.ok(bRow.queue_ban_until > Date.now());
-  await assert.rejects(b.client.joinQueue({ game: "reaction", stake: "0" }), { code: "QUEUE_BANNED" });
-  await a.client.joinQueue({ game: "reaction", stake: "0" }); // a is unaffected
+  await assert.rejects(b.client.createLobby({ game: "reaction", stake: "0" }), { code: "QUEUE_BANNED" });
+  const fine = await a.client.createLobby({ game: "reaction", stake: "0" }); // a is unaffected
+  await a.client.closeLobby(fine.code);
   audit(h);
 });
 
@@ -343,14 +267,17 @@ test("an implausibly high score is flagged for review but does not change the re
 
 /* ------------------------------------------------------------------ crash recovery */
 
-test("after a restart: queued tickets are refunded, unstarted matches voided, running matches still finish", async () => {
+test("after a restart: tickets left over from the retired public queue are refunded, unstarted matches voided, running matches still finish", async () => {
   const file = path.join(os.tmpdir(), `duel-recovery-${process.pid}-${Date.now()}.db`);
   const slow = { match: { durationScale: 0.01, graceMs: 400 } }; // darts: 100 s × 0.01 × 1.5 + 0.4 s ≈ 1.9 s deadline
   const h1 = await startApp({ dbPath: file, ...slow });
   const [q, f1, f2, r1, r2] = [await h1.player(), await h1.player(), await h1.player(), await h1.player(), await h1.player()];
   const funds = new Map([q, f1, f2, r1, r2].map((p) => [p.id, p.bal()]));
 
-  await q.client.joinQueue({ game: "aim", stake: String(STAKE) }); // stays queued
+  // a ticket as an older version (with a public queue) left it: queued, not a lobby, its stake in escrow. Nothing can ever match it now.
+  const old = Number(h1.app.db.run("INSERT INTO tickets (user_id, game, stake, code, rating, state, created_at) VALUES (?, 'aim', ?, NULL, 1200, 'queued', ?)", q.id, String(STAKE), Date.now()).lastInsertRowid);
+  h1.app.ledger.transfer(ACCT.user(q.id), ACCT.ticket(old), STAKE, { kind: "stake-hold", ref: old, uniq: `ticket-hold:${old}` });
+  assert.equal(h1.app.ledger.balance(ACCT.user(q.id)), funds.get(q.id) - STAKE);
   const found = await h1.pair(f1, f2, { game: "reaction" }); // found, nobody ready
   const running = await h1.pair(r1, r2, { game: "darts" });
   await h1.begin(r1, r2, running.id);

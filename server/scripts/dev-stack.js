@@ -7,7 +7,8 @@
      npm run dev -- --port 9000 --chain-port 9545
 
    Exported as startDevStack() so the browser tests can run the very same thing on ephemeral ports.
-   The faucet (POST /v1/dev/faucet) exists only here, only on chain ids 31337/1337, and is capped at 1 ETH per call. */
+   The faucet (POST /v1/dev/faucet) exists only here, only on chain ids 31337/1337, and is capped at 1 ETH per call.
+   The dev stack is invite-only like production: there is no public queue to switch on. */
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -51,8 +52,14 @@ export async function startDevStack({ port = 0, chainPort = 0, fresh = false, me
     devFaucet: true,
     ...overrides,
   });
-  config.match.publicQueue = overrides.match?.publicQueue ?? false; // the dev stack is invite-only unless a caller opts in
   const app = await createApp(config);
+  /* the faucet hands out money from a well-known key: it must only ever exist on a local chain (mainnet is also refused by
+     loadConfig and by WalletService.create, this is the last line) */
+  if (!app.wallet.enabled || !LOCAL_CHAINS.has(app.wallet.chain.chainId) || app.wallet.chain.meta.network !== "local") {
+    await app.stop();
+    child.kill("SIGKILL");
+    throw new Error("the dev stack and its faucet only run on a local chain");
+  }
 
   /* dev-only faucet, registered here and nowhere in the production code path.
      Sends are serialised: two simultaneous requests from one key would otherwise reuse a nonce. */

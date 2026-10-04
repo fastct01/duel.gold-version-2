@@ -7,10 +7,11 @@
 
    Accounts:
      user:<id>               spendable balance
-     escrow:ticket:<id>      stake held for a queued player
+     escrow:ticket:<id>      stake held for a player waiting in an invite lobby
      escrow:match:<id>       both stakes of a running match
      escrow:withdrawal:<id>  funds on their way out of the platform
      house:fees              collected fees
+     house:gas               withdrawal network fees collected from players (the treasury pays the gas on-chain)
      external:chain          −(net deposits): what the platform owes the chain side                            */
 import { AppError } from "./util/errors.js";
 import { big, toStr } from "./util/amounts.js";
@@ -21,6 +22,7 @@ export const ACCT = {
   match: (id) => `escrow:match:${id}`,
   withdrawal: (id) => `escrow:withdrawal:${id}`,
   house: "house:fees",
+  gas: "house:gas",
   chain: "external:chain",
 };
 
@@ -32,6 +34,7 @@ export class Ledger {
     this.now = now;
     this.ensure(ACCT.chain);
     this.ensure(ACCT.house);
+    this.ensure(ACCT.gas);
   }
 
   ensure(account) {

@@ -1,4 +1,4 @@
-/* Victory confetti for the result screen: a short burst of sparse gold pieces (styles: .pl-confetti in playful.css).
+/* Victory confetti for the result screen: a short burst of sparse gold pieces (styles: .pl-confetti in app.css).
    Plays once per match, only for a win, never with reduced motion, and cleans itself up. */
 
 const COLOURS = ["var(--gold-300)", "var(--gold-500)", "var(--gold-100)", "var(--ok)", "var(--ivory-100)"];

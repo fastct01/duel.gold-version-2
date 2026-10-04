@@ -1,16 +1,16 @@
-/* WebSocket gateway at /v1/ws — real-time transport for queueing and matches.
+/* WebSocket gateway at /v1/ws — real-time transport for invite lobbies and matches. There is no public queue.
 
    Client → server   { "type": "...", "id": <any>, ...fields }        every request may carry an `id`
    Server → client   { "type": "ack", "id", "ok": true, "result" }    reply to a request that had an id
                      { "type": "ack", "id", "ok": false, "error": { "code", "message" } }
-                     plus pushed events: hello, auth.ok, sync, queue.joined/left/expired, lobby.created/updated/closed, match.found,
+                     plus pushed events: hello, auth.ok, sync, lobby.created/updated/closed, match.found,
                      match.opponent_ready, match.start, match.opponent_progress, match.opponent_finished, match.opponent_forfeited,
                      match.result, match.void, wallet.updated
 
    The first message must be { "type": "auth", "token": "<bearer token from /v1/auth/login>" } within 5 seconds.
-   Requests: queue.join {game, stake, code?} · queue.leave · lobby.create {game, stake} · lobby.close {code?} · lobby.join {code}
-             lobby.leave {code} · lobby.start {code} · match.ready {matchId} · match.progress {matchId, score}
-             match.submit {matchId, score, detail?} · match.forfeit {matchId} · sync · ping                           */
+   Requests: lobby.create {game, stake} · lobby.close {code?} · lobby.join {code} · lobby.leave {code} · lobby.start {code}
+             match.ready {matchId} · match.progress {matchId, score} · match.submit {matchId, score, detail?}
+             match.forfeit {matchId} · sync · ping       Anything else is refused with UNKNOWN_TYPE.                  */
 import crypto from "node:crypto";
 import { WebSocketServer } from "ws";
 import { AppError } from "../util/errors.js";
@@ -37,9 +37,6 @@ export class Gateway {
     this.heartbeat = setInterval(() => this.#beat(), HEARTBEAT_MS);
     this.heartbeat.unref?.();
   }
-
-  /* signed-in players with at least one open socket (distinct users, not sockets); cheap, it is just a Map size */
-  onlineCount() { return this.byUser.size; }
 
   #upgrade(req, socket, head) {
     const url = new URL(req.url, "http://x");
@@ -92,10 +89,7 @@ export class Gateway {
     const set = this.byUser.get(conn.userId);
     if (set) {
       set.delete(conn);
-      if (!set.size) {
-        this.byUser.delete(conn.userId);
-        this.matches.userDisconnected(conn.userId);
-      }
+      if (!set.size) this.byUser.delete(conn.userId);
     }
   }
 
@@ -144,7 +138,6 @@ export class Gateway {
     conn.token = token;
     set.add(conn);
     this.byUser.set(user.id, set);
-    this.matches.userConnected(user.id);
     reply(true, { userId: user.id, connectionId: conn.id });
     this.#raw(conn, { type: "sync", me: this.meView(user) });
   }
@@ -155,8 +148,6 @@ export class Gateway {
     switch (msg.type) {
       case "ping": return { t: msg.t ?? null, serverTime: this.now() };
       case "sync": return { me: this.meView(this.auth.users.require(uid)) };
-      case "queue.join": return m.join(uid, { game: msg.game, stake: msg.stake, code: msg.code });
-      case "queue.leave": return m.leave(uid);
       case "lobby.create": return { lobby: m.createLobby(uid, { game: msg.game, stake: msg.stake }) };
       case "lobby.close": return { lobby: m.closeLobby(uid, msg.code) };
       case "lobby.join": return m.joinLobby(uid, msg.code); // { lobby } or, when this join filled the lobby, { lobby, match }

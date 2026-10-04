@@ -236,7 +236,7 @@ test("3 players, one forfeits: the match goes on, the others are told, and it se
   // forfeiting again is harmless and silent; the forfeiter cannot submit; they stay in the match until it ends
   assert.deepEqual(await g[1].client.forfeit(m.id), { matchId: m.id, state: "playing" });
   await assert.rejects(g[1].client.submit(m.id, 9999), { code: "FORFEITED" });
-  await assert.rejects(g[1].client.joinQueue({ game: GAME, stake: "0" }), { code: "ALREADY_ACTIVE" });
+  await assert.rejects(g[1].client.createLobby({ game: GAME, stake: "0" }), { code: "ALREADY_ACTIVE" });
   await sleep(40);
   assert.equal(g[0].client.peek("match.opponent_forfeited").length, 0, "the second forfeit was not announced again");
 
@@ -441,14 +441,14 @@ test("a 2-player lobby match is exactly a 1v1: same money, same ±12, `opponent`
   conserved(h, g);
 });
 
-test("the public queue still pairs exactly two players and reports them in `players`", async () => {
+test("a two-player lobby match reports exactly two players in `players`", async () => {
   const h = await boot();
   const [a, b, c] = await crew(h, 3);
   const m = await h.pair(a, b);
   assert.equal(m.a.playerCount, 2);
   assert.deepEqual(m.a.players.map((p) => [p.seat, p.name, p.you]), [[0, nm(0), true], [1, nm(1), false]]);
   assert.deepEqual(m.b.players.map((p) => [p.seat, p.you]), [[0, false], [1, true]]);
-  assert.equal(m.a.private, false);
+  assert.equal(m.a.private, true, "every match comes from an invite lobby");
   await h.begin(a, b, m.id);
   await a.client.submit(m.id, 2);
   await b.client.submit(m.id, 1);

@@ -1,9 +1,11 @@
-/* Player-vs-player matches (race games).
+/* Player-vs-player matches (race games). INVITE-ONLY: there is no public matchmaking, no queue and no way to search for or
+   challenge a player. The only way two players meet is a lobby code (or the link that carries it).
 
-   Life of a match (2 players from the public queue, 2 to lobbyMaxPlayers from an invite lobby; seats 0..N-1)
-     queue     join() puts the stake in escrow:ticket:<id> and the player in a bucket (game + stake [+ private code]).
-     found     compatible tickets are paired: stakes move to escrow:match:<id>. Every player must call ready()
-               within acceptMs, otherwise the match is voided, everyone is refunded and no-shows get a strike.
+   Life of a match (2 to lobbyMaxPlayers players from an invite lobby; seats 0..N-1)
+     lobby     createLobby() puts the host's stake in escrow:ticket:<id>; each guest's joinLobby() escrows theirs likewise.
+     found     the host starts the lobby (or it is full): every member's ticket moves into one match, stakes go to
+               escrow:match:<id>. Every player must call ready() within acceptMs, otherwise the match is voided, everyone is
+               refunded and no-shows get a strike.
      playing   when all are ready the server draws the seed, and sends it — once, to the socket that said ready — with a
                start time a few seconds ahead. Each player plays the identical seeded challenge locally and calls submit().
      settled   see matches/standings.js. Highest score among those who did not forfeit wins; tied winners split the payout;
@@ -11,18 +13,18 @@
                forfeits wins; no scores at all → void, refunds. The pot minus the fee (10%) is shared between the winners,
                and the fee plus any wei that did not divide evenly goes to house:fees.
 
-   Invite-only lobbies reuse the ticket machinery: a lobby is the host's escrowed ticket (escrow:ticket:<id>) carrying a
-   server-generated invite code (tickets.lobby_code) that is never put in a matching bucket. A guest's join escrows the
-   guest's stake in their own ticket (tickets.lobby_ticket_id → the host's ticket) and only adds them to the roster.
-   The host starts the match (or the lobby starts itself when it reaches lobbyMaxPlayers): then every member's ticket goes
-   through the same #createMatch as the queue, host first. Leaving, closing and expiry refund the stakes held in tickets.
+   A lobby is the host's escrowed ticket (escrow:ticket:<id>) carrying a server-generated invite code (tickets.lobby_code).
+   A guest's join escrows the guest's stake in their own ticket (tickets.lobby_ticket_id → the host's ticket) and only adds
+   them to the roster. The host starts the match (or the lobby starts itself when it reaches lobbyMaxPlayers): then every
+   member's ticket goes through #createMatch, host first. Leaving, closing and expiry refund the stakes held in tickets.
+   (A ticket's stored state 'queued' means "waiting in an open lobby"; the word is kept so existing databases stay valid.)
 
    Every transition is a compare-and-set on the match state inside a DB transaction together with its ledger movement, so
    a timer, a submit and a forfeit racing each other can settle a match only once and can never create or lose money.
 
    Trust model: the server picks the seed and the clock, but the SCORE is reported by the player's own client. A modified
    client can lie. Mitigations here are the once-only seed delivery, hard deadlines, sanity bounds, and an advisory flag
-   when a score is far above what the strongest bot manages on that seed. Real-money play would need server-side replay.  */
+   when a score is far above what the strongest bot manages on that seed. Real-money play needs server-side replay.      */
 import crypto from "node:crypto";
 import { AppError, bad, conflict, forbidden, notFound } from "../util/errors.js";
 import { ACCT } from "../ledger.js";
@@ -30,7 +32,6 @@ import { big, parseWei, splitPot, toStr } from "../util/amounts.js";
 import { shortAddress } from "../util/address.js";
 import { START_RATING, pairwiseDeltas } from "./elo.js";
 import { decide, placesOf, standings } from "./standings.js";
-import { bucketKey, findPartner } from "./queue.js";
 
 const CODE_RE = /^[A-Za-z0-9]{4,16}$/;
 const LOBBY_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0 O 1 I L
@@ -42,35 +43,30 @@ const MAX_DETAIL = 2000;
 export class MatchService {
   constructor({ db, ledger, users, responsible, catalog, cfg, log, hub, now = () => Date.now() }) {
     Object.assign(this, { db, ledger, users, responsible, catalog, cfg, log, hub, now });
-    this.tickets = new Map(); // id -> ticket (queued only)
-    this.buckets = new Map(); // bucket key -> ticket[]
-    this.busy = new Map(); // userId -> { kind: 'ticket' | 'lobby' | 'match', id } (lobby: id = the host's ticket, + role, ticketId)
+    this.tickets = new Map(); // id -> ticket (open lobbies only: the host's and every waiting guest's)
+    this.busy = new Map(); // userId -> { kind: 'lobby' | 'match', id } (lobby: id = the host's ticket, + role, ticketId)
     this.timers = new Map();
     this.progressAt = new Map();
     this.readyConn = new Map(); // `${matchId}:${seat}` -> connection id that said ready
-    this.pairTimer = null;
     this.pendingFlags = new Set();
-    this.lobbyCache = null; // { at, playing, recent }
   }
 
   /* ------------------------------------------------------------ lifecycle */
 
   start() {
     this.recover();
-    this.pairTimer = setInterval(() => this.#sweep(), this.cfg.match.pairIntervalMs);
-    this.pairTimer.unref?.();
   }
 
   stop() {
-    if (this.pairTimer) clearInterval(this.pairTimer);
-    this.pairTimer = null;
     for (const t of this.timers.values()) clearTimeout(t);
     this.timers.clear();
   }
 
-  /* After a restart: queue tickets are gone (refund them), matches that never started are voided, running matches get
-     their deadline timer back. Money is never stranded because escrow is in the ledger, not in memory. */
+  /* After a restart: open lobbies are restored, matches that never started are voided, running matches get their deadline
+     timer back. Money is never stranded because escrow is in the ledger, not in memory. */
   recover() {
+    /* A ticket that is neither a lobby nor in one can only be left over from a database written when a public queue existed
+       (tickets that sat in a queue). Nothing can ever match it now, so its stake goes back instead of staying in escrow. */
     for (const t of this.db.all("SELECT * FROM tickets WHERE state = 'queued' AND lobby_code IS NULL AND lobby_ticket_id IS NULL")) {
       this.#cancelTicketRow(t, "cancelled");
     }
@@ -138,47 +134,7 @@ export class MatchService {
       .map((r, i) => ({ rank: i + 1, player: this.users.publicView({ id: r.user_id, display_name: r.display_name, address: r.address }), rating: r.rating, wins: r.wins, losses: r.losses, draws: r.draws }));
   }
 
-  /* ------------------------------------------------------------ public lobby */
-
-  /* Anonymous, aggregate-only view of live activity for GET /v1/lobby. Private-code tickets and matches are left out
-     entirely, and nothing identifies a waiting player. `recent` shows only the winner's public display name.
-     Queue counts come straight from memory; the two SQL reads (running matches, last results) are cached briefly
-     because every lobby client polls this every few seconds. */
-  lobby(online = 0) {
-    const t = this.now();
-    const ttl = this.cfg.match.lobbyCacheMs;
-    if (!this.lobbyCache || t - this.lobbyCache.at >= ttl || t < this.lobbyCache.at) {
-      const playing = this.db.all("SELECT game, COUNT(*) AS n FROM matches WHERE state IN ('found', 'playing') AND code IS NULL GROUP BY game");
-      const recent = this.db.all(
-        `SELECT m.id, m.game, m.stake, m.pot, m.outcome, m.settled_at, u.display_name
-           FROM matches m
-           LEFT JOIN match_players mp ON mp.match_id = m.id AND mp.seat = m.winner_seat
-           LEFT JOIN users u ON u.id = mp.user_id
-          WHERE m.state = 'settled' AND m.outcome IN ('win', 'draw') AND m.code IS NULL
-          ORDER BY m.id DESC LIMIT 8`)
-        .map((r) => ({ id: r.id, game: r.game, stake: r.stake, pot: r.pot, winner: r.outcome === "win" && r.display_name ? { name: r.display_name } : null, result: r.outcome, endedAt: r.settled_at }));
-      this.lobbyCache = { at: t, playing, recent };
-    }
-    const by = new Map(); // game -> { waiting, playing, stakes: Map<stake, waiting> }
-    const row = (game) => { let g = by.get(game); if (!g) by.set(game, g = { game, waiting: 0, playing: 0, stakes: new Map() }); return g; };
-    for (const tk of this.tickets.values()) {
-      if (tk.code) continue;
-      const g = row(tk.game), k = toStr(tk.stake);
-      g.waiting++;
-      g.stakes.set(k, (g.stakes.get(k) || 0) + 1);
-    }
-    let playing = 0;
-    for (const p of this.lobbyCache.playing) { row(p.game).playing = p.n; playing += p.n; }
-    const games = [...by.values()]
-      .sort((a, b) => b.waiting - a.waiting || b.playing - a.playing || (a.game < b.game ? -1 : 1))
-      .map((g) => ({
-        game: g.game, waiting: g.waiting, playing: g.playing,
-        stakes: [...g.stakes].map(([stake, waiting]) => ({ stake, waiting })).sort((a, b) => (BigInt(a.stake) < BigInt(b.stake) ? -1 : 1)),
-      }));
-    return { at: t, online, playing, games, recent: this.lobbyCache.recent };
-  }
-
-  /* ------------------------------------------------------------ queue */
+  /* ------------------------------------------------------------ admission */
 
   #parseGameStake(game, stake) {
     const g = this.catalog.get(game);
@@ -192,90 +148,19 @@ export class MatchService {
     return { g, stakeWei };
   }
 
-  /* account-level gates shared by queueing, hosting and joining */
+  /* account-level gates shared by hosting and joining */
   #assertMayPlay(userId) {
     const user = this.users.require(userId);
     if (user.banned) throw forbidden("ACCOUNT_BANNED", "This account is suspended.");
     if (user.queue_ban_until > this.now()) throw new AppError("QUEUE_BANNED", "You skipped too many matches. Try again shortly.", 403, { until: user.queue_ban_until });
     if (this.busy.has(userId)) {
       const b = this.busy.get(userId);
-      throw conflict("ALREADY_ACTIVE", b.kind === "lobby" ? (b.role === "guest" ? "Leave the lobby you joined first." : "Close your open lobby first.") : "Finish or leave your current queue, lobby or match first.");
+      throw conflict("ALREADY_ACTIVE", b.kind === "lobby" ? (b.role === "guest" ? "Leave the lobby you joined first." : "Close your open lobby first.") : "Finish or leave your current lobby or match first.");
     }
     return user;
   }
 
-  join(userId, { game, stake, code } = {}) {
-    const hasCode = code != null && code !== "";
-    if (!hasCode && !this.cfg.match.publicQueue) throw forbidden("PUBLIC_QUEUE_DISABLED", "Random matchmaking is switched off. Create a lobby and invite a friend instead.");
-    const { stakeWei } = this.#parseGameStake(game, stake);
-    let privateCode = null;
-    if (code != null && code !== "") {
-      if (typeof code !== "string" || !CODE_RE.test(code)) throw bad("BAD_CODE", "A private-match code is 4–16 letters or numbers.");
-      privateCode = code.toUpperCase();
-    }
-    this.#assertMayPlay(userId);
-    this.responsible.assertCanStake(userId, stakeWei, 0n);
-
-    const rating = this.rating(userId, game);
-    const ticket = this.db.tx(() => {
-      const id = Number(this.db.run("INSERT INTO tickets (user_id, game, stake, code, rating, state, created_at) VALUES (?, ?, ?, ?, ?, 'queued', ?)",
-        userId, game, toStr(stakeWei), privateCode, rating, this.now()).lastInsertRowid);
-      if (stakeWei > 0n) this.ledger.transfer(ACCT.user(userId), ACCT.ticket(id), stakeWei, { kind: "stake-hold", ref: id, uniq: `ticket-hold:${id}` });
-      return { id, userId, game, stake: stakeWei, code: privateCode, rating, at: this.now() };
-    });
-
-    this.tickets.set(ticket.id, ticket);
-    const key = bucketKey(ticket);
-    ticket.key = key;
-    if (!this.buckets.has(key)) this.buckets.set(key, []);
-    this.buckets.get(key).push(ticket);
-    this.busy.set(userId, { kind: "ticket", id: ticket.id });
-    this.#arm(`expire:${ticket.id}`, this.cfg.match.queueTimeoutMs, () => this.#cancelTicket(ticket.id, "expired"));
-
-    const view = this.#ticketView(ticket);
-    this.hub.notify(userId, { type: "queue.joined", ticket: view });
-    this.hub.notify(userId, { type: "wallet.updated", reason: "stake-held" });
-    this.#tryPair(ticket);
-    return view;
-  }
-
-  leave(userId) {
-    const b = this.busy.get(userId);
-    if (!b || b.kind !== "ticket") throw conflict("NOT_QUEUED", "You are not in a queue.");
-    this.#cancelTicket(b.id, "cancelled");
-    return { left: true };
-  }
-
-  #ticketView(t) {
-    return {
-      id: t.id, game: t.game, stake: toStr(t.stake), code: t.code, rating: t.rating, since: t.at,
-      expiresAt: t.at + this.cfg.match.queueTimeoutMs,
-    };
-  }
-
-  #dequeue(t) {
-    this.tickets.delete(t.id);
-    const list = this.buckets.get(t.key);
-    if (list) {
-      const i = list.indexOf(t);
-      if (i >= 0) list.splice(i, 1);
-      if (!list.length) this.buckets.delete(t.key);
-    }
-    this.#disarm(`expire:${t.id}`);
-  }
-
-  #cancelTicket(ticketId, state) {
-    const t = this.tickets.get(ticketId);
-    const row = this.db.get("SELECT * FROM tickets WHERE id = ?", ticketId);
-    if (!row || row.state !== "queued") return;
-    this.#cancelTicketRow(row, state);
-    if (t) this.#dequeue(t);
-    this.busy.delete(row.user_id);
-    this.hub.notify(row.user_id, { type: state === "expired" ? "queue.expired" : "queue.left", ticketId });
-    this.hub.notify(row.user_id, { type: "wallet.updated", reason: "stake-released" });
-  }
-
-  /* DB half of cancelling: state change + refund in one transaction */
+  /* DB half of cancelling a ticket (lobby host or guest): state change + refund in one transaction */
   #cancelTicketRow(row, state) {
     this.db.tx(() => {
       const c = this.db.run("UPDATE tickets SET state = ?, closed_at = ? WHERE id = ? AND state = 'queued'", state, this.now(), row.id).changes;
@@ -283,20 +168,6 @@ export class MatchService {
       const stake = big(row.stake);
       if (stake > 0n) this.ledger.transfer(ACCT.ticket(row.id), ACCT.user(row.user_id), stake, { kind: "stake-release", ref: row.id, uniq: `ticket-release:${row.id}` });
     });
-  }
-
-  #tryPair(ticket) {
-    if (!this.tickets.has(ticket.id)) return;
-    const others = this.buckets.get(ticket.key) || [];
-    const partner = findPartner(ticket, others, this.now(), this.cfg.match);
-    if (partner) this.#createMatch(partner.at <= ticket.at ? [partner, ticket] : [ticket, partner]);
-  }
-
-  /* windows widen with time, so re-check every waiting ticket periodically */
-  #sweep() {
-    for (const list of [...this.buckets.values()]) {
-      for (const t of [...list]) if (this.tickets.has(t.id)) this.#tryPair(t);
-    }
   }
 
   /* ------------------------------------------------------------ invite-only lobbies */
@@ -318,7 +189,7 @@ export class MatchService {
 
   /* in-memory form of a ticket row */
   #ticketOf(r) {
-    return { id: r.id, userId: r.user_id, game: r.game, stake: big(r.stake), code: r.code, lobbyCode: r.lobby_code, rating: r.rating, at: r.created_at, key: null };
+    return { id: r.id, userId: r.user_id, game: r.game, stake: big(r.stake), code: r.code, lobbyCode: r.lobby_code, rating: r.rating, at: r.created_at };
   }
 
   /* Everyone in a lobby, the host first, then guests in join order. Members are the host's ticket plus the guest tickets
@@ -383,9 +254,9 @@ export class MatchService {
       const id = Number(this.db.run("INSERT INTO tickets (user_id, game, stake, code, lobby_code, rating, state, created_at) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?)",
         userId, game, toStr(stakeWei), code, code, rating, at).lastInsertRowid);
       if (stakeWei > 0n) this.ledger.transfer(ACCT.user(userId), ACCT.ticket(id), stakeWei, { kind: "stake-hold", ref: id, uniq: `ticket-hold:${id}` });
-      return { id, userId, game, stake: stakeWei, code, lobbyCode: code, rating, at, key: null };
+      return { id, userId, game, stake: stakeWei, code, lobbyCode: code, rating, at };
     });
-    /* in the ticket map (stakeAtRisk, sync) but deliberately never in a bucket, so nobody can be auto-paired into it */
+    /* in the ticket map (stakeAtRisk, sync): the only way into this lobby is its code */
     this.tickets.set(ticket.id, ticket);
     this.busy.set(userId, { kind: "lobby", id: ticket.id, ticketId: ticket.id, role: "host" });
     this.#arm(`expire:${ticket.id}`, this.cfg.match.lobbyTtlMs, () => this.#closeLobbyTicket(ticket.id, "expired"));
@@ -461,7 +332,7 @@ export class MatchService {
       const id = Number(this.db.run("INSERT INTO tickets (user_id, game, stake, code, lobby_ticket_id, rating, state, created_at) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?)",
         userId, row.game, toStr(stakeWei), row.lobby_code, row.id, rating, this.now()).lastInsertRowid);
       if (stakeWei > 0n) this.ledger.transfer(ACCT.user(userId), ACCT.ticket(id), stakeWei, { kind: "stake-hold", ref: id, uniq: `ticket-hold:${id}` });
-      return { id, userId, game: row.game, stake: stakeWei, code: row.lobby_code, lobbyCode: null, rating, at: this.now(), key: null };
+      return { id, userId, game: row.game, stake: stakeWei, code: row.lobby_code, lobbyCode: null, rating, at: this.now() };
     });
     this.tickets.set(guest.id, guest);
     this.busy.set(userId, { kind: "lobby", id: row.id, ticketId: guest.id, role: "guest" });
@@ -506,6 +377,7 @@ export class MatchService {
     const row = this.#lobbyRow(code);
     if (!row) throw new AppError("LOBBY_NOT_FOUND", "This invite link is not valid.", 404);
     if (row.user_id !== userId) throw forbidden("LOBBY_NOT_HOST", "Only the host can start this lobby.");
+    this.responsible.assertAdult(userId, big(row.stake)); // staked lobbies need the 18+ attestation here too
     if (row.state !== "queued" || !this.tickets.has(row.id)) throw conflict("LOBBY_CLOSED", row.state === "matched" ? "This lobby has already started." : "This lobby is no longer open.");
     const count = this.#lobbyMembers(row).length;
     if (count < LOBBY_MIN_PLAYERS) throw conflict("LOBBY_NOT_ENOUGH_PLAYERS", "Wait for at least one more player before starting.", { minPlayers: LOBBY_MIN_PLAYERS, playerCount: count });
@@ -538,7 +410,8 @@ export class MatchService {
       return id;
     });
     for (const t of tickets) {
-      this.#dequeue(t);
+      this.tickets.delete(t.id);
+      this.#disarm(`expire:${t.id}`);
       this.busy.set(t.userId, { kind: "match", id: mid });
     }
     this.#arm(`ready:${mid}`, this.cfg.match.acceptMs, () => this.#readyTimeout(mid));
@@ -828,18 +701,6 @@ export class MatchService {
         WHERE mp.flag IS NOT NULL ORDER BY mp.match_id DESC LIMIT ?`, limit);
   }
 
-  /* ------------------------------------------------------------ connection hooks (from the gateway) */
-
-  userDisconnected(userId) {
-    const b = this.busy.get(userId);
-    if (!b || b.kind !== "ticket") return; // running matches carry on: the deadline decides
-    this.#arm(`disc:${userId}`, this.cfg.match.disconnectQueueMs, () => {
-      const cur = this.busy.get(userId);
-      if (cur && cur.kind === "ticket") this.#cancelTicket(cur.id, "cancelled");
-    });
-  }
-  userConnected(userId) { this.#disarm(`disc:${userId}`); }
-
   /* ------------------------------------------------------------ reads */
 
   #players(matchId) {
@@ -899,10 +760,6 @@ export class MatchService {
   sync(userId) {
     const b = this.busy.get(userId);
     if (!b) return { active: null };
-    if (b.kind === "ticket") {
-      const t = this.tickets.get(b.id);
-      return { active: t ? { kind: "queue", ticket: this.#ticketView(t) } : null };
-    }
     if (b.kind === "lobby") {
       const row = this.db.get("SELECT * FROM tickets WHERE id = ?", b.id);
       return { active: row ? { kind: "lobby", lobby: this.#lobbyView(row, userId) } : null };
@@ -912,11 +769,11 @@ export class MatchService {
 
   active(userId) { return this.busy.get(userId) || null; }
 
-  /* the stake this player currently has in escrow (queued ticket or unfinished match) */
+  /* the stake this player currently has in escrow (their ticket in an open lobby, or an unfinished match) */
   stakeAtRisk(userId) {
     const b = this.busy.get(userId);
     if (!b) return 0n;
-    if (b.kind === "ticket" || b.kind === "lobby") { const t = this.tickets.get(b.ticketId ?? b.id); return t ? t.stake : 0n; }
+    if (b.kind === "lobby") { const t = this.tickets.get(b.ticketId ?? b.id); return t ? t.stake : 0n; }
     return big(this.db.get("SELECT stake FROM matches WHERE id = ?", b.id).stake);
   }
 

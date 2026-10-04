@@ -1,7 +1,7 @@
 /* One game's page (views/gamelobby.js). Prefix: .gl-
    Also holds the small kit the practice screens reuse (views/practice.js): .gl-label .gl-btn .gl-chip .gl-seg .gl-back .gl-dot.
    Editorial: a hero plate with the game's art as a quiet picture, hairline-ruled sections with the heading in a narrow left column,
-   a rail on wide screens that holds the one solid gold button (Create lobby). Colours, type and spacing come from /play/tokens.css.
+   a rail on wide screens that holds the one solid gold button (Create lobby). Colours, type and spacing come from /game/core/base.css.
    Local custom properties (defined here, built from tokens): --gl-gap (space between major blocks). */
 
 /* ---- kit */
@@ -23,25 +23,6 @@
 .gl-back:hover span::after,.gl-back:focus-visible span::after{transform:scaleX(1)}
 
 /* buttons: rectangular, uppercase, tracked. Primary = solid gold (one per view), line = gold outline, quiet = hairline */
-.gl-btn{display:inline-flex;align-items:center;justify-content:center;gap:12px;min-height:48px;padding:0 28px;border:1px solid transparent;border-radius:var(--radius-1);background:transparent;cursor:pointer;text-decoration:none;text-align:center;
-  font:600 13px/1.25 var(--font-body);letter-spacing:.16em;text-transform:uppercase;color:var(--ivory-100);
-  transition:background-color var(--dur-1) var(--ease),border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
-.gl-btn .ico{width:18px;height:18px;flex:none;stroke-width:1.6}
-.gl-btn.block{display:flex;width:100%}
-.gl-btn.primary{background:var(--gold-500);border-color:var(--gold-500);color:var(--ink-950)}
-.gl-btn.primary:hover:not(:disabled){background:var(--gold-300);border-color:var(--gold-300)}
-.gl-btn.primary:active:not(:disabled){background:var(--gold-600);border-color:var(--gold-600)}
-.gl-btn.line{border-color:var(--gold-500);color:var(--gold-500)}
-.gl-btn.line:hover:not(:disabled){border-color:var(--gold-300);color:var(--gold-300)}
-.gl-btn.quiet{border-color:var(--ink-600);color:var(--stone-400)}
-.gl-btn.quiet:hover:not(:disabled){border-color:var(--stone-400);color:var(--ivory-100)}
-.gl-btn:disabled{opacity:.4;cursor:not-allowed}
-
-/* chips and the stake chips the lobby helper renders (.lb-chip): hairline; the selected one gets a gold hairline and gold text */
-.gl-chip,.gl-page .lb-chip{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0 18px;border:1px solid var(--ink-600);border-radius:var(--radius-1);background:transparent;box-shadow:none;cursor:pointer;
-  font:500 14px/1 var(--font-body);letter-spacing:.02em;color:var(--stone-400);transition:border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
-.gl-chip:hover,.gl-page .lb-chip:hover{border-color:var(--stone-400);color:var(--ivory-100)}
-.gl-chip[aria-pressed=true],.gl-page .lb-chip[aria-pressed=true]{border-color:var(--gold-500);background:transparent;color:var(--gold-300)}
 .gl-seg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 
 .gl-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--ok);flex:none}
