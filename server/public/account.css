@@ -1,0 +1,156 @@
+/* Account pages: wallet, history, leaderboard, settings (views/account.js). Editorial rows and hairlines; the section frame (.sec) is in app.css. */
+
+/* ---- ledger band: the figures a page opens with. Serif numerals, uppercase labels, hairlines above and below. */
+.ledger{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,1fr);border-top:1px solid var(--hair-gold);border-bottom:1px solid var(--hair)}
+.ledger:has(+ .sec){border-bottom:0}
+.ledger-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.ledger-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.ledger .dg-stat{display:grid;align-content:start;gap:0;padding:var(--sp-32) var(--sp-24) var(--sp-32) var(--sp-32);background:none;border:0;border-radius:0}
+.ledger .dg-stat:first-child{padding-left:0}
+.ledger .dg-stat:last-child{padding-right:0}
+.ledger .dg-stat+.dg-stat{border-left:1px solid var(--hair)}
+.stat-v{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px;margin-top:var(--sp-12);min-width:0}
+.ledger .dg-stat b{margin:0;font-weight:400;font-size:clamp(36px,2vw + 22px,52px);line-height:1;letter-spacing:-.01em;overflow-wrap:anywhere}
+.ledger-3 .dg-stat:first-child b{font-size:clamp(44px,3.4vw + 20px,76px)}
+.ledger .dg-stat b i{font-style:normal;color:var(--stone-400);margin:0 .12em}
+.unit{font:500 12px/1.3 var(--font-body);letter-spacing:.1em;text-transform:uppercase;color:var(--stone-400)}
+.hs-skel{height:72px;width:100%}
+
+/* ---- forms inside sections */
+.inline-form{display:flex;gap:12px;align-items:stretch}
+.inline-form input{flex:1 1 0;min-width:0}
+.inline-form .dg-btn{flex:none}
+.form-stack{display:flex;flex-direction:column;align-items:stretch;gap:0}
+.form-stack>*+*{margin-top:12px}
+.form-stack>.err:empty{min-height:0;margin-top:0}
+.form-stack:has(.err:not(:empty)) input{border-color:var(--danger)}
+form[data-name-form]:has(.err:not(:empty)) #nameHint{display:none}
+.notes{list-style:none;margin:0;padding:0;display:grid;gap:10px;color:var(--stone-400);font-size:14px;line-height:1.55;max-width:62ch}
+.notes li{position:relative;padding-left:24px}
+.notes li::before{content:"";position:absolute;left:0;top:.8em;width:12px;height:1px;background:var(--gold-600)}
+.dep-acts{display:flex;flex-wrap:wrap;gap:12px}
+#wdHint .dg-mono{white-space:nowrap}
+
+/* ---- wallet rows */
+.sec-b .list .row:first-child{padding-top:0}
+.sec-b .list .row:last-child{padding-bottom:0}
+.wd-row{align-items:center}
+.wd-main{display:grid;gap:2px;min-width:0}
+.wd-main b{font-weight:500;font-size:18px;letter-spacing:-.005em}
+.wd-side{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+
+/* ---- history: an editorial table, uppercase heads, hairline rows, tabular numerals */
+.hist-wrap{container-type:inline-size;display:grid;min-width:0}
+.hist-head,.hrow{display:grid;grid-template-columns:minmax(0,2.4fr) 110px 130px minmax(0,1.3fr) 90px;gap:4px 24px;align-items:center}
+.hist-head{padding:0 0 var(--sp-12);border-bottom:1px solid var(--hair-gold)}
+.hist-head .r{text-align:right}
+.hist{list-style:none;margin:0;padding:0;display:grid}
+.hrow{grid-template-areas:"who res score net when" "proof proof proof proof proof";padding:var(--sp-24) 0;border-top:1px solid var(--hair)}
+.hrow:first-child,.hrow-skel:first-child{border-top:0}
+.hrow-skel{padding:var(--sp-24) 0;border-top:1px solid var(--hair)}
+.hrow-skel .skel{height:64px}
+.h-who{grid-area:who;display:flex;gap:16px;align-items:center;min-width:0}
+.h-who div{display:grid;min-width:0}
+.h-who b{font-weight:500;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:374px){.h-who b{white-space:normal}}
+.h-who .sub{overflow-wrap:anywhere}
+.h-tag{display:inline-block;margin-left:6px;padding:2px 6px;border-radius:var(--radius-1);border:1px solid var(--hair-strong);font:500 10.5px/1.2 var(--font-body);letter-spacing:.12em;text-transform:uppercase;vertical-align:1px;white-space:nowrap}
+.h-ava{flex:none;line-height:0;border-radius:50%;border:1px solid var(--hair-strong);background:var(--ink-800)}
+.h-ava .ava{border-radius:50%}
+.h-res{grid-area:res}
+.h-score{grid-area:score;display:flex;align-items:baseline;gap:8px;font-size:17px}
+.h-score b{font-weight:500}
+.h-score i{font-style:normal;font:500 11px/1 var(--font-body);letter-spacing:.12em;text-transform:uppercase;color:var(--stone-400)}
+.h-score span{color:var(--stone-400)}
+.h-net{grid-area:net;display:grid;gap:1px;min-width:0}
+.h-net b{font-weight:500;font-size:16px}
+.h-when{grid-area:when;text-align:right;white-space:nowrap}
+.h-proof{grid-area:proof;font-size:12.5px;color:var(--stone-400);overflow-wrap:anywhere;padding-left:54px;margin-top:2px}
+
+/* ---- leaderboard */
+.board{display:grid;gap:var(--sp-24)}
+.board-top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px 32px;flex-wrap:wrap}
+.board-top h2{margin:0}
+.board-pick{min-width:min(100%,280px)}
+.you-strip{display:flex;align-items:baseline;gap:6px 20px;flex-wrap:wrap;padding:var(--sp-16) 0;border-top:1px solid var(--hair-gold);border-bottom:1px solid var(--hair)}
+.you-strip b{font-family:var(--font-display);font-weight:500;font-size:34px;line-height:1;color:var(--gold-500);font-variant-numeric:lining-nums tabular-nums}
+.lboard-head,.lrow{display:grid;grid-template-columns:56px 36px minmax(0,1fr) 120px 96px;gap:16px;align-items:center}
+.lboard-head{padding:0 0 var(--sp-12);border-bottom:1px solid var(--hair-gold)}
+.lboard-head .r{text-align:right}
+.lboard-head{margin-bottom:calc(-1 * var(--sp-24))}
+.lboard{list-style:none;margin:0;padding:0}
+.lrow{position:relative;padding:var(--sp-16) 0;border-top:1px solid var(--hair)}
+.lrow:first-child{border-top:0}
+.l-rank{font-family:var(--font-display);font-weight:500;font-size:30px;line-height:1;color:var(--ivory-100);font-variant-numeric:lining-nums tabular-nums}
+.lrow.r1 .l-rank{color:var(--gold-500)}
+.l-ava{line-height:0;border-radius:50%;border:1px solid var(--hair-strong);background:var(--ink-800)}
+.l-ava .ava{border-radius:50%}
+.l-name{display:grid;min-width:0}
+.l-name b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.l-name .sub{font-size:12px;overflow:hidden;text-overflow:ellipsis}
+.l-rec{text-align:left}
+.l-rating{text-align:right;font-family:var(--font-display);font-weight:500;font-size:28px;line-height:1;color:var(--ivory-100);font-variant-numeric:lining-nums tabular-nums}
+.lrow.me::before{content:"";position:absolute;left:-14px;top:12px;bottom:12px;width:2px;background:var(--gold-500)}
+.you-tag{margin-left:8px;padding:3px 6px;border:1px solid var(--gold-600);border-radius:var(--radius-1);font:500 10.5px/1 var(--font-body);font-style:normal;letter-spacing:.12em;text-transform:uppercase;color:var(--gold-300);vertical-align:2px}
+
+/* ---- settings */
+.meter-bar{height:4px;background:var(--ink-800);overflow:hidden}
+.meter-bar i{display:block;height:100%;background:var(--ok);transition:width var(--dur-2) var(--ease)}
+.meter-bar i.high{background:var(--gold-300)}
+.meter-bar i.full{background:var(--danger)}
+.acct-card{display:flex;align-items:center;gap:18px}
+.acct-card div{display:grid;gap:2px;min-width:0}
+.acct-card b{font-family:var(--font-display);font-weight:500;font-size:30px;line-height:1.1;overflow-wrap:anywhere;font-variant-numeric:lining-nums}
+
+/* empty states: plain text under a hairline, no box */
+.acc-empty{margin:0;padding:var(--sp-32) 0 0;border-top:1px solid var(--hair);font-size:15px;line-height:1.6;color:var(--stone-400);max-width:62ch}
+.acc-empty a{color:var(--gold-300);text-decoration:underline;text-decoration-color:var(--hair-gold);text-underline-offset:3px;transition:text-decoration-color var(--dur-1) var(--ease)}
+.acc-empty a:hover{text-decoration-color:var(--gold-300)}
+
+/* ---- widths */
+@media(max-width:899px){
+  .ledger-4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ledger-4 .dg-stat:nth-child(3){border-left:0;padding-left:0}
+  .ledger-4 .dg-stat:nth-child(n+3){border-top:1px solid var(--hair)}
+}
+@media(max-width:700px){
+  .inline-form{flex-wrap:wrap}
+  .inline-form input{flex-basis:100%}
+  .inline-form .dg-btn{flex:1 1 0}
+  .lboard-head,.lrow{grid-template-columns:36px 36px minmax(0,1fr) 72px;gap:12px}
+  .lboard-head .rec,.l-rec{display:none}
+  .l-rank{font-size:26px}
+  .l-rating{font-size:24px}
+  .lrow.me::before{left:-12px}
+  .acct-card b{font-size:26px}
+}
+@media(max-width:640px){
+  .ledger{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ledger-3 .dg-stat:first-child{grid-column:1/-1;padding-bottom:var(--sp-24)}
+  .ledger-3 .dg-stat:nth-child(2){border-left:0;padding-left:0;border-top:1px solid var(--hair)}
+  .ledger-3 .dg-stat:nth-child(3){border-top:1px solid var(--hair)}
+  .ledger .dg-stat{padding-block:var(--sp-24)}
+  .ledger .dg-stat b{font-size:34px}
+  .ledger .stat-v{flex-direction:column;align-items:flex-start;gap:6px}
+  .ledger-3 .dg-stat:first-child .stat-v{flex-direction:row;align-items:baseline;gap:12px}
+  .ledger-3 .dg-stat:first-child b{font-size:52px}
+  .dep-acts .dg-btn{flex:1 1 100%}
+  .wd-main b{font-size:17px}
+}
+/* the history row stacks by the list's own width (the sidebar rail eats into it at tablet widths) */
+@container (max-width:660px){
+  .hist-head{display:none}
+  .hrow{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"who res" "score net" "proof when";gap:10px 16px;padding:var(--sp-24) 0}
+  .h-res{justify-self:end}
+  .h-net{text-align:right;justify-items:end}
+  .h-when{text-align:right}
+  .h-proof{font-size:12px;padding-left:0}
+  .hrow-skel .skel{height:118px}
+}
+@media(max-width:400px){
+  .ledger .dg-stat{padding-left:var(--sp-16)}
+  .ledger .dg-stat:first-child,.ledger-3 .dg-stat:nth-child(2){padding-left:0}
+  .ledger .dg-stat b{font-size:30px}
+  .hs-skel{height:60px}
+}
+@media(prefers-reduced-motion:reduce){.meter-bar i{transition:none}}

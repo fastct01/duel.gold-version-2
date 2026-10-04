@@ -1,0 +1,349 @@
+/* Lobby, game library, tournaments and the join page, in the gold design system (tokens.css).
+   Everything is scoped under .lb-* / .jn-*. Other views (game page, practice, waiting room) reuse the shared pieces defined
+   here: .lb-card .lb-btn .lb-link-btn .lb-chip(s) .lb-find .lb-fav .lb-meters .lb-eyebrow .lb-label .lb-title
+   .lb-muted .lb-hint .lb-err .lb-empty .lb-pulse .lb-custom .lb-stakel .lb-go-note .lb-sr.
+   The lobby's game picker (the 3D carousel) is in carousel.css.
+   Local tokens (all built from tokens.css): --lb-r card corner, --lb-in recessed surface, --lb-bg card surface, --lb-hit minimum
+   touch target, --lb-text2 body text one step below ivory, --lb-h1 large page title. */
+:root{
+  --lb-r:var(--radius-2);
+  --lb-in:var(--ink-950);
+  --lb-bg:var(--ink-900);
+  --lb-hit:44px;
+  --lb-text2:color-mix(in srgb,var(--ivory-100) 82%,var(--ink-900));
+  --lb-h1:clamp(38px,3.6vw + 14px,60px);
+}
+.lb-page,.lb-lib,.lb-tour,.jn-page{min-width:0}
+/* Cormorant's default figures are old-style: every serif element here shows lining figures (scores, "2048", the balance) */
+.lb-title,.lb-card-head h2,.lb-card-head h3,.lb-sn,.lb-sel-name,.lb-howp-h,.lb-howp-rules li::before,.lb-open-t h2,.lb-open-t h3,.lb-rank,.lb-gname,.lb-tour-n,.lb-tour-h,.jn-h{font-variant-numeric:lining-nums}
+
+/* ------------------------------------------------------------ type */
+.lb-eyebrow,.lb-label{margin:0;font-family:var(--font-body);font-size:var(--fs-12);font-weight:500;line-height:1.4;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
+.lb-label small{margin-left:6px;font-size:inherit;font-weight:400;letter-spacing:var(--label-track);color:var(--stone-400)}
+.lb-title{margin:0;font-family:var(--font-display);font-weight:400;font-size:var(--fs-40);line-height:1.08;letter-spacing:-.015em;color:var(--ivory-100);text-wrap:balance}
+.lb-title-xl{font-size:var(--lb-h1);letter-spacing:-.02em;line-height:1.04}
+.lb-lede{margin:0;max-width:56ch;font-size:var(--fs-16);line-height:1.65;color:var(--lb-text2);text-wrap:pretty}
+.lb-muted,.lb-hint{margin:0;font-size:var(--fs-14);line-height:1.6;color:var(--stone-400);text-wrap:pretty}
+.lb-muted{font-size:15px;max-width:62ch}
+.lb-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.lb-err{min-height:0}.lb-err:empty{display:none}
+.lb-empty{margin:0;font-size:var(--fs-14);color:var(--stone-400);text-wrap:pretty}
+.lb-empty b{color:var(--ivory-100);font-weight:500}.lb-empty.sm{font-size:var(--fs-14)}
+.lb-warn{display:block;margin-top:var(--sp-4);color:var(--gold-300)}
+.dg-mono.win,.lb-terms b.win{color:var(--gold-300)}
+
+/* ------------------------------------------------------------ surfaces */
+.lb-card{position:relative;isolation:isolate;min-width:0;display:grid;grid-template-columns:minmax(0,1fr);gap:var(--sp-24);align-content:start;
+  padding:var(--sp-32);border-radius:var(--lb-r);background:var(--lb-bg);border:1px solid var(--hair)}
+.lb-card-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-12);flex-wrap:wrap}
+.lb-card-head h2,.lb-card-head h3{margin:0;font-family:var(--font-display);font-weight:500;font-size:24px;line-height:1.1;letter-spacing:-.005em;color:var(--ivory-100)}
+@media(max-width:720px){.lb-card{padding:var(--sp-24) 20px;gap:20px}}
+
+/* ------------------------------------------------------------ buttons, chips, links */
+.lb-row{display:flex;gap:var(--sp-12) var(--sp-16);flex-wrap:wrap;align-items:center}
+.lb-btn,.lb-link-btn,.lb-how,.lb-surprise,.lb-find,.lb-duel{font-family:var(--font-body);font-size:var(--fs-12);font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;text-decoration:none;
+  transition:border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease),background-color var(--dur-1) var(--ease),text-decoration-color var(--dur-1) var(--ease)}
+.lb-btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:var(--lb-hit);padding:10px 20px;border-radius:var(--radius-1);background:transparent;border:1px solid var(--hair-strong);color:var(--ivory-100);cursor:pointer}
+.lb-btn .ico,.lb-link-btn .ico,.lb-find .ico,.lb-duel .ico{width:16px;height:16px;flex:none;stroke-width:1.6}
+.lb-btn:hover:not(:disabled){border-color:var(--stone-400)}
+.lb-btn.gold{border-color:var(--gold-500);color:var(--gold-500)}
+.lb-btn.gold:hover:not(:disabled){border-color:var(--gold-300);color:var(--gold-300);background:var(--gold-soft)}
+.lb-btn.primary{background:var(--gold-500);border-color:var(--gold-500);color:var(--ink-950);font-weight:600}
+.lb-btn.primary:hover:not(:disabled){background:var(--gold-300);border-color:var(--gold-300)}
+.lb-btn:disabled{opacity:.45;cursor:not-allowed}
+/* quiet text button: gold label, the underline fades in */
+.lb-link-btn,.lb-how,.lb-surprise{display:inline-flex;align-items:center;gap:8px;min-height:var(--lb-hit);padding:0;background:none;border:0;border-radius:var(--radius-1);color:var(--gold-500);cursor:pointer;
+  text-decoration:underline;text-decoration-color:transparent;text-decoration-thickness:1px;text-underline-offset:.55em}
+.lb-link-btn:hover,.lb-how:hover,.lb-surprise:hover{color:var(--gold-300);text-decoration-color:currentColor}
+.lb-card-head .lb-link-btn{min-height:var(--lb-hit);margin:-12px 0}
+.lb-chip-s{padding:4px 10px;border:1px solid var(--hair-strong);border-radius:var(--radius-1);font-size:11px;font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400);white-space:nowrap}
+
+/* chips: stake amounts, categories, practice levels. Selected = gold hairline + gold text */
+.lb-chip,.lb-cat{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:var(--lb-hit);padding:0 16px;border-radius:var(--radius-1);background:transparent;
+  border:1px solid var(--hair-strong);color:var(--stone-400);font-family:var(--font-body);font-size:var(--fs-12);font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;white-space:nowrap;cursor:pointer;
+  transition:border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
+.lb-chip{font-size:13px;letter-spacing:.1em}
+.lb-cat .ico{width:14px;height:14px;flex:none}
+.lb-chip:hover,.lb-cat:hover{color:var(--ivory-100);border-color:var(--stone-400)}
+.lb-chip[aria-pressed=true],.lb-cat[aria-pressed=true]{border-color:var(--gold-500);color:var(--gold-500)}
+.lb-cats{display:flex;gap:var(--sp-8);flex-wrap:wrap;min-width:0}
+.lb-chips{display:grid;grid-template-columns:repeat(auto-fit,minmax(72px,1fr));gap:var(--sp-8);min-width:0}
+.lb-chip{min-width:0;padding:0 8px}
+
+/* ------------------------------------------------------------ inputs */
+.lb-card input[type=text],.lb-card input[type=search]{width:100%;min-width:0;min-height:var(--lb-hit);padding:8px 16px;background:var(--lb-in);color:var(--ivory-100);border:1px solid var(--hair-strong);border-radius:var(--radius-1);
+  font:inherit;font-size:var(--fs-16);box-shadow:none;transition:border-color var(--dur-1) var(--ease)}
+.lb-card input::placeholder{color:color-mix(in srgb,var(--stone-400) 80%,var(--ink-950));opacity:1}
+.lb-card input:hover{border-color:var(--stone-400)}
+.lb-card input:focus,.lb-card input:focus-visible{outline:none;border-color:var(--gold-500);box-shadow:none} /* focus = the field's own border turns gold */
+.lb-custom{display:grid;gap:var(--sp-8)}
+.lb-custom label{font-size:var(--fs-14);color:var(--stone-400)}
+
+/* ------------------------------------------------------------ meters (skill / luck) */
+.lb-meters{display:grid;gap:var(--sp-8)}
+.lb-card .meter{display:grid;grid-template-columns:44px minmax(0,1fr) 18px;gap:var(--sp-12);align-items:center;font-size:11px;font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
+.lb-card .meter b{text-align:right;font-size:13px;font-weight:500;letter-spacing:0;color:var(--ivory-100)}
+.lb-card .segs{display:grid;grid-template-columns:repeat(10,1fr);gap:3px}
+.lb-card .segs i{height:3px;border-radius:0;background:var(--ink-600);box-shadow:none}
+.lb-card .meter.skill .segs i.on{background:var(--gold-500);box-shadow:none}
+.lb-card .meter.luck .segs i.on{background:var(--stone-400)}
+
+/* status dot: a calm sage dot, a slow fade, no glow */
+.lb-pulse{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none;animation:lbPulse 2.4s ease-in-out infinite}
+.lb-pulse.off{background:var(--ink-600);animation:none}.lb-pulse.sm{width:6px;height:6px}
+@keyframes lbPulse{50%{opacity:.35}}
+
+/* ============================================================ LOBBY PAGE */
+/* top to bottom: the open-lobby card (when there is one), the stage (heading, categories, carousel: carousel.css), then the setup card
+   (details, stake, Create lobby) beside the account rail. The stage takes the whole page width; the rail never sits next to it. */
+.lb-page{display:grid;gap:var(--sp-48);grid-template-columns:minmax(0,1fr);align-items:start}
+.lb-below,.lb-rail{display:grid;gap:var(--sp-32);min-width:0}
+.lb-rail{gap:var(--sp-24)}
+.lb-below{grid-template-columns:minmax(0,1fr);align-items:start}
+@media(min-width:1100px){.lb-below{grid-template-columns:minmax(0,1fr) 320px;column-gap:var(--sp-64)}.lb-rail{position:sticky;top:calc(var(--top-h,68px) + 20px)}}
+
+/* ---- the stage's header: left-aligned title block, a quiet Surprise me on the right (the category row and the carousel are in carousel.css) */
+.lb-hero{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--sp-24);min-width:0}
+.lb-hero>*{min-width:0}
+.lb-hero:focus{outline:none}.lb-hero:focus-visible{outline:1px solid var(--gold-500);outline-offset:8px}
+.lb-hero-head{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:var(--sp-8) var(--sp-24)}
+.lb-hero-t{display:grid;gap:var(--sp-12);min-width:0}
+.lb-hero .lb-title{font-size:var(--fs-40)}
+.lb-hero-head .lb-surprise{margin-bottom:-6px}
+@media(max-width:560px){.lb-hero{gap:var(--sp-16)}.lb-hero-head{flex-wrap:nowrap;align-items:flex-end}.lb-hero-t{flex:1 1 auto}.lb-hero-head .lb-surprise{flex:none}}
+
+/* ---- the setup card under the stage */
+.lb-setup{padding:var(--sp-32) var(--sp-48);gap:var(--sp-24)}
+.lb-setup:focus{outline:none}.lb-setup:focus-visible{outline:1px solid var(--gold-500);outline-offset:4px}
+@media(max-width:900px){.lb-setup{padding:var(--sp-32)}}
+@media(max-width:720px){.lb-setup{padding:var(--sp-24) 20px;gap:24px}}
+
+/* the three steps: hairline numerals joined by a hairline rule */
+.lb-steps{list-style:none;margin:-8px 0 0;padding:0;display:flex;flex-wrap:nowrap;align-items:center;justify-content:flex-start;font-size:var(--fs-12)}
+.lb-steps li{display:flex;align-items:center;gap:var(--sp-12);font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;white-space:nowrap;color:var(--stone-400)}
+.lb-steps li+li::before{content:"";display:block;flex:none;width:clamp(20px,5vw,56px);height:1px;margin:0 var(--sp-16);background:var(--hair-strong)}
+.lb-sn{flex:none;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--hair-gold);font-family:var(--font-display);font-size:16px;font-weight:500;line-height:1;letter-spacing:0;color:var(--gold-500)}
+@media(max-width:560px){
+  .lb-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--sp-12);align-items:start}
+  .lb-steps li{flex-direction:column;align-items:flex-start;gap:var(--sp-8);white-space:normal;line-height:1.5}
+  .lb-steps li+li::before{display:none}
+}
+
+/* ---- selected game: text on the page, a thin gold rule on its left */
+.lb-sel{display:grid;gap:var(--sp-16) var(--sp-32);padding:2px 0 2px var(--sp-24);border-left:1px solid var(--hair-gold)}
+.lb-sel-empty{font-size:var(--fs-14);color:var(--stone-400)}
+@media(min-width:700px){.lb-sel:not(.lb-sel-empty){grid-template-columns:minmax(0,1fr) 230px;align-items:start}}
+.lb-sel-l,.lb-sel-r{display:grid;gap:var(--sp-8);min-width:0;align-content:start}
+.lb-sel-r{gap:var(--sp-12)}
+.lb-sel-line{margin:0;display:flex;gap:var(--sp-4) var(--sp-16);align-items:baseline;flex-wrap:wrap}
+.lb-sel-kind{flex:0 0 100%}
+.lb-sel-name{margin:0;font-family:var(--font-display);font-weight:500;font-size:var(--fs-28);line-height:1.1;letter-spacing:-.01em;color:var(--ivory-100)}
+.lb-sel-meta{font-size:var(--fs-12);font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
+.lb-sel-meta b{margin-left:4px;font-size:14px;font-weight:500;letter-spacing:0;color:var(--gold-500)}
+.lb-sel-blurb{margin:0;font-size:var(--fs-16);line-height:1.6;color:var(--lb-text2);text-wrap:pretty}
+@media(min-width:700px){.lb-sel-blurb{min-height:calc(2 * 1.6em)}}
+.lb-sel-r .lb-how{justify-self:start}
+
+/* "How to play": the panel opens in place; Try out is a gold outline (the primary stays Create) */
+/* the +/− sits out of flow so the hover underline stays under the words only */
+.lb-how{position:relative;padding-right:18px}
+.lb-how::after{content:"+";position:absolute;right:0;top:50%;transform:translateY(-50%);font-size:15px;line-height:1;letter-spacing:0}
+.lb-how[aria-expanded=true]::after{content:"\2212"}
+.lb-sel-open{grid-template-columns:minmax(0,1fr)!important;gap:var(--sp-16)}
+.lb-sel-top{display:flex;justify-content:space-between;align-items:baseline;gap:var(--sp-16);flex-wrap:wrap}
+.lb-howp{display:grid;gap:var(--sp-24);animation:lbHowIn var(--dur-1) var(--ease)}
+@keyframes lbHowIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.lb-howp-blurb{margin:0;max-width:62ch;font-size:var(--fs-16);line-height:1.6;color:var(--lb-text2);text-wrap:pretty}
+.lb-facts{margin:0;display:flex;flex-wrap:wrap;gap:var(--sp-16) var(--sp-48)}
+.lb-facts div{display:grid;gap:var(--sp-4)}
+.lb-facts dt{font-size:11px;font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
+.lb-facts dd{margin:0;font-size:var(--fs-16);color:var(--ivory-100)}
+.lb-sel-open .lb-meters{max-width:300px}
+.lb-howp-h{margin:0;padding-top:var(--sp-24);border-top:1px solid var(--hair);font-family:var(--font-display);font-weight:500;font-size:var(--fs-20);line-height:1.2;color:var(--ivory-100)}
+.lb-howp-rules{margin:0;padding:0;list-style:none;counter-reset:lbr;display:grid;gap:var(--sp-12);max-width:62ch;font-size:15px;line-height:1.6;color:var(--lb-text2)}
+.lb-howp-rules li{counter-increment:lbr;display:grid;grid-template-columns:28px minmax(0,1fr);gap:var(--sp-8);text-wrap:pretty}
+.lb-howp-rules li::before{content:counter(lbr);font-family:var(--font-display);font-size:19px;font-weight:500;line-height:1.3;color:var(--gold-500)}
+.lb-howp-act{display:flex;align-items:center;gap:var(--sp-12) var(--sp-24);flex-wrap:wrap}
+
+/* ---- stake, terms, create */
+.lb-stakerow{display:grid;gap:var(--sp-12);align-items:stretch;min-width:0}
+.lb-stakel{color:var(--ivory-100)}
+.lb-stakel small{color:var(--stone-400)}
+.lb-terms{margin:0;font-size:var(--fs-14);line-height:1.6;color:var(--stone-400);text-wrap:pretty}
+.lb-terms b{color:var(--ivory-100);font-weight:500}
+#lbCalc{display:grid}
+.lb-note{padding:12px 16px;border-radius:var(--radius-1);font-size:var(--fs-14);line-height:1.5}
+.lb-note.bad{color:var(--danger);border:1px solid color-mix(in srgb,var(--danger) 45%,transparent)}
+.lb-go{display:grid;gap:var(--sp-16);justify-items:start;padding-top:var(--sp-8)}
+/* the one primary action: solid gold, dark uppercase label */
+.lb-find{display:flex;align-items:center;justify-content:center;gap:var(--sp-16);width:100%;min-height:56px;padding:12px 28px;border-radius:var(--radius-1);background:var(--gold-500);border:1px solid var(--gold-500);color:var(--ink-950);cursor:pointer}
+.lb-find-t{display:grid;gap:0;text-align:left;min-width:0}
+.lb-find-t b{font-family:var(--font-body);font-size:13px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;line-height:1.3}
+.lb-find-t small{font-size:12px;font-weight:500;letter-spacing:.04em;text-transform:none;line-height:1.3}
+.lb-find:hover:not(:disabled){background:var(--gold-300);border-color:var(--gold-300)}
+.lb-find:disabled{opacity:.4;cursor:not-allowed}
+.lb-go .lb-find{width:auto;min-width:min(100%,320px)}
+@media(max-width:560px){.lb-go{justify-items:stretch}.lb-go .lb-find{width:100%}}
+.lb-go-note{margin:0;font-size:var(--fs-14);line-height:1.5;color:var(--gold-300)}
+/* the destructive secondary (.lb-cancel) is styled in app.css; here it lines up with the primary above it */
+.lb-go .lb-cancel{width:auto;min-width:min(100%,320px)}
+@media(max-width:560px){.lb-go .lb-cancel{width:100%}}
+
+/* ---- the host's open lobby */
+.lb-open{padding:var(--sp-24) var(--sp-32);gap:0;border-color:var(--hair-gold)}
+.lb-open-in{display:flex;align-items:center;gap:var(--sp-16) var(--sp-24);flex-wrap:wrap}
+.lb-open-t{flex:1 1 260px;min-width:0;display:grid;gap:var(--sp-4)}
+.lb-open-t h2,.lb-open-t h3{margin:0;font-family:var(--font-display);font-weight:500;font-size:var(--fs-28);line-height:1.1;letter-spacing:-.005em;color:var(--ivory-100);overflow-wrap:anywhere;text-wrap:balance}
+.lb-open-t h2 span,.lb-open-t h3 span{font-family:var(--font-body);font-size:var(--fs-14);font-weight:400;letter-spacing:.04em;color:var(--gold-500)}
+.lb-open-sub{margin:0;font-size:var(--fs-14);line-height:1.5;color:var(--stone-400)}.lb-open-sub b{color:var(--ivory-100);font-weight:500}
+@media(max-width:560px){.lb-open{padding:20px}.lb-open-in .lb-btn{width:100%}}
+
+/* ---- rail */
+.lb-rail .lb-card{padding:var(--sp-24);gap:var(--sp-16)}
+.lb-bal{display:grid;gap:var(--sp-4)}
+.lb-bal-l{font-size:var(--fs-12);font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
+.lb-bal-n{display:flex;align-items:baseline;gap:var(--sp-12);flex-wrap:wrap;min-width:0}
+.lb-bal b{font-family:var(--font-display);font-weight:400;font-size:clamp(44px,4vw,56px);line-height:1;letter-spacing:-.01em;font-variant-numeric:lining-nums tabular-nums;color:var(--ivory-100);overflow-wrap:anywhere}
+.lb-bal-u{font-size:var(--fs-12);font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--gold-500)}
+.lb-bal-sub{display:flex;gap:var(--sp-8) var(--sp-24);flex-wrap:wrap;padding:var(--sp-12) 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);font-size:var(--fs-14);color:var(--stone-400)}
+.lb-bal-sub b{margin-left:4px;font-weight:500;color:var(--ivory-100)}
+.lb-wallet .lb-row{display:grid;justify-items:start;gap:var(--sp-4)}
+.lb-wallet .lb-btn{width:100%}
+.lb-pills{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.lb-pill{width:32px;height:32px;border-radius:var(--radius-1);display:grid;place-items:center;font-size:var(--fs-12);font-weight:600;letter-spacing:.06em;background:none;border:1px solid var(--hair-strong);color:var(--stone-400)}
+.lb-pill.win{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 55%,transparent)}
+.lb-pill.loss{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 55%,transparent)}
+.lb-streak{margin-left:var(--sp-8);font-size:11px;font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
+.lb-streak.win{color:var(--ok)}
+.lb-form-list{list-style:none;margin:0;padding:0}
+.lb-form-list li{display:flex;justify-content:space-between;align-items:baseline;gap:var(--sp-12);padding:var(--sp-12) 0;border-top:1px solid var(--hair);font-size:var(--fs-14)}
+.lb-form-vs{min-width:0;overflow-wrap:anywhere;color:var(--ivory-100)}.lb-form-vs em{font-style:normal;color:var(--stone-400)}
+.lb-d{white-space:nowrap}.lb-d.win{color:var(--ok)}.lb-d.loss{color:var(--danger)}.lb-d.draw{color:var(--stone-400)}
+.lb-top{list-style:none;margin:0;padding:0;display:grid}
+.lb-top li{display:flex;align-items:center;gap:var(--sp-12);padding:var(--sp-12) 0;border-top:1px solid var(--hair)}
+.lb-top li.you .lb-top-name{color:var(--gold-500)}
+.lb-top .ava{flex:none}.lb-top-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-14)}
+.lb-top-name em{font-style:normal;font-size:11px;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--gold-500);margin-left:var(--sp-4)}
+.lb-rank{width:22px;text-align:center;font-family:var(--font-display);font-size:18px;color:var(--stone-400)}.lb-rank.r1{color:var(--gold-500)}
+/* the limits line: a hairline note, not a box with a fill */
+.lb-play{background:none;gap:var(--sp-12)}
+.lb-play-in{display:flex;gap:var(--sp-12);align-items:flex-start}
+.lb-play-in .ico{width:20px;height:20px;flex:none;margin-top:2px;color:var(--gold-500);stroke-width:1.5}
+.lb-play-in p{margin:0;font-size:var(--fs-14);line-height:1.6;color:var(--stone-400)}.lb-play-in b{color:var(--ivory-100);font-weight:500}
+.lb-play .lb-link-btn{justify-self:start;min-height:var(--lb-hit);margin:-8px 0 -12px 32px}
+
+/* ============================================================ GAME LIBRARY */
+.lb-lib{display:grid;gap:var(--sp-32)}
+.lb-lib-head{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--sp-24);align-items:end;padding-bottom:var(--sp-32);border-bottom:1px solid var(--hair)}
+.lb-lib-t{display:grid;gap:var(--sp-12)}
+@media(min-width:780px){.lb-lib-head{grid-template-columns:minmax(0,1fr) minmax(260px,360px);column-gap:var(--sp-64)}}
+.lb-search{position:relative;min-width:0}
+.lb-search .ico{position:absolute;left:16px;top:50%;transform:translateY(-50%);width:18px;height:18px;color:var(--stone-400);pointer-events:none;stroke-width:1.5}
+.lb-search input[type=search]{width:100%;min-height:52px;padding:8px 16px 8px 46px;background:var(--lb-bg);color:var(--ivory-100);border:1px solid var(--hair-strong);border-radius:var(--radius-1);font:inherit;font-size:var(--fs-16);box-shadow:none;-webkit-appearance:none;appearance:none}
+.lb-search input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
+.lb-search input:focus,.lb-search input:focus-visible{outline:none;border-color:var(--gold-500);box-shadow:none}
+.lb-grid{display:grid;gap:var(--sp-24);grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr))}
+.lb-grid .lb-empty{grid-column:1/-1;padding:var(--sp-32) 0}
+.lb-gcard{display:flex;flex-direction:column;gap:var(--sp-12);padding:var(--sp-24);cursor:pointer;transition:border-color var(--dur-1) var(--ease)}
+.lb-gcard-top{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--sp-8);margin:calc(var(--sp-8) * -1) calc(var(--sp-8) * -1) calc(var(--sp-4) * -1) 0}
+.lb-gcard-top .lb-eyebrow{padding-top:var(--sp-8);min-width:0}
+.lb-fav{width:var(--lb-hit);height:var(--lb-hit);display:grid;place-items:center;flex:none;padding:0;border-radius:var(--radius-1);background:var(--lb-bg);border:1px solid var(--hair);color:var(--stone-400);cursor:pointer;
+  transition:border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
+.lb-fav .ico{width:18px;height:18px;stroke-width:1.5}.lb-fav:hover{color:var(--gold-300);border-color:var(--hair-gold)}
+.lb-fav[aria-pressed=true]{color:var(--gold-500);border-color:var(--hair-gold)}.lb-fav[aria-pressed=true] .ico{fill:currentColor}
+.lb-gname{margin:0;font-family:var(--font-display);font-weight:500;font-size:var(--fs-28);line-height:1.1;letter-spacing:-.01em;color:var(--ivory-100);overflow-wrap:anywhere;text-wrap:balance;transition:color var(--dur-1) var(--ease)}
+.lb-gblurb{margin:0;font-size:15px;line-height:1.6;color:var(--lb-text2);text-wrap:pretty}
+@media(min-width:700px){.lb-gblurb{min-height:calc(3 * 1.6em)}}
+.lb-gcard .lb-meters{margin-top:var(--sp-8)}
+.lb-gmeta{font-size:var(--fs-12);font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
+.lb-gmeta b{margin-left:4px;font-size:14px;letter-spacing:0;color:var(--gold-500);font-weight:500}
+/* "Check out": a quiet footer link under a hairline; the link's ::after covers the whole card, the star sits above it */
+.lb-duel{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-12);min-height:56px;margin-top:auto;border-top:1px solid var(--hair);color:var(--gold-500);
+  text-decoration:underline;text-decoration-color:transparent;text-decoration-thickness:1px;text-underline-offset:.55em}
+.lb-gcard{margin-top:0}
+.lb-gcard .lb-meters+.lb-gmeta{padding-bottom:var(--sp-8)}
+.lb-gcard-link::after{content:"";position:absolute;inset:0;z-index:1;border-radius:inherit}
+.lb-gcard .lb-fav{position:relative;z-index:2}
+.lb-gcard:focus-within{border-color:var(--hair-gold)}
+.lb-gcard-link:focus{outline:none}
+.lb-gcard-link:focus-visible{outline:1px solid var(--gold-500);outline-offset:-4px}
+@media(hover:hover){.lb-gcard:hover{border-color:var(--hair-gold)}
+  .lb-gcard:hover .lb-gname{color:var(--gold-300)}
+  .lb-gcard:hover .lb-duel{color:var(--gold-300);text-decoration-color:currentColor}}
+
+/* game art (gameart.js / gameart.css): the user's own illustrations as a quiet picture behind the card, top right, faded out
+   before the blurb so grey text never sits on a bright shape. No accent glow: the colour comes from the art itself. */
+.lb-gcard>.gart.lb-gart{z-index:-1;inset:0;width:auto;height:auto;display:block;border-radius:inherit;overflow:hidden;background:none;-webkit-mask-image:none;mask-image:none}
+.lb-gart .gart-svg{position:absolute;top:-12px;right:-2px;width:auto;height:136px;max-height:none;aspect-ratio:168/140;opacity:.5;
+  -webkit-mask-image:linear-gradient(180deg,#000 38%,transparent 92%),linear-gradient(90deg,transparent 2%,#000 40%);-webkit-mask-composite:source-in;
+  mask-image:linear-gradient(180deg,#000 38%,transparent 92%),linear-gradient(90deg,transparent 2%,#000 40%);mask-composite:intersect;transition:opacity var(--dur-2) var(--ease)}
+.lb-gcard:focus-within .lb-gart .gart-svg{opacity:.7}
+@media(hover:hover){.lb-gcard:hover .lb-gart .gart-svg{opacity:.7}}
+
+/* ============================================================ TOURNAMENTS (upcoming) */
+.lb-tour{display:grid;gap:var(--sp-48) var(--sp-64);grid-template-columns:minmax(0,1fr);align-items:start;padding-top:var(--sp-16)}
+.lb-tour-head{display:grid;gap:var(--sp-16);align-content:start}
+.lb-tour-head .lb-title-xl{position:relative;padding-bottom:var(--sp-24)}
+.lb-tour-head .lb-title-xl::after{content:"";position:absolute;left:0;bottom:0;width:56px;height:1px;background:var(--gold-500)}
+.lb-tour-list{list-style:none;margin:0;padding:0;border-bottom:1px solid var(--hair)}
+.lb-tour-item{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--sp-8) var(--sp-24);padding:var(--sp-32) 0;border-top:1px solid var(--hair)}
+.lb-tour-n{padding-top:6px;font-family:var(--font-display);font-size:var(--fs-20);font-weight:500;line-height:1;letter-spacing:.04em;color:var(--gold-500)}
+.lb-tour-b{display:grid;gap:var(--sp-8);min-width:0;grid-column:2}
+.lb-tour-h{margin:0;font-family:var(--font-display);font-weight:400;font-size:var(--fs-40);line-height:1.08;letter-spacing:-.015em;color:var(--ivory-100)}
+.lb-tour-meta{margin:0;font-size:var(--fs-12);font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
+.lb-tour-p{margin:var(--sp-4) 0 0;max-width:56ch;font-size:var(--fs-16);line-height:1.65;color:var(--lb-text2);text-wrap:pretty}
+.lb-soon{grid-column:2;justify-self:start;margin-top:var(--sp-8);padding:4px 10px;border:1px solid var(--hair-strong);border-radius:var(--radius-1);font-size:11px;font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400);white-space:nowrap}
+.lb-tour-cta{display:grid;gap:var(--sp-16);justify-items:start;align-content:start}
+.lb-tour-cta .lb-muted{color:var(--lb-text2)}
+@media(min-width:960px){
+  .lb-tour{grid-template-columns:minmax(0,5fr) minmax(0,7fr);grid-template-areas:"head list" "cta list";grid-template-rows:auto 1fr}
+  .lb-tour-head{grid-area:head}.lb-tour-list{grid-area:list;border-top:0}.lb-tour-cta{grid-area:cta}
+  .lb-tour-list .lb-tour-item:first-child{border-top:1px solid var(--hair)}
+  .lb-tour-item{grid-template-columns:auto minmax(0,1fr) auto;align-items:start}
+  .lb-tour-b{grid-column:2}.lb-soon{grid-column:3;grid-row:1;margin-top:6px}
+}
+@media(max-width:959px){.lb-tour-head .lb-title-xl{padding-bottom:var(--sp-16)}.lb-tour-cta{padding-bottom:var(--sp-16)}}
+@media(max-width:560px){.lb-tour-h{font-size:var(--fs-28)}.lb-tour-item{padding:var(--sp-24) 0;grid-template-columns:auto minmax(0,1fr);gap:var(--sp-8) var(--sp-16)}}
+
+/* ============================================================ JOIN PAGE */
+.jn-page{display:grid;gap:var(--sp-32);grid-template-columns:minmax(0,1fr);padding-top:var(--sp-16);align-items:start}
+@media(min-width:960px){.jn-page{grid-template-columns:minmax(0,7fr) minmax(0,5fr);column-gap:var(--sp-64)}.jn-note{grid-column:1/-1}}
+.jn-card{padding:var(--sp-48);gap:var(--sp-24)}
+@media(max-width:720px){.jn-card{padding:var(--sp-24) 20px}}
+.jn-row{display:flex;gap:var(--sp-12);min-width:0;margin-top:var(--sp-8)}
+.lb-card .jn-row input{flex:1 1 auto;min-width:0;min-height:60px;font-family:var(--font-body);font-size:24px;font-weight:400;letter-spacing:.28em;text-transform:uppercase;text-align:center;padding:8px 8px 8px calc(8px + .28em)}
+.lb-card .jn-row input::placeholder{letter-spacing:.28em}
+.lb-card .jn-row input[aria-invalid=true]{border-color:var(--danger)}
+.jn-go{flex:none;min-height:60px;padding:10px 32px;font-size:13px}
+@media(max-width:480px){.jn-row{flex-direction:column}.jn-go{width:100%}}
+.jn-err{margin:0;min-height:0;font-size:var(--fs-14);line-height:1.5;color:var(--danger)}
+.jn-err:empty{display:none}
+.jn-how{display:grid;gap:var(--sp-8);align-content:start;min-width:0}
+.jn-h{margin:0 0 var(--sp-8);font-family:var(--font-display);font-weight:500;font-size:var(--fs-28);line-height:1.1;letter-spacing:-.005em;color:var(--ivory-100)}
+.jn-steps{list-style:none;margin:0;padding:0;border-bottom:1px solid var(--hair)}
+.jn-steps li{display:grid;grid-template-columns:28px minmax(0,1fr);gap:var(--sp-16);align-items:start;padding:var(--sp-24) 0;border-top:1px solid var(--hair)}
+.jn-steps b{display:block;font-size:var(--fs-16);font-weight:500;color:var(--ivory-100)}
+.jn-steps p{margin:var(--sp-4) 0 0;font-size:15px;max-width:44ch}
+.jn-note{padding:var(--sp-16) var(--sp-24);gap:0;border-color:var(--hair-gold)}
+.jn-note.warn{border-color:var(--hair-strong)}
+.jn-note-in{display:flex;gap:var(--sp-12) var(--sp-24);align-items:center;flex-wrap:wrap}
+.jn-note-in>div{display:grid;gap:2px;flex:1 1 220px;min-width:0}
+.jn-note-in b{font-size:var(--fs-16);font-weight:500;color:var(--ivory-100)}
+@media(max-width:560px){.jn-note-in .lb-btn{width:100%}}
+
+/* ============================================================ phones */
+@media(max-width:720px){
+  /* the library's filter row runs in one swipeable row (a right-edge fade says there is more), inside the page gutter */
+  .lb-lib>.lb-cats{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:2px 44px 2px 2px;margin:-2px;
+    -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 44px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 44px),transparent)}
+  .lb-lib>.lb-cats::-webkit-scrollbar{display:none}
+  .lb-lib>.lb-cats .lb-cat{flex:none}
+  .lb-lib>.lb-cats .lb-cat:focus-visible{outline-offset:-4px}
+}
+@media(max-width:560px){.lb-chips{grid-template-columns:repeat(auto-fit,minmax(64px,1fr))}.lb-chip{padding:0 4px;letter-spacing:.06em}}
+
+/* ============================================================ touch and text */
+/* every control keeps a 44px target; on phones the library's chips wrap tidily */
+@media(max-width:720px),(pointer:coarse){.lb-cats{gap:var(--sp-8)}}
+.lb-card button:focus-visible,.lb-lib button:focus-visible{outline:1px solid var(--gold-500);outline-offset:3px}
+@media(prefers-reduced-motion:reduce){.lb-pulse{animation:none}.lb-howp{animation:none}}

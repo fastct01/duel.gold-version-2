@@ -19,25 +19,10 @@ function setup() {
   return { clock, db, rp, u, config };
 }
 
-test("free play needs no age confirmation; staked play does", () => {
+test("with no loss limit set, any stake is allowed, and free play always is", () => {
   const { rp, u } = setup();
   rp.assertCanStake(u.id, 0n);
-  assert.throws(() => rp.assertCanStake(u.id, ETH / 1000n), { code: "AGE_NOT_CONFIRMED" });
-  rp.attestAdult(u.id);
   rp.assertCanStake(u.id, ETH / 1000n);
-});
-
-test("cool-off blocks staked play only, and can be extended but never shortened", () => {
-  const { rp, u, clock } = setup();
-  rp.attestAdult(u.id);
-  const until = rp.setCoolOff(u.id, 168);
-  assert.equal(until, clock.t + 168 * HOUR);
-  assert.throws(() => rp.assertCanStake(u.id, 1n), { code: "COOL_OFF" });
-  rp.assertCanStake(u.id, 0n);
-  assert.equal(rp.setCoolOff(u.id, 24), until, "a shorter cool-off must not replace a longer one");
-  clock.t = until + 1;
-  rp.assertCanStake(u.id, 1n);
-  assert.throws(() => rp.setCoolOff(u.id, 5), { code: "BAD_COOL_OFF" });
 });
 
 test("lowering a loss limit applies at once; raising or removing it waits 24 h", () => {
@@ -74,7 +59,6 @@ test("limit validation", () => {
 
 test("daily loss limit counts settled losses and stakes already at risk; wins give room back", () => {
   const { rp, u, clock } = setup();
-  rp.attestAdult(u.id);
   rp.setLossLimit(u.id, 1000n);
   rp.assertCanStake(u.id, 1000n);
   assert.throws(() => rp.assertCanStake(u.id, 1001n), { code: "LOSS_LIMIT" });
@@ -107,5 +91,5 @@ test("view() reports the room left", () => {
   const v = rp.view(u.id);
   assert.equal(v.lossToday, "250");
   assert.equal(v.lossRoom, "750");
-  assert.equal(v.adultConfirmed, false);
+  assert.deepEqual(Object.keys(v).sort(), ["lossLimit", "lossRoom", "lossToday", "pending"], "the summary carries the loss limit only");
 });

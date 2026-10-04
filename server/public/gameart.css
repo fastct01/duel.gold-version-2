@@ -1,0 +1,13 @@
+/* Faded game art behind cards (see gameart.js). The illustrations are the user's own reference art, so they stay;
+   the gold rules decide the treatment: no coloured glow behind them, low opacity, one consistent warm tone.
+   Base layer only: each view positions and sizes it with a modifier class. */
+.gart{position:absolute;z-index:0;pointer-events:none;user-select:none;right:0;top:0;width:60%;height:100%;display:grid;place-items:center end;
+  -webkit-mask-image:linear-gradient(90deg,transparent 0%,#000 55%);mask-image:linear-gradient(90deg,transparent 0%,#000 55%)}
+.gart-svg{display:block;width:100%;height:100%;max-height:100%;opacity:.42;filter:saturate(.7) sepia(.18)}
+@media(prefers-reduced-transparency:reduce){.gart-svg{opacity:.3}}
+
+/* Card art in the lobby carousel (.gart-card, views/lobby.js): fills its box (the view sets the inset), no fade mask, and one warm gold tone.
+   The illustrations keep their own shapes, but a blue, red or violet game would clash on gold: greyscale first, then a sepia wash, so every
+   game reads as the same antique gold. !important on the size because a few of the SVGs carry an inline width. */
+.gart.gart-card{inset:0;width:auto;height:auto;place-items:center;-webkit-mask-image:none;mask-image:none}
+.gart-card .gart-svg{width:100%!important;height:100%!important;max-height:100%;opacity:.95;filter:grayscale(1) sepia(.8) saturate(1.45) brightness(1.04) contrast(1.06)}

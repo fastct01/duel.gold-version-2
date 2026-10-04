@@ -10,11 +10,11 @@
   --line-2:rgba(255,255,255,.16);
   --fg:#F4F4F5;         /* primary text */
   --muted:#8E8E93;      /* secondary text */
-  --gold:#F5C94A;       /* you / money / primary action */
-  --gold-2:#FFE27A;     /* gradient highlight */
-  --gold-deep:#B8862A;
-  --gold-grad:linear-gradient(180deg,#FFE27A 0%,#F5C94A 45%,#D9A52E 100%);
-  --gold-soft:rgba(245,201,74,.12);
+  --gold:#E3B63B;       /* you / money / primary action */
+  --gold-2:#F0CF6A;     /* gradient highlight */
+  --gold-deep:#A57722;
+  --gold-grad:linear-gradient(180deg,#F0CF6A 0%,#E3B63B 45%,#C4922A 100%);
+  --gold-soft:rgba(227,182,59,.12);
   --glass:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.015));
   --on-gold:#17120A;    /* text on gold */
   --rival:#FF6275;      /* opponent */

@@ -152,6 +152,22 @@ export class DuelClient {
   /* ------------------------------------------------------------ game helpers */
 
   joinQueue({ game, stake = "0", code } = {}) { return this.request("queue.join", { game, stake, code }); }
+  /* Invite-only lobbies (REST), up to config.match.lobbyMaxPlayers players (host included; default 10).
+       createLobby  host opens a lobby                       → lobby (member view, role "host")
+       getLobby     public view for anyone with the code     → lobby (names only, no ids or addresses)
+       joinLobby    guest joins and escrows the stake        → { lobby }, or { lobby, match } when this join filled the
+                                                              lobby and it started by itself. NOTE: it resolves with the whole
+                                                              response body, not just the lobby or the match.
+       leaveLobby   guest leaves before the start (refund)   → lobby (closed for you, closedReason "left")
+       startLobby   host starts with 2+ players              → match (the host's view; everybody gets match.found)
+       closeLobby   host closes the lobby, refunding all     → lobby
+     Every member sees roster changes as lobby.updated events; lobby.closed ends the lobby for you. */
+  async createLobby({ game, stake = "0" } = {}) { return (await this.api("POST", "/v1/lobbies", { game, stake: String(stake) })).lobby; }
+  async getLobby(code) { return (await this.api("GET", `/v1/lobbies/${encodeURIComponent(code)}`)).lobby; }
+  async joinLobby(code) { return this.api("POST", `/v1/lobbies/${encodeURIComponent(code)}/join`); }
+  async leaveLobby(code) { return (await this.api("POST", `/v1/lobbies/${encodeURIComponent(code)}/leave`)).lobby; }
+  async startLobby(code) { return (await this.api("POST", `/v1/lobbies/${encodeURIComponent(code)}/start`)).match; }
+  async closeLobby(code) { return (await this.api("DELETE", `/v1/lobbies/${encodeURIComponent(code)}`)).lobby; }
   leaveQueue() { return this.request("queue.leave"); }
   ready(matchId) { return this.request("match.ready", { matchId }); }
   progress(matchId, score) { this.send("match.progress", { matchId, score }); }

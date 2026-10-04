@@ -1,5 +1,7 @@
 /* Schema migrations, applied in order; the index+1 is stored in PRAGMA user_version.
-   Amount columns are TEXT holding decimal wei (see util/amounts.js). Timestamps are epoch milliseconds. */
+   Amount columns are TEXT holding decimal wei (see util/amounts.js). Timestamps are epoch milliseconds.
+   Database files created before two retired features were removed still carry two unused `users` columns (one NOT NULL
+   with a default). No query reads or writes them, so they are left in place rather than dropped. */
 export const MIGRATIONS = [
   /* 1 — initial schema */
   `
@@ -8,8 +10,6 @@ export const MIGRATIONS = [
     address               TEXT    NOT NULL UNIQUE,          -- lowercase 0x…, the wallet that signs in
     display_name          TEXT    NOT NULL,
     created_at            INTEGER NOT NULL,
-    age_attested_at       INTEGER,                          -- "I am 18 or older", required to stake
-    cool_off_until        INTEGER NOT NULL DEFAULT 0,
     loss_limit            TEXT,                             -- daily loss limit in wei, NULL = off
     loss_limit_pending    TEXT,                             -- a loosening that has not taken effect yet: wei, or 'off'
     loss_limit_pending_at INTEGER,
@@ -149,7 +149,7 @@ export const MIGRATIONS = [
 
   CREATE TABLE match_players (
     match_id      INTEGER NOT NULL REFERENCES matches(id),
-    seat          INTEGER NOT NULL,                         -- 0 | 1
+    seat          INTEGER NOT NULL,                         -- 0..9, in join order (a lobby host is seat 0)
     user_id       INTEGER NOT NULL REFERENCES users(id),
     ticket_id     INTEGER,
     rating_before INTEGER NOT NULL,
@@ -185,5 +185,16 @@ export const MIGRATIONS = [
     net     TEXT    NOT NULL DEFAULT '0',                   -- signed wei: payouts minus stakes for settled staked matches
     PRIMARY KEY (user_id, day)
   );
+  `,
+  /* 2 — invite-only lobbies: a lobby is the host's escrowed ticket plus a server-generated invite code */
+  `
+  ALTER TABLE tickets ADD COLUMN lobby_code TEXT;
+  CREATE UNIQUE INDEX tickets_lobby_code ON tickets(lobby_code) WHERE lobby_code IS NOT NULL;
+  `,
+  /* 3 — multi-player lobbies: a guest's ticket points at the host's lobby ticket (the host's own ticket keeps lobby_code).
+     Guest ticket states: queued (waiting in the lobby) | matched | cancelled | expired (lobby closed) | left (guest left). */
+  `
+  ALTER TABLE tickets ADD COLUMN lobby_ticket_id INTEGER;
+  CREATE INDEX tickets_lobby_ticket ON tickets(lobby_ticket_id) WHERE lobby_ticket_id IS NOT NULL;
   `,
 ];

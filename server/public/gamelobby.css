@@ -1,0 +1,205 @@
+/* One game's page (views/gamelobby.js). Prefix: .gl-
+   Also holds the small kit the practice screens reuse (views/practice.js): .gl-label .gl-btn .gl-chip .gl-seg .gl-back .gl-dot.
+   Editorial: a hero plate with the game's art as a quiet picture, hairline-ruled sections with the heading in a narrow left column,
+   a rail on wide screens that holds the one solid gold button (Create lobby). Colours, type and spacing come from /play/tokens.css.
+   Local custom properties (defined here, built from tokens): --gl-gap (space between major blocks). */
+
+/* ---- kit */
+.gl-page,.pr-page{--gl-gap:var(--sp-32)}
+@media(min-width:720px){.gl-page,.pr-page{--gl-gap:var(--sp-48)}}
+
+/* small uppercase label: eyebrows, table heads, field labels */
+.gl-label{margin:0;font-family:var(--font-body);font-size:var(--fs-12);font-weight:500;line-height:1.4;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
+.gl-label small{font-size:inherit;font-weight:400;letter-spacing:.08em;margin-left:.4em}
+.gl-label.gold{color:var(--gold-500)}
+
+/* back link: text with an underline that reveals on hover and focus */
+.gl-back{justify-self:start;display:inline-flex;align-items:center;gap:10px;min-height:44px;margin:0;padding:0;border:0;background:none;cursor:pointer;text-decoration:none;
+  font:500 var(--fs-12)/1 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400);transition:color var(--dur-1) var(--ease)}
+.gl-back .ico{width:16px;height:16px;flex:none;transform:scaleX(-1);stroke-width:1.5}
+.gl-back span{position:relative;display:inline-block;padding:4px 0}
+.gl-back span::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:var(--gold-500);transform:scaleX(0);transform-origin:left;transition:transform var(--dur-1) var(--ease)}
+.gl-back:hover,.gl-back:focus-visible{color:var(--ivory-100)}
+.gl-back:hover span::after,.gl-back:focus-visible span::after{transform:scaleX(1)}
+
+/* buttons: rectangular, uppercase, tracked. Primary = solid gold (one per view), line = gold outline, quiet = hairline */
+.gl-btn{display:inline-flex;align-items:center;justify-content:center;gap:12px;min-height:48px;padding:0 28px;border:1px solid transparent;border-radius:var(--radius-1);background:transparent;cursor:pointer;text-decoration:none;text-align:center;
+  font:600 13px/1.25 var(--font-body);letter-spacing:.16em;text-transform:uppercase;color:var(--ivory-100);
+  transition:background-color var(--dur-1) var(--ease),border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
+.gl-btn .ico{width:18px;height:18px;flex:none;stroke-width:1.6}
+.gl-btn.block{display:flex;width:100%}
+.gl-btn.primary{background:var(--gold-500);border-color:var(--gold-500);color:var(--ink-950)}
+.gl-btn.primary:hover:not(:disabled){background:var(--gold-300);border-color:var(--gold-300)}
+.gl-btn.primary:active:not(:disabled){background:var(--gold-600);border-color:var(--gold-600)}
+.gl-btn.line{border-color:var(--gold-500);color:var(--gold-500)}
+.gl-btn.line:hover:not(:disabled){border-color:var(--gold-300);color:var(--gold-300)}
+.gl-btn.quiet{border-color:var(--ink-600);color:var(--stone-400)}
+.gl-btn.quiet:hover:not(:disabled){border-color:var(--stone-400);color:var(--ivory-100)}
+.gl-btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* chips and the stake chips the lobby helper renders (.lb-chip): hairline; the selected one gets a gold hairline and gold text */
+.gl-chip,.gl-page .lb-chip{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0 18px;border:1px solid var(--ink-600);border-radius:var(--radius-1);background:transparent;box-shadow:none;cursor:pointer;
+  font:500 14px/1 var(--font-body);letter-spacing:.02em;color:var(--stone-400);transition:border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
+.gl-chip:hover,.gl-page .lb-chip:hover{border-color:var(--stone-400);color:var(--ivory-100)}
+.gl-chip[aria-pressed=true],.gl-page .lb-chip[aria-pressed=true]{border-color:var(--gold-500);background:transparent;color:var(--gold-300)}
+.gl-seg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+
+.gl-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--ok);flex:none}
+
+/* ---- page frame */
+.gl-page{display:grid;gap:var(--sp-16);min-width:0}
+.gl-grid{display:grid;grid-template-columns:minmax(0,1fr);min-width:0}
+.gl-host{display:grid;margin-bottom:var(--sp-16)}
+.gl-main,.gl-rail{min-width:0}
+.gl-rail{container:glr/inline-size;margin-top:var(--gl-gap)}
+.gl-hero{margin-bottom:var(--gl-gap)}
+@media(min-width:1240px){
+  .gl-grid{grid-template-columns:minmax(0,1fr) 340px;grid-template-rows:auto auto 1fr;grid-template-areas:"hero rail" "prac rail" "main rail";column-gap:var(--sp-48)}
+  .gl-hero{grid-area:hero}.gl-prac{grid-area:prac}.gl-main{grid-area:main}
+  .gl-rail{grid-area:rail;align-self:start;margin-top:0}
+}
+/* the rail only sticks when the window is tall enough to show all of it */
+@media(min-width:1240px) and (min-height:860px){.gl-rail{position:sticky;top:calc(var(--top-h,64px) + var(--sp-24))}}
+
+/* ---- headings and copy */
+.gl-h2{margin:0;font-family:var(--font-display);font-weight:400;font-size:var(--fs-28);line-height:1.12;letter-spacing:-.01em;color:var(--ivory-100);text-wrap:balance}
+.gl-p{margin:0;max-width:62ch;font-size:var(--fs-16);line-height:1.7;color:var(--ivory-100);text-wrap:pretty}
+.gl-quiet{color:var(--stone-400)}
+
+/* ---- hero: a plate, the game's art as a quiet picture behind the right side */
+.gl-hero{position:relative;isolation:isolate;container:glh/inline-size;overflow:hidden;display:grid;align-content:start;
+  padding:var(--sp-32) var(--sp-24);background:var(--ink-900);border:1px solid var(--hair);border-radius:var(--radius-2)}
+@media(min-width:720px){.gl-hero{padding:var(--sp-48)}}
+.gl-hero-top{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-12);min-height:44px}
+.gl-eyebrow{display:flex;align-items:center;gap:14px;min-width:0;color:var(--gold-500)}
+.gl-eyebrow::before{content:"";flex:none;width:28px;height:1px;background:var(--gold-500)}
+.gl-fav{flex:none;width:44px;height:44px;display:grid;place-items:center;margin-right:-8px;padding:0;border:1px solid var(--ink-600);border-radius:var(--radius-1);background:var(--ink-900);color:var(--stone-400);cursor:pointer;
+  transition:border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
+.gl-fav .ico{width:20px;height:20px;stroke-width:1.5}
+.gl-fav:hover{color:var(--gold-300);border-color:var(--gold-500)}
+.gl-fav[aria-pressed=true]{color:var(--gold-500)}.gl-fav[aria-pressed=true] .ico{fill:currentColor}
+.gl-name{margin:var(--sp-24) 0 0;font-family:var(--font-display);font-weight:400;font-size:clamp(2.75rem,1rem + 8cqi,5.25rem);line-height:1.04;letter-spacing:-.02em;color:var(--ivory-100);text-wrap:balance;overflow-wrap:break-word}
+.gl-tagline{margin:var(--sp-16) 0 0;max-width:30ch;font-size:var(--fs-20);font-weight:300;line-height:1.5;color:var(--ivory-100);text-wrap:balance}
+
+/* spec bar: skill and luck meters, then the stats, all ruled by hairlines */
+.gl-spec{margin-top:var(--sp-48);border-top:1px solid var(--hair)}
+.gl-meters{display:grid;gap:14px;padding:var(--sp-24) 0}
+.gl-meters .meter{display:grid;grid-template-columns:52px minmax(0,1fr) 18px;gap:12px;align-items:center;font:500 var(--fs-12)/1 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
+.gl-meters .meter b{text-align:right;font-weight:500;letter-spacing:0;color:var(--ivory-100)}
+.gl-meters .segs{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:3px}
+.gl-meters .segs i{display:block;height:4px;border-radius:1px;background:var(--ink-600)}
+.gl-meters .meter.skill .segs i.on{background:var(--gold-500)}
+.gl-meters .meter.luck .segs i.on{background:var(--stone-400)}
+.gl-stats{margin:0;display:grid;border-top:1px solid var(--hair)}
+.gl-stat{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"k v" "s v";gap:4px var(--sp-16);align-items:center;padding:var(--sp-16) 0;border-top:1px solid var(--hair)}
+.gl-stat:first-child{border-top:0}
+.gl-stat dt{grid-area:k}
+.gl-stat-v{grid-area:v;margin:0;font-family:var(--font-display);font-variant-numeric:lining-nums;font-size:var(--fs-28);font-weight:400;line-height:1.1;color:var(--ivory-100);text-align:right;overflow-wrap:anywhere}
+.gl-stat-v .dg-mono{font-family:var(--font-display);color:var(--gold-300)}
+.gl-stat-s{grid-area:s;margin:0;font-size:var(--fs-14);color:var(--stone-400)}
+@container glh (min-width:480px){
+  .gl-meters{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-32)}
+}
+@container glh (min-width:540px){
+  .gl-stats{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .gl-stat{display:block;padding:var(--sp-24) var(--sp-16) 0 var(--sp-24);border-top:0;border-left:1px solid var(--hair)}
+  .gl-stat:first-child{padding-left:0;border-left:0}
+  .gl-stat-v{display:block;margin-top:var(--sp-8);text-align:left}
+  .gl-stat-s{margin-top:4px}
+}
+.gl-live{margin:var(--sp-24) 0 0;display:flex;align-items:center;gap:8px;font-size:var(--fs-14);color:var(--stone-400)}
+.gl-live b{color:var(--ivory-100);font-weight:500}
+#glLive:empty{display:none}
+
+/* the picture: large, quiet, warm, in the top right of the plate, fading out before the spec bar. No glow, no border, no accent colour. */
+.gl-hero .gl-art{z-index:-1;inset:0;width:auto;height:auto;display:block;overflow:hidden;
+  -webkit-mask-image:linear-gradient(90deg,transparent 22%,#000 70%),linear-gradient(180deg,#000 22%,transparent 40%);-webkit-mask-composite:source-in;
+  mask-image:linear-gradient(90deg,transparent 22%,#000 70%),linear-gradient(180deg,#000 22%,transparent 40%);mask-composite:intersect}
+.gl-hero .gl-art .gart-svg{position:absolute;top:var(--sp-32);right:-14cqi;width:58cqi;height:auto;max-height:none;aspect-ratio:168/140;opacity:.3}
+@container glh (min-width:540px){
+  .gl-hero .gl-art{-webkit-mask-image:linear-gradient(90deg,transparent 30%,#000 76%),linear-gradient(180deg,transparent 0,#000 12%,#000 40%,transparent 56%);mask-image:linear-gradient(90deg,transparent 30%,#000 76%),linear-gradient(180deg,transparent 0,#000 12%,#000 40%,transparent 56%)}
+  .gl-hero .gl-art .gart-svg{top:var(--sp-24);right:-4cqi;width:50cqi;opacity:.34}
+}
+@media(prefers-reduced-transparency:reduce){.gl-hero .gl-art .gart-svg{opacity:.2}}
+
+/* ---- ruled sections: heading in a narrow column on the left, content on the right */
+.gl-sec{container-type:inline-size;padding:var(--sp-32) 0;border-top:1px solid var(--hair)}
+@media(min-width:720px){.gl-sec{padding:var(--sp-48) 0}}
+.gl-sec-in{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--sp-24) 40px;min-width:0}
+@container (min-width:680px){.gl-sec-in{grid-template-columns:168px minmax(0,1fr);column-gap:40px}}
+.gl-sec-head{display:grid;gap:var(--sp-8);align-content:start}
+.gl-sec-body{display:grid;gap:var(--sp-32);min-width:0}
+#glRecent{display:block}#glRecent:empty{display:none}
+
+/* practice against a bot */
+.gl-prac-ctl{display:flex;flex-wrap:wrap;align-items:flex-end;gap:var(--sp-24) var(--sp-32)}
+.gl-lvl{display:grid;gap:var(--sp-12);flex:0 1 320px;min-width:0}
+.gl-prac-ctl .gl-btn{flex:0 0 auto}
+@media(max-width:480px){.gl-lvl{flex-basis:100%}.gl-prac-ctl .gl-btn{width:100%}}
+
+/* about the game */
+.gl-goal{display:grid;gap:var(--sp-8);padding-left:var(--sp-24);border-left:1px solid var(--gold-500)}
+.gl-goal-t{margin:0;max-width:34ch;font-family:var(--font-display);font-size:clamp(1.25rem,.9rem + 1vw,1.6rem);line-height:1.3;color:var(--ivory-100);text-wrap:pretty}
+.gl-block{display:grid;gap:var(--sp-12);align-content:start;min-width:0}
+.gl-list,.gl-rules{margin:0;padding:0;list-style:none;display:grid;gap:0;border-top:1px solid var(--hair)}
+.gl-list li,.gl-rules li{padding:12px 0 12px 24px;position:relative;border-bottom:1px solid var(--hair);font-size:var(--fs-16);line-height:1.6;color:var(--ivory-100);text-wrap:pretty}
+.gl-list li::before{content:"";position:absolute;left:0;top:calc(12px + .8em);width:10px;height:1px;background:var(--gold-500)}
+.gl-rules{counter-reset:glr}
+.gl-rules li{counter-increment:glr;padding-left:40px}
+.gl-rules li::before{content:counter(glr);position:absolute;left:0;top:.5em;font-family:var(--font-display);font-variant-numeric:lining-nums;font-size:var(--fs-20);line-height:1.2;color:var(--gold-500)}
+.gl-fair{margin:0;max-width:62ch;font-size:var(--fs-14);line-height:1.6;color:var(--stone-400)}
+
+/* match rules: a definition list, a hairline between rows */
+.gl-termlist{margin:0;display:grid;border-top:1px solid var(--hair);min-width:0}
+.gl-term{display:grid;grid-template-columns:132px minmax(0,1fr);gap:var(--sp-16);align-items:baseline;padding:14px 0;border-bottom:1px solid var(--hair)}
+.gl-term dd{margin:0;min-width:0;overflow-wrap:anywhere;font-size:var(--fs-16);line-height:1.55;color:var(--ivory-100)}
+.gl-term dd b{font-weight:500;color:var(--gold-300)}
+.gl-term dd b:not(.dg-mono){color:var(--ivory-100)}
+@media(max-width:480px){.gl-term{grid-template-columns:minmax(0,1fr);gap:4px}}
+
+/* recent public results */
+.gl-rlist{list-style:none;margin:0;padding:0;border-top:1px solid var(--hair)}
+.gl-rlist li{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:var(--sp-16);align-items:baseline;padding:14px 0;border-bottom:1px solid var(--hair);font-size:var(--fs-16)}
+.gl-rwho{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ivory-100)}
+.gl-rpot{color:var(--stone-400);white-space:nowrap}.gl-rpot b{font-weight:500;color:var(--gold-300)}
+.gl-rago{color:var(--stone-400);font-size:var(--fs-14);white-space:nowrap}
+@media(max-width:420px){.gl-rlist li{grid-template-columns:minmax(0,1fr) auto}.gl-rago{display:none}}
+
+/* ---- the rail: invite a friend, the page's one primary action */
+.gl-invite{display:grid;gap:var(--sp-24);grid-template-columns:minmax(0,1fr);padding:var(--sp-32) var(--sp-24);background:var(--ink-900);border:1px solid var(--hair);border-top-color:var(--gold-500);border-radius:var(--radius-2);min-width:0}
+.gl-inv-head{display:grid;gap:var(--sp-8)}
+.gl-steps{margin:0;padding:0;list-style:none;counter-reset:gls;border-top:1px solid var(--hair)}
+.gl-steps li{counter-increment:gls;display:grid;grid-template-columns:32px minmax(0,1fr);gap:var(--sp-8);align-items:baseline;padding:12px 0;border-bottom:1px solid var(--hair);font-size:var(--fs-16);line-height:1.5;color:var(--ivory-100)}
+.gl-steps li::before{content:counter(gls);font-family:var(--font-display);font-variant-numeric:lining-nums;font-size:var(--fs-20);line-height:1;color:var(--gold-500)}
+.gl-inv-set{display:grid;gap:var(--sp-16);align-content:start;min-width:0}
+.gl-stake{display:grid;gap:var(--sp-12)}
+.gl-chips{display:grid;grid-template-columns:repeat(auto-fit,minmax(64px,1fr));gap:8px}
+.gl-chips .lb-chip{padding:0 6px}
+.gl-custom{display:grid;gap:var(--sp-8)}
+.gl-custom label{font-size:var(--fs-14);color:var(--stone-400)}
+.gl-custom input{width:100%;min-width:0;min-height:48px;padding:0 14px;border:1px solid var(--ink-600);border-radius:var(--radius-1);background:var(--ink-950);color:var(--ivory-100);font:400 var(--fs-16)/1.4 var(--font-body);
+  transition:border-color var(--dur-1) var(--ease)}
+.gl-custom input:hover{border-color:var(--stone-400)}
+.gl-custom input:focus-visible{outline:1px solid var(--gold-500);outline-offset:2px;border-color:var(--gold-500)}
+.gl-calc{min-height:0}
+.gl-page .lb-terms{margin:0;font-size:var(--fs-14);line-height:1.6;color:var(--stone-400)}
+.gl-page .lb-terms b{font-weight:500;color:var(--ivory-100)}.gl-page .lb-terms b.win{color:var(--gold-300)}
+.gl-page .lb-terms .lb-warn{display:block;margin-top:4px;color:var(--danger)}
+.gl-page .lb-note{margin:0;padding:12px 14px;border:1px solid var(--ink-600);border-radius:var(--radius-1);background:transparent;font-size:var(--fs-14);line-height:1.5;color:var(--stone-400)}
+.gl-page .lb-note.bad{border-color:var(--danger);color:var(--danger)}
+.gl-err{margin:0;font-size:var(--fs-14);line-height:1.5;color:var(--danger)}
+.gl-err:empty{display:none}
+.gl-create{min-height:56px}
+.gl-note{margin:0;font-size:var(--fs-14);line-height:1.5;color:var(--gold-300)}
+.gl-facts{margin:0;padding:0;list-style:none;border-top:1px solid var(--hair)}
+.gl-facts li{padding:12px 0;border-bottom:1px solid var(--hair);font-size:var(--fs-14);line-height:1.55;color:var(--stone-400)}
+.gl-facts li:last-child{border-bottom:0;padding-bottom:0}
+@container glr (min-width:680px){
+  .gl-invite{grid-template-columns:minmax(0,5fr) minmax(0,6fr);grid-template-rows:auto auto 1fr;grid-template-areas:"head set" "steps set" "facts set";column-gap:var(--sp-64);padding:var(--sp-48)}
+  .gl-inv-head{grid-area:head}.gl-steps{grid-area:steps}.gl-inv-set{grid-area:set}.gl-facts{grid-area:facts;align-self:end}
+}
+
+/* ---- game not found */
+.gl-none{max-width:720px}
+.gl-nf{display:grid;gap:var(--sp-24);justify-items:start;padding-top:var(--sp-48);border-top:1px solid var(--hair)}
+.gl-nf .gl-name{margin:0;font-size:clamp(2.5rem,1.5rem + 4vw,4rem)}

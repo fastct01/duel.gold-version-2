@@ -2,7 +2,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { bucketKey, windowFor, findPartner } from "../src/matches/queue.js";
-import { expected, delta, K } from "../src/matches/elo.js";
+import { expected, delta, K, pairwiseDeltas } from "../src/matches/elo.js";
+import { decide, standings, placesOf } from "../src/matches/standings.js";
 import { loadCatalog, parseDurationSeconds } from "../src/games/catalog.js";
 import { createLogger } from "../src/util/log.js";
 import { loadConfig } from "../src/config.js";
@@ -74,6 +75,89 @@ test("Elo deltas stay within ±K for any pair, and a win never loses points", ()
   }
 });
 
+/* ------------------------------------------------------------------ N-player results */
+
+const row = (seat, score = null, forfeited = 0) => ({ seat, score, forfeited });
+const rows = (...specs) => specs.map((x, i) => (Array.isArray(x) ? row(i, x[0], x[1]) : row(i, x)));
+const NONE = -Infinity;
+
+test("pairwiseDeltas for two players is exactly the old 1v1 formula, for every rating pair and result", () => {
+  for (let a = 700; a <= 2100; a += 53) for (let b = 700; b <= 2100; b += 61) {
+    for (const [ka, kb, s] of [[2, 1, 1], [1, 2, 0], [5, 5, 0.5], [3, NONE, 1], [NONE, NONE, 0.5], [NONE, 4, 0]]) {
+      const d = delta(a, b, s) || 0; // what the 1v1 code did: A gets d, B gets -d (only the sign of a zero differs)
+      assert.deepEqual(pairwiseDeltas([a, b], [ka, kb]), [d, -d || 0], `${a} v ${b} result ${s}`);
+    }
+  }
+  assert.deepEqual(pairwiseDeltas([1200, 1200], [4200, 3900]), [12, -12]);
+  assert.deepEqual(pairwiseDeltas([1200, 1200], [1, 1]), [0, 0]);
+  assert.ok(pairwiseDeltas([1200, 1200], [1, 1]).every((x) => !Object.is(x, -0)), "never -0");
+});
+
+test("pairwiseDeltas for N players: each pair is rated with delta(), the sum is divided by N-1 and rounded half away from zero", () => {
+  // equal ratings, finish 1 > 2 > 3: +12 +12 | -12 +12 | -12 -12 → [12, 0, -12]
+  assert.deepEqual(pairwiseDeltas([1200, 1200, 1200], [9, 5, 1]), [12, 0, -12]);
+  // a tie at the top: the pair draws (0), both beat the third
+  assert.deepEqual(pairwiseDeltas([1200, 1200, 1200], [7, 7, 1]), [6, 6, -12]);
+  // a forfeit/no score (−∞) loses to anybody with a score; two of them draw each other
+  assert.deepEqual(pairwiseDeltas([1200, 1200, 1200, 1200], [9, 5, NONE, NONE]), [12, 4, -8, -8]);
+  // not symmetric by hand-waving: do the pairs explicitly with delta()
+  const r = [1350, 1180, 1015, 1500, 1210], k = [3, NONE, 8, 8, 2];
+  const want = r.map((ri, i) => {
+    let t = 0;
+    r.forEach((rj, j) => { if (j !== i) t += delta(ri, rj, k[i] > k[j] ? 1 : k[i] === k[j] ? 0.5 : 0); });
+    const v = t / (r.length - 1);
+    return Math.sign(v) * Math.round(Math.abs(v)) || 0;
+  });
+  assert.deepEqual(pairwiseDeltas(r, k), want);
+  // a half: (-15 + 6)/2 = -4.5 → -5 and (-6 - 9)/2 = -7.5 → -8
+  assert.deepEqual(pairwiseDeltas([1300, 1200, 1100], [5, 7, 3]), [-5, 12, -8]);
+  // nobody can win or lose more than K points in a match
+  for (let n = 2; n <= 10; n++) {
+    const ratings = Array.from({ length: n }, (_, i) => 900 + i * 97), keys = Array.from({ length: n }, (_, i) => (i % 3 === 0 ? NONE : i));
+    for (const d of pairwiseDeltas(ratings, keys)) assert.ok(Math.abs(d) <= K);
+  }
+});
+
+test("decide(): winners, ties, draws, forfeits and voids", () => {
+  const d = (...a) => decide(rows(...a));
+  assert.deepEqual(d(5, 3), { outcome: "win", why: "scores", winners: [0] });
+  assert.deepEqual(d(3, 5, 4), { outcome: "win", why: "scores", winners: [1] });
+  assert.deepEqual(d(5, 5, 1), { outcome: "win", why: "scores", winners: [0, 1] }, "a tie at the top shares the win");
+  assert.deepEqual(d(1, 9, 9, 9), { outcome: "win", why: "scores", winners: [1, 2, 3] });
+  assert.deepEqual(d(7, 7), { outcome: "draw", why: "scores", winners: [] });
+  assert.deepEqual(d(2, 2, 2, 2), { outcome: "draw", why: "scores", winners: [] });
+  assert.deepEqual(d(0, 0, 0), { outcome: "draw", why: "scores", winners: [] }, "a zero is a score");
+  // deadline: players without a score lose
+  assert.deepEqual(d(4, null), { outcome: "win", why: "timeout", winners: [0] });
+  assert.deepEqual(d(null, null, 3), { outcome: "win", why: "timeout", winners: [2] });
+  assert.deepEqual(d(6, 6, null), { outcome: "win", why: "timeout", winners: [0, 1] }, "not everybody tied, so not a draw");
+  assert.deepEqual(d(null, null), { outcome: "void", why: "no_result", winners: [] });
+  assert.deepEqual(d(null, null, null, null), { outcome: "void", why: "no_result", winners: [] });
+  // forfeits
+  assert.deepEqual(d(null, [null, 1]), { outcome: "win", why: "forfeit", winners: [0] }, "the one standing wins without a score");
+  assert.deepEqual(d([9, 1], 2), { outcome: "win", why: "forfeit", winners: [1] }, "a forfeiter's score does not count");
+  assert.deepEqual(d(null, [null, 1], [null, 1]), { outcome: "win", why: "forfeit", winners: [0] });
+  assert.deepEqual(d(5, [9, 1], 3), { outcome: "win", why: "scores", winners: [0] }, "the rest all submitted: ranked among themselves");
+  assert.deepEqual(d(5, [null, 1], null), { outcome: "win", why: "timeout", winners: [0] });
+  assert.deepEqual(d(5, [5, 1], 5), { outcome: "win", why: "scores", winners: [0, 2] }, "all tied but somebody forfeited: not a draw");
+  assert.deepEqual(d(null, [null, 1], null), { outcome: "void", why: "no_result", winners: [] }, "forfeit + nobody else scored");
+  assert.deepEqual(d([9, 1], null, null), { outcome: "void", why: "no_result", winners: [] });
+});
+
+test("standings() and placesOf(): ties share a place, forfeits and no-shows share the last one", () => {
+  assert.deepEqual(placesOf(standings(rows(900, 500, 100), "scores")), [1, 2, 3]);
+  assert.deepEqual(placesOf(standings(rows(7, 7, 3, 1), "scores")), [1, 1, 3, 4]);
+  assert.deepEqual(placesOf(standings(rows(5, null, null), "timeout")), [1, 2, 2]);
+  assert.deepEqual(placesOf(standings(rows(5, [9, 1], 3), "scores")), [1, 3, 2]);
+  assert.deepEqual(placesOf(standings(rows(null, [null, 1], [null, 1]), "forfeit")), [1, 2, 2], "the survivor wins with no score");
+  assert.deepEqual(placesOf(standings(rows(null, [7, 1]), "forfeit")), [1, 2]);
+  assert.deepEqual(placesOf(standings(rows(3, 3, 3), "scores")), [1, 1, 1]);
+  // matches settled before multi-player lobbies existed carry the same rows and read the same
+  assert.deepEqual(placesOf(standings(rows(4200, 3900), "scores")), [1, 2]);
+  assert.deepEqual(placesOf(standings(rows(500, null), "timeout")), [1, 2]);
+  assert.deepEqual(placesOf(standings(rows([null, 1], null), "forfeit")), [2, 1]);
+});
+
 /* ------------------------------------------------------------------ catalog */
 
 test("game durations are read from the human-readable strings", () => {
@@ -85,7 +169,7 @@ test("the catalog loads the real game packs: race games are PvP-ready, versus ga
   const cfg = loadConfig({ NODE_ENV: "test" });
   const cat = loadCatalog({ gamesDir: cfg.gamesDir, log: createLogger("silent") });
   const all = cat.list();
-  assert.equal(all.length, 22);
+  assert.equal(all.length, 23);
   assert.equal(all.filter((g) => g.pvp).length, 14);
   for (const g of all) assert.equal(g.pvp, g.kind === "race", g.id);
   assert.ok(all.every((g) => g.maxSeconds >= 30 && g.maxSeconds <= 600), "every game has a sane time limit");

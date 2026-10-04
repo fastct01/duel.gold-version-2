@@ -89,7 +89,6 @@ test("deposit → play → win → withdraw, with every balance checked on-chain
   assert.equal((await alice.client.api("GET", "/v1/wallet")).balances.available, ETH("0.2").toString());
 
   // ---- play a real match for 0.01 each
-  for (const p of [alice, bob]) await p.client.api("POST", "/v1/me/age", { adult: true });
   const stake = ETH("0.01").toString();
   await alice.client.joinQueue({ game: "darts", stake });
   await bob.client.joinQueue({ game: "darts", stake });

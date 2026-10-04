@@ -1,0 +1,331 @@
+/* Match flow screens (waiting room, invite, queue, found, play, orphan, result) in the gold-style design system.
+   Everything is scoped under .mx; markup lives in views/match.js. Colours, type, space and motion all come from tokens.css.
+   Local helpers: --mx-tone (the role colour of the block: gold = you, --danger = opponent, --ok = a win).
+   Buttons here (.mx-btn) are self-contained so this module does not depend on the shared .dg-btn look. */
+.mx{--mx-tone:var(--gold-500);--mx-gold-tint:color-mix(in srgb,var(--gold-500) 10%,transparent);--mx-danger-tint:color-mix(in srgb,var(--danger) 12%,transparent);display:grid;gap:var(--sp-48);width:100%;min-width:0;align-content:start;font-family:var(--font-body)}
+.mx:not(.mx-play){container:mx/inline-size} /* two-column layouts key off the width the page really has (the sidebar eats part of the viewport) */
+.mx>*{min-width:0}
+.mx .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.mx b{font-weight:500}
+
+/* ---------- type ---------- */
+.mx-eyebrow{display:flex;align-items:center;gap:var(--sp-12);margin:0;font-size:var(--fs-12);font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;line-height:1.4;color:var(--stone-400)}
+.mx-eyebrow::before{content:"";flex:none;width:var(--sp-24);height:1px;background:var(--gold-500)}
+.mx-title{margin:0;font-family:var(--font-display);font-weight:400;font-size:var(--fs-64);line-height:1.06;letter-spacing:-.02em;color:var(--ivory-100);text-wrap:balance;overflow-wrap:anywhere}
+.mx-title em{font-style:normal;color:var(--gold-500)}
+.mx-title,.mx-h2,.mx-name,.mx-hudname,.mx-verdict{font-variant-numeric:lining-nums} /* Cormorant defaults to old-style figures: names such as Player-4b4c8f stay legible */
+.mx-h2{margin:0;font-family:var(--font-display);font-weight:500;font-size:var(--fs-28);line-height:1.15;letter-spacing:-.01em;color:var(--ivory-100);overflow-wrap:anywhere}
+.mx-lede{margin:0;max-width:56ch;font-size:var(--fs-16);line-height:1.6;color:var(--stone-400)}
+.mx-lede b{color:var(--ivory-100)}
+.mx-lede[hidden]{display:none}
+.mx-fine{margin:0;max-width:60ch;font-size:var(--fs-14);line-height:1.5;color:var(--stone-400)}
+.mx-k{font-size:var(--fs-12);font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;line-height:1.4;color:var(--stone-400)}
+.mx-time{font-weight:500;color:var(--ivory-100);font-variant-numeric:lining-nums tabular-nums} /* data-until / data-since text: never uppercased */
+.mx-err{margin:0;font-size:var(--fs-14);line-height:1.5;color:var(--danger)}
+.mx-err:empty{display:none}
+
+/* ---------- buttons: primary = solid gold; default = gold 1px outline; quiet = text with an underline; danger = terracotta outline ---------- */
+.mx-btn{appearance:none;-webkit-appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:var(--sp-8);min-height:48px;max-width:100%;padding:12px var(--sp-24);
+  border:1px solid var(--gold-500);border-radius:var(--radius-1);background:transparent;color:var(--gold-300);cursor:pointer;
+  font-family:var(--font-body);font-size:13px;font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;line-height:1.35;text-align:center;text-decoration:none;
+  transition:background-color var(--dur-1) var(--ease),border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease),text-decoration-color var(--dur-1) var(--ease)}
+.mx-btn .ico{width:18px;height:18px;flex:none}
+.mx-btn:hover:not(:disabled){border-color:var(--gold-300);background:var(--mx-gold-tint);color:var(--gold-100)}
+.mx-btn:disabled{opacity:.5;cursor:not-allowed}
+.mx-btn.primary{background:var(--gold-500);border-color:var(--gold-500);color:var(--ink-950)}
+.mx-btn.primary:hover:not(:disabled){background:var(--gold-300);border-color:var(--gold-300);color:var(--ink-950)}
+.mx-btn.primary:active:not(:disabled){background:var(--gold-600);border-color:var(--gold-600)}
+.mx-btn.primary:disabled{background:transparent;border-color:var(--hair-strong);color:var(--stone-400);opacity:1} /* a waiting / unavailable primary reads as status, not as a muddy gold */
+.mx-btn.lg{min-height:56px;padding:14px var(--sp-48)}
+.mx-btn.sm{min-height:44px;padding:8px var(--sp-16);font-size:12px}
+.mx-btn.quiet{border-color:transparent;background:transparent;color:var(--ivory-100);padding-inline:var(--sp-8);
+  text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:6px;text-decoration-color:var(--ink-600)}
+.mx-btn.quiet:hover:not(:disabled){background:transparent;border-color:transparent;color:var(--gold-300);text-decoration-color:var(--gold-300)}
+.mx-btn.danger{border-color:var(--danger);color:var(--danger)}
+.mx-btn.danger:hover:not(:disabled){border-color:var(--danger);background:var(--mx-danger-tint);color:var(--danger)}
+#copyInvite[data-copied]{background:transparent;border-color:var(--ok);color:var(--ok)}
+.mx-actions{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-12) var(--sp-16)}
+
+/* ---------- layout: a header, a main column and an offset column; stacks in reading order on narrow widths ---------- */
+.mx-split{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--sp-32);align-items:start}
+.mx-split>*{min-width:0}
+.mx-a-head{display:grid;gap:var(--sp-16);align-content:start}
+.mx-a-head .mx-lede{margin-top:var(--sp-8)}
+.mx-a-head .mx-wait{margin-top:var(--sp-16)}
+.mx-a-act{display:grid;gap:var(--sp-24);align-content:start}
+.mx-terms{display:grid;gap:var(--sp-16);align-content:start}
+.mx-terms .mx-lede{font-size:var(--fs-14)}
+@container mx (min-width:840px){
+  .mx-split{grid-template-columns:minmax(0,7fr) minmax(0,5fr);column-gap:var(--sp-64)}
+  .mx-waiting .mx-split{grid-template-rows:auto auto auto 1fr;grid-template-areas:"head terms" "main terms" "players terms" "act terms"}
+  .mx-waiting.mx-guest .mx-split{grid-template-rows:auto auto 1fr;grid-template-areas:"head terms" "players terms" "act terms"} /* a guest has no invite panel */
+  .mx-invite-s .mx-split{grid-template-rows:auto auto 1fr;grid-template-areas:"head terms" "players terms" "act terms"}
+  .mx-found .mx-split{grid-template-rows:auto 1fr;grid-template-areas:"main act" "rules terms"}
+  .mx-queue .mx-split{grid-template-areas:"head main"}
+  .mx-waiting .mx-a-head,.mx-invite-s .mx-a-head,.mx-queue .mx-a-head{grid-area:head}
+  .mx-waiting .mx-a-main,.mx-found .mx-a-main,.mx-queue .mx-a-main{grid-area:main}
+  .mx-waiting .mx-a-act,.mx-invite-s .mx-a-act,.mx-found .mx-a-act{grid-area:act}
+  .mx-waiting .mx-a-players,.mx-invite-s .mx-a-players{grid-area:players}
+  .mx-waiting .mx-a-terms,.mx-invite-s .mx-a-terms,.mx-found .mx-a-terms{grid-area:terms}
+  .mx-found .mx-a-rules{grid-area:rules}
+  .mx-found .mx-a-terms{padding-top:var(--sp-48);border-top:1px solid var(--hair)}
+  .mx-queue .mx-split{grid-template-columns:minmax(0,6fr) minmax(0,6fr)}
+}
+
+/* surfaces: ink-900 with a 1px hairline and a gold top rule; no shadow, no blur */
+.mx-panel,.mx-readyblock{background:var(--ink-900);border:1px solid var(--hair);border-top-color:var(--gold-500);border-radius:var(--radius-2);padding:var(--sp-32)}
+
+/* ---------- the terms (a ledger of hairline rows) ---------- */
+.mx-ledger{margin:0;padding:0;display:grid}
+.mx-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:var(--sp-16);padding:var(--sp-16) 0;border-top:1px solid var(--hair)}
+.mx-row:last-child{border-bottom:1px solid var(--hair)}
+.mx-row dt{font-size:var(--fs-12);font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;line-height:1.4;color:var(--stone-400)}
+.mx-row dd{margin:0;min-width:0;text-align:right;font-family:var(--font-display);font-weight:500;font-size:var(--fs-28);line-height:1.1;letter-spacing:-.01em;color:var(--ivory-100);font-variant-numeric:lining-nums tabular-nums;overflow-wrap:anywhere}
+.mx-row dd.mx-plain{font-family:var(--font-body);font-size:var(--fs-16);font-weight:400;letter-spacing:0;line-height:1.4}
+.mx-unit{font-family:var(--font-body);font-size:var(--fs-12);font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
+.mx-row small{display:block;max-width:26ch;margin:var(--sp-4) 0 0 auto;font-family:var(--font-body);font-size:13px;font-weight:400;letter-spacing:0;line-height:1.4;color:var(--stone-400)}
+.mx-row.win .mx-amt{color:var(--gold-500)}
+.mx-row.good .mx-amt{color:var(--ok)}
+.mx-row.bad .mx-amt{color:var(--danger)}
+.mx-arrow{position:relative;display:inline-block;width:var(--sp-24);height:1px;margin:0 var(--sp-8);vertical-align:middle;background:var(--stone-400)}
+.mx-arrow::after{content:"";position:absolute;right:0;top:-3px;width:6px;height:6px;border-top:1px solid var(--stone-400);border-right:1px solid var(--stone-400);transform:rotate(45deg)} /* hairline arrowhead: before → after */
+.mx-row small.mx-delta{display:inline;margin:0;font-size:var(--fs-14);font-weight:500}
+.mx-delta.up{color:var(--ok)} .mx-delta.down{color:var(--danger)}
+
+/* ---------- rules (numbered, hairline-separated) ---------- */
+.mx-rulesec{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--sp-24);padding-top:var(--sp-48);border-top:1px solid var(--hair)}
+.mx-rulehead{display:grid;gap:var(--sp-16);align-content:start}
+@container mx (min-width:840px){.mx-rulesec{grid-template-columns:minmax(0,5fr) minmax(0,7fr);column-gap:var(--sp-64)}.mx-rulesec.stack{grid-template-columns:minmax(0,1fr)}}
+.mx-rules{counter-reset:r;margin:0;padding:0;list-style:none;max-width:64ch}
+.mx-rules li{counter-increment:r;display:grid;grid-template-columns:var(--sp-48) minmax(0,1fr);padding:var(--sp-16) 0;border-top:1px solid var(--hair);font-size:var(--fs-16);line-height:1.6;color:var(--ivory-100)}
+.mx-rules li:last-child{border-bottom:1px solid var(--hair)}
+.mx-rules li::before{content:counter(r,decimal-leading-zero);font-family:var(--font-display);font-size:var(--fs-20);font-weight:500;line-height:1.35;color:var(--gold-500);font-variant-numeric:lining-nums}
+
+/* ---------- avatars: the shared pixel avatar, recoloured by role (gold = you, terracotta = your opponent) ---------- */
+.mx-ava{--tone:var(--stone-400);display:inline-flex;line-height:0;flex:none}
+.mx-ava.you{--tone:var(--gold-500)} .mx-ava.opp{--tone:var(--danger)}
+.mx-ava .ava{display:block;border-radius:50%}
+.mx-ava .ava circle{fill:var(--ink-800);stroke:var(--tone);stroke-width:2;vector-effect:non-scaling-stroke}
+.mx-ava .ava g{fill:var(--tone)}
+
+/* ---------- waiting room ---------- */
+.mx-panel.mx-invite{display:grid;gap:var(--sp-16)}
+.mx .mx-link,.mx input.mx-link{width:100%;min-height:52px;padding:0 var(--sp-16);border:1px solid var(--hair-strong);border-radius:var(--radius-1);background:var(--ink-950);box-shadow:none;
+  color:var(--ivory-100);font-family:var(--font-body);font-size:var(--fs-14);letter-spacing:.01em;text-overflow:ellipsis;transition:border-color var(--dur-1) var(--ease)}
+.mx input.mx-link:focus,.mx input.mx-link:focus-visible{outline:1px solid var(--gold-500);outline-offset:3px;border-color:var(--gold-500);box-shadow:none}
+.mx-codebox{display:grid;gap:var(--sp-8);margin-top:var(--sp-8);padding-top:var(--sp-24);border-top:1px solid var(--hair)}
+.mx-code{font-family:var(--font-body);font-weight:400;font-size:clamp(30px,6.4vw,48px);line-height:1.1;letter-spacing:.18em;color:var(--ivory-100);user-select:all;overflow-wrap:anywhere}
+.mx-wait{display:grid;gap:var(--sp-12)}
+.mx-scan{position:relative;display:block;height:1px;background:var(--hair-strong);overflow:hidden}
+.mx-scan::after{content:"";position:absolute;top:0;bottom:0;left:0;width:22%;background:var(--gold-500);animation:mx-scan 2.8s var(--ease) infinite}
+@keyframes mx-scan{from{transform:translateX(-100%)}to{transform:translateX(460%)}}
+.mx-waitrow{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:var(--sp-8) var(--sp-24);margin:0;font-size:var(--fs-14);color:var(--ivory-100)}
+.mx-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--sp-12) var(--sp-24)}
+
+/* ---------- invite (guest) + closed / invalid states ---------- */
+.mx-who{overflow-wrap:anywhere}
+.mx-short{display:grid;gap:var(--sp-16);padding:var(--sp-16) var(--sp-24);border:1px solid var(--hair);border-left:2px solid var(--danger);border-radius:var(--radius-2);background:var(--ink-900)}
+.mx-short p{display:grid;gap:var(--sp-4);margin:0;font-size:var(--fs-14)}
+.mx-short b{color:var(--danger);font-size:var(--fs-16)}
+.mx-stopbox{display:grid;gap:var(--sp-24);max-width:720px;padding-top:var(--sp-48);align-content:start} /* sparse pages get the extra air */
+.mx-stopbox .mx-actions{margin-top:var(--sp-8)}
+.mx-orphan .mx-ledger{max-width:420px}
+
+/* ---------- found: the versus ---------- */
+.mx-a-main{display:grid;gap:var(--sp-32);align-content:start}
+.mx-vs{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:start}
+.mx-side{--tone:var(--stone-400);display:grid;justify-items:start;gap:var(--sp-8);min-width:0;padding-top:var(--sp-24);border-top:1px solid var(--tone)}
+.mx-side.you{--tone:var(--gold-500)} .mx-side.opp{--tone:var(--danger)}
+.mx-side .ava{width:56px;height:56px}
+.mx-tag{margin-top:var(--sp-8);color:var(--tone)}
+.mx-name{max-width:100%;font-family:var(--font-display);font-weight:500;font-size:clamp(22px,1.2vw + 16px,32px);line-height:1.1;letter-spacing:-.01em;color:var(--ivory-100);overflow-wrap:anywhere}
+.mx-rating{display:inline-flex;align-items:baseline;gap:var(--sp-8)}
+.mx-fig{font-family:var(--font-display);font-weight:500;font-size:var(--fs-20);line-height:1;color:var(--ivory-100);font-variant-numeric:lining-nums tabular-nums}
+.mx-x{display:grid;place-items:center;height:1px;padding:0 var(--sp-16);font-family:var(--font-display);font-size:var(--fs-20);line-height:1;color:var(--stone-400)}
+.mx-ready{display:inline-flex;align-items:center;gap:var(--sp-8);margin-top:var(--sp-4);font-size:var(--fs-14);line-height:1.4;color:var(--stone-400);transition:color var(--dur-1) var(--ease)}
+.mx-dot{flex:none;width:8px;height:8px;border-radius:50%;border:1px solid var(--stone-400);background:transparent;transition:background-color var(--dur-1) var(--ease),border-color var(--dur-1) var(--ease)}
+.mx-ready.on{color:var(--ok)}
+.mx-ready.on .mx-dot{background:var(--ok);border-color:var(--ok)}
+.mx-odds{display:grid;gap:var(--sp-12)}
+.mx-oddsbar{display:flex;height:2px;background:var(--danger)}
+.mx-oddsbar i{display:block;height:100%;background:var(--gold-500)}
+.mx-oddsrow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--sp-16);align-items:baseline;font-size:var(--fs-14)}
+.mx-you{color:var(--gold-500);font-weight:500} .mx-opp{color:var(--danger);font-weight:500}
+.mx-oddsnote{text-align:center;color:var(--stone-400)}
+
+/* the ready block: the one place to act, with the accept timer drawn as a thin draining line */
+.mx-readyblock{display:grid;gap:var(--sp-24)}
+.mx-timer{display:grid;gap:var(--sp-8)}
+.mx-clock{font-family:var(--font-display);font-weight:400;font-size:var(--fs-64);line-height:1;letter-spacing:-.02em;color:var(--ivory-100);font-variant-numeric:lining-nums tabular-nums}
+.mx-drain{display:block;position:relative;height:2px;margin-top:var(--sp-8);background:var(--hair-strong);overflow:hidden}
+.mx-drain::after{content:"";position:absolute;inset:0;background:var(--gold-500);transform-origin:left center;transform:scaleX(var(--left,1));animation:mx-drain var(--dur) linear forwards}
+@keyframes mx-drain{from{transform:scaleX(var(--left,1))}to{transform:scaleX(0)}}
+.mx-status{margin:0;font-size:var(--fs-14);line-height:1.5;color:var(--stone-400)}
+
+/* ---------- play ---------- */
+/* nav is hidden while playing: keep the top-bar clearance, drop the tab-bar padding, give the stage the room */
+body[data-view=play] #main{max-width:min(1280px,100%);padding-top:calc(var(--top-h) + env(safe-area-inset-top,0px) + var(--sp-16));padding-bottom:calc(var(--sp-24) + env(safe-area-inset-bottom,0px))}
+.mx-play{gap:var(--sp-16)}
+.mx-hud{display:grid;gap:var(--sp-12);padding-bottom:var(--sp-16);border-bottom:1px solid var(--hair)}
+.mx-hudtop{display:flex;align-items:center;flex-wrap:wrap;gap:var(--sp-8) var(--sp-16)}
+.mx-hudwho{display:flex;align-items:center;gap:var(--sp-12);min-width:0;flex:1 1 220px}
+.mx-hudwho>div{display:grid;gap:2px;min-width:0}
+.mx-hudwho .ava{width:32px;height:32px}
+.mx-hudname{margin:0;font-family:var(--font-display);font-weight:500;font-size:var(--fs-20);line-height:1.15;letter-spacing:-.01em;color:var(--ivory-100);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mx-hudwho .mx-k{overflow-wrap:anywhere}
+.mx-play .mx-status{margin:0;min-width:0;font-size:var(--fs-14);font-weight:500;color:var(--gold-300);overflow-wrap:anywhere}
+.mx-status:empty{display:none}
+.mx-forfeit{margin-left:auto;min-width:0}
+.mx-confirm{display:flex;align-items:center;flex-wrap:wrap;gap:var(--sp-8) var(--sp-16);padding:var(--sp-4) var(--sp-8) var(--sp-4) var(--sp-16);border:1px solid var(--danger);border-radius:var(--radius-1);background:var(--ink-900)}
+.mx-confirm-t{font-size:var(--fs-14);color:var(--ivory-100)}
+.mx-confirm-b{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-4)}
+/* lanes share one column grid (subgrid) so the name column fits the longer name and both tracks line up */
+.mx-race{display:grid;grid-template-columns:fit-content(40%) minmax(0,1fr) auto;gap:var(--sp-8) var(--sp-16)}
+.mx-lane{display:grid;grid-column:1/-1;grid-template-columns:minmax(0,110px) minmax(0,1fr) minmax(2ch,auto);grid-template-columns:subgrid;gap:var(--sp-16);align-items:center}
+.mx-ln{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-12);font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
+.mx-lane.you .mx-ln{color:var(--gold-500)} .mx-lane.opp .mx-ln{color:var(--danger)}
+.mx-num{min-width:3ch;text-align:right;font-size:var(--fs-16);font-weight:500;color:var(--ivory-100);font-variant-numeric:tabular-nums}
+.mx-track{height:3px;border-radius:var(--radius-1);background:var(--hair);overflow:hidden}
+.mx-fill{height:100%;width:0;border-radius:var(--radius-1);transition:width var(--dur-1) var(--ease)}
+.mx-lane.you .mx-fill{background:var(--gold-500)} .mx-lane.opp .mx-fill{background:var(--danger)}
+.mx-lane.lead.you .mx-num{color:var(--gold-500)} .mx-lane.lead.opp .mx-num{color:var(--danger)} /* whoever is in front (a tie lights every leader) */
+#stage{width:100%;max-width:none;min-height:240px;min-width:0;background:none;border:0;box-shadow:none}
+.mx-note{margin:0;font-size:var(--fs-14);color:var(--stone-400);text-align:center}
+.mx-note:empty{display:none}
+/* the 3-2-1: a serif numeral that fades in and a thin gold rule that draws across each second */
+.mx-cd{display:grid;justify-items:center;gap:var(--sp-8);text-align:center;padding:var(--sp-48) 0 var(--sp-24)}
+.mx-cd:empty{display:none}
+.mx-cdn{display:grid;justify-items:center;gap:var(--sp-16)}
+.mx-cdnum{font-family:var(--font-display);font-weight:400;font-size:clamp(96px,16vw,160px);line-height:1;color:var(--ivory-100);font-variant-numeric:lining-nums;animation:mx-tick 1000ms var(--ease) var(--ph) both}
+.mx-cdrule{display:block;width:var(--sp-64);height:1px;background:var(--gold-500);transform-origin:left center;animation:mx-draw 1000ms linear var(--ph) both}
+.mx-cdt{margin:0;font-size:var(--fs-14);color:var(--stone-400)}
+@keyframes mx-tick{0%{opacity:0}30%{opacity:1}80%{opacity:1}100%{opacity:.25}}
+@keyframes mx-draw{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+
+/* ---------- result ---------- */
+.mx-result{gap:var(--sp-48)}
+.mx-result.win{--mx-tone:var(--ok)} .mx-result.loss{--mx-tone:var(--danger)} .mx-result.draw,.mx-result.void{--mx-tone:var(--ivory-100)}
+.mx-result .mx-a-head{max-width:760px}
+.mx-verdict{margin:0;font-family:var(--font-display);font-weight:400;font-size:var(--fs-96);line-height:1;letter-spacing:-.025em;color:var(--mx-tone);text-wrap:balance;overflow-wrap:anywhere}
+.mx-result.void .mx-verdict{font-size:var(--fs-64)}
+.mx-rule{display:block;width:min(100%,384px);height:1px;background:var(--mx-tone);transform-origin:left center;animation:mx-draw var(--dur-2) var(--ease) 150ms both}
+.mx-result.draw .mx-rule,.mx-result.void .mx-rule{background:var(--hair-strong)}
+.mx-reason{font-size:var(--fs-20);line-height:1.4;color:var(--ivory-100)}
+.mx-score{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-32)}
+.mx-sl{--tone:var(--stone-400);display:grid;justify-items:start;align-content:start;gap:var(--sp-8);min-width:0;padding-top:var(--sp-24);border-top:1px solid var(--hair)}
+.mx-sl.you{--tone:var(--gold-500)} .mx-sl.opp{--tone:var(--danger)}
+.mx-sl.lead{border-top-color:var(--tone)}
+.mx-sl .mx-k{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mx-sl .mx-ava{margin-bottom:var(--sp-4)}
+.mx-big{font-family:var(--font-display);font-weight:400;font-size:var(--fs-96);line-height:1;letter-spacing:-.02em;color:var(--tone);font-variant-numeric:lining-nums tabular-nums;overflow-wrap:anywhere}
+.mx-resultactions{gap:var(--sp-16)}
+.mx-finebox{display:grid;gap:var(--sp-8)}
+
+/* ---------- player lists: the lobby roster (host room, guest room, invite page), the ready list (found), the standings (result) ----------
+   One row per player on a hairline rule: avatar, name in ivory, tags. Your own row carries a 2px gold rule on its left edge.
+   Rows are 48px tall so ten players stay compact. */
+.mx-players{display:grid;gap:var(--sp-12);align-content:start;min-width:0}
+.mx-plh{margin:0}
+.mx-plc{margin-left:var(--sp-12);color:var(--ivory-100);font-variant-numeric:lining-nums tabular-nums}
+.mx-seats{display:grid;grid-template-columns:repeat(var(--cap,10),minmax(0,1fr));gap:3px;margin-bottom:var(--sp-4)}
+.mx-seats i{display:block;height:3px;background:var(--ink-600);transition:background-color var(--dur-1) var(--ease)}
+.mx-seats i.on{background:var(--gold-500)}
+.mx-pl{margin:0;padding:0;list-style:none;display:grid}
+.mx-pr{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:var(--sp-12);min-height:48px;padding:var(--sp-8) var(--sp-8) var(--sp-8) var(--sp-12);border-top:1px solid var(--hair);border-left:2px solid transparent}
+.mx-pr:last-child{border-bottom:1px solid var(--hair)}
+.mx-pr.you{border-left-color:var(--gold-500)}
+.mx-pr .mx-ava .ava{width:32px;height:32px}
+.mx-pname{min-width:0;font-size:var(--fs-16);line-height:1.35;color:var(--ivory-100);overflow-wrap:anywhere}
+.mx-ptags{display:inline-flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:var(--sp-4) var(--sp-8)}
+.mx-pr .lb-chip-s.you{border-color:var(--gold-500);color:var(--gold-500)}
+.mx-prate{margin-left:var(--sp-8);font-size:var(--fs-14);color:var(--stone-400);font-variant-numeric:lining-nums tabular-nums}
+.mx-pr .mx-ready{margin-top:0;white-space:nowrap}
+.mx-potline b{font-weight:500;color:var(--ivory-100);font-variant-numeric:lining-nums tabular-nums}
+.mx-startbox{display:grid;gap:var(--sp-8);margin-top:var(--sp-16);justify-items:start}
+.mx-startbox .mx-btn{min-width:min(100%,320px)}
+.mx-startbox .mx-fine{min-height:1.5em}
+/* result standings: place, avatar, name, score with the payout under it */
+.mx-res{grid-template-columns:var(--sp-48) auto minmax(0,1fr) auto}
+.mx-res .mx-ptags{margin-left:var(--sp-8)}
+.mx-place{font-family:var(--font-display);font-size:var(--fs-20);font-weight:500;line-height:1;color:var(--stone-400);font-variant-numeric:lining-nums}
+.mx-res.first .mx-place,.mx-res.first .mx-pn{color:var(--gold-500)}
+.mx-pscore{display:grid;justify-items:end;gap:2px;min-width:0;text-align:right}
+.mx-pn{font-family:var(--font-display);font-weight:500;font-size:var(--fs-28);line-height:1;color:var(--ivory-100);font-variant-numeric:lining-nums tabular-nums}
+.mx-pscore small{font-size:13px;line-height:1.3;color:var(--stone-400)}
+.mx-pay{color:var(--ok)}
+/* live race with many players: lanes flow into columns instead of one tall stack; a finished lane gets a tick, a forfeit reads "Out" */
+.mx-num{display:inline-flex;align-items:center;justify-content:flex-end;gap:var(--sp-4)}
+.mx-num .ico{width:14px;height:14px;flex:none;color:var(--ok)}
+.mx-done{display:inline-flex}.mx-done[hidden]{display:none}
+.mx-lane[data-state=out]{opacity:.55}
+.mx-lane[data-state=out] .mx-ln{text-decoration:line-through}
+.mx-race.many{grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr));gap:var(--sp-4) var(--sp-24)}
+.mx-race.many .mx-lane{grid-column:auto;grid-template-columns:minmax(0,120px) minmax(0,1fr) auto;gap:var(--sp-12)}
+.mx-race.many .mx-num{min-width:2ch;font-size:var(--fs-14)}
+.mx-hudgroup{display:inline-grid;place-items:center;flex:none;width:32px;height:32px;border:1px solid var(--hair-gold);border-radius:50%;color:var(--gold-500)}
+.mx-hudgroup .ico{width:16px;height:16px}
+@media(max-width:560px){
+  .mx-pr{gap:var(--sp-8);padding-right:0}
+  .mx-startbox .mx-btn{width:100%}
+  .mx-res{grid-template-columns:var(--sp-32) auto minmax(0,1fr) auto}
+  .mx-pscore small{max-width:13ch}
+  .mx-pn{font-size:var(--fs-20)}
+  .mx-race.many{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-8) var(--sp-16)}
+  .mx-race.many .mx-lane{grid-template-columns:minmax(0,1fr) auto;gap:2px var(--sp-8)}
+  .mx-race.many .mx-ln{grid-column:1;grid-row:1}
+  .mx-race.many .mx-num{grid-column:2;grid-row:1}
+  .mx-race.many .mx-track{grid-column:1/-1;grid-row:2}
+}
+
+/* ---------- phones ---------- */
+@media(max-width:560px){
+  .mx{gap:var(--sp-32)}
+  .mx-split{gap:var(--sp-24)}
+  .mx-panel,.mx-readyblock{padding:var(--sp-24) var(--sp-16)}
+  .mx-actions>.mx-btn:not(.quiet){flex:1 1 100%}
+  .mx-actions>.mx-btn.quiet{flex:1 1 100%}
+  .mx-foot>.mx-btn{flex:1 1 100%}
+  .mx-btn.lg{padding-inline:var(--sp-24)}
+  .mx-row{padding:var(--sp-12) 0}
+  .mx-rulesec{padding-top:var(--sp-32)}
+  .mx-rules li{grid-template-columns:var(--sp-32) minmax(0,1fr)}
+  .mx-side{padding-top:var(--sp-16)}
+  .mx-side .ava{width:44px;height:44px}
+  .mx-x{padding:0 var(--sp-8)}
+  .mx-oddsrow{grid-template-columns:minmax(0,1fr) auto}
+  .mx-oddsnote{grid-column:1/-1;grid-row:2;text-align:left}
+  .mx-stopbox{padding-top:var(--sp-24)}
+  .mx-score{gap:var(--sp-16)}
+  .mx-hudwho{flex:1 1 0}
+  .mx-play .mx-status{order:3;flex-basis:100%}
+  .mx-forfeit{flex:none}
+  .mx-forfeit[data-mode=confirm]{flex:1 1 100%;order:2}
+  .mx-confirm{display:grid;padding:var(--sp-12)}
+  .mx-confirm-b{display:grid;grid-template-columns:1fr 1fr}
+  .mx-race{grid-template-columns:fit-content(45%) minmax(0,1fr) auto}
+  body[data-view=play] #main{padding-left:var(--sp-8);padding-right:var(--sp-8)}
+  .mx-cd{padding:var(--sp-32) 0 var(--sp-16)}
+}
+
+/* ---------- reduced motion: static end states (the line stays, nothing travels or draws) ---------- */
+@media(prefers-reduced-motion:reduce){
+  .mx-scan::after{animation:none;transform:none}
+  .mx-drain::after{animation:none}
+  .mx-rule,.mx-cdnum,.mx-cdrule{animation:none}
+  .mx-fill,.mx-btn,.mx-ready,.mx-dot,.mx-seats i{transition:none}
+}
+
+/* ---------- sign-in invite banner (markup in views/shell.js) + the top-bar open-lobby chip ---------- */
+.invite-banner{display:flex;gap:var(--sp-16);align-items:center;padding:var(--sp-16) var(--sp-24);border:1px solid var(--hair-gold);border-left:2px solid var(--gold-500);border-radius:var(--radius-2);background:var(--ink-900)}
+.invite-banner>div{display:grid;gap:var(--sp-4);min-width:0}
+.invite-banner b{font-family:var(--font-display);font-weight:500;font-size:var(--fs-20);line-height:1.2;letter-spacing:-.01em;color:var(--ivory-100);overflow-wrap:anywhere}
+.invite-banner span:not(.ib-ava):not(.ib-ico){font-size:var(--fs-14);line-height:1.5;color:var(--stone-400)}
+.invite-banner .ib-ava{display:inline-flex;line-height:0;flex:none}
+.invite-banner .ib-ava .ava{border-radius:50%}
+.invite-banner .ib-ava .ava circle{fill:var(--ink-800);stroke:var(--gold-500);stroke-width:2;vector-effect:non-scaling-stroke}
+.invite-banner .ib-ava .ava g{fill:var(--gold-500)}
+.invite-banner .ib-ico{display:grid;place-items:center;width:44px;height:44px;border:1px solid var(--hair-gold);border-radius:50%;flex:none;color:var(--gold-500)}
+.invite-banner .ib-ico .ico{width:20px;height:20px}
+.invite-banner.bad{border-color:var(--hair);border-left-color:var(--stone-400)}
+.invite-banner.bad .ib-ico{border-color:var(--hair);color:var(--stone-400)}
+.top-open{animation:none}

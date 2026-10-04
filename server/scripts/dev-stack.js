@@ -51,6 +51,7 @@ export async function startDevStack({ port = 0, chainPort = 0, fresh = false, me
     devFaucet: true,
     ...overrides,
   });
+  config.match.publicQueue = overrides.match?.publicQueue ?? false; // the dev stack is invite-only unless a caller opts in
   const app = await createApp(config);
 
   /* dev-only faucet, registered here and nowhere in the production code path.

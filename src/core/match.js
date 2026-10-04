@@ -26,7 +26,7 @@
     const g = cur.games[0];
     const phase = cur.phase === "mm" ? "mm" : "play";
     P.S.active = { game: g.id, gn: cur.format === "mix" ? "Duel Mix" : g.name, format: cur.format, stake: cur.stake, escrow: cur.escrow, phase,
-      opp: cur.opps && cur.opps[0] ? cur.opps[0].rating : P.rating(g.id), vs: cur.opps ? cur.opps.map((p) => p.name).join(", ") : "",
+      opp: cur.opps && cur.opps[0] ? cur.opps[0].rating : P.rating(g.id), vs: cur.opps ? cur.opps.map((p) => p.name).join(", ") : "", unrated: unrated(cur, g.id),
       tour: cur.setup.tour && cur.setup.tour.once ? { id: cur.setup.tour.id, once: cur.setup.tour.once } : null };
   }
   function unpersist() { P.S.active = null; }
@@ -50,15 +50,28 @@
     return d.innerHTML;
   };
 
-  /* opponents: names from the pool, rating = base ± 60, skill from rating */
-  function makePeople(n, base, exclude) {
+  /* A game's own setup (def.setup) travels as setup.options = { game, values }; it only applies to that game. */
+  const optsFor = (cur, gid) => { const o = cur.setup.options; return o && o.game === gid && o.values ? o.values : null; };
+  const setupDefOf = (gid) => { const g = P.game(gid); return (g && g.raw && g.raw.setup) || null; };
+  function setupAsk(cur, gid, fn, d) {
+    const v = optsFor(cur, gid), def = setupDefOf(gid);
+    if (!v || !def || typeof def[fn] !== "function") return d;
+    try { return def[fn](v); } catch (e) { console.error("[Duel.gold] game setup error", e); return d; }
+  }
+  const unrated = (cur, gid) => setupAsk(cur, gid, "rated", true) === false;
+  const spreadFor = (cur) => { const r = Number(setupAsk(cur, cur.games[0].id, "ratingRange", 60)); return r > 0 ? r : 60; };
+  const setupLabel = (cur) => (cur.format === "mix" ? "" : String(setupAsk(cur, cur.games[0].id, "summary", "") || ""));
+
+  /* opponents: names from the pool, rating = base ± spread (60 unless the game's setup sets a range), skill from rating */
+  function makePeople(n, base, exclude, spread) {
+    const sp = spread > 0 ? spread : 60;
     const used = new Set((exclude || []).map((x) => x.toLowerCase()));
     used.add("you");
     const pool = U.shuffle(rnd, P.NAMES).filter((nm) => !used.has(nm.toLowerCase()));
     const out = [];
     for (let i = 0; i < n; i++) {
       const name = pool[i % pool.length] + (i >= pool.length ? " " + (i + 1) : "");
-      const rating = Math.max(600, Math.round(base + (rnd() * 120 - 60)));
+      const rating = Math.max(600, Math.round(base + (rnd() * 2 - 1) * sp));
       out.push({ name, rating, skill: U.skillFromRating(rating) });
     }
     return out;
@@ -241,11 +254,12 @@
     const g = cur.games[0];
     const label = cur.format === "mix" ? "Duel Mix · 3 games" : g.name;
     const base = cur.format === "mix" ? Math.round(cur.games.reduce((a, x) => a + P.rating(x.id), 0) / 3) : P.rating(g.id);
-    setBar([[meFor(g.id), "me"]], [], P.fmtName(cur.format) + " · " + stakeTxt(cur.stake));
+    const sl = setupLabel(cur), spread = spreadFor(cur), noRating = unrated(cur, g.id);
+    setBar([[meFor(g.id), "me"]], [], P.fmtName(cur.format) + (sl ? " · " + sl : "") + " · " + stakeTxt(cur.stake));
     $("#ovStatus").textContent = "Matchmaking";
     stage('<div class="mm" data-test="matchmaking"><div class="radar" aria-hidden="true"><i></i></div>' +
-      '<p class="mm-line">Finding opponent · ' + esc(label) + " · " + esc(stakeTxt(cur.stake)) + " · rating ± 60</p>" +
-      '<p class="dg-note">' + (cur.stake > 0 ? P.fmt(cur.stake) + " gold is held in escrow until the result." : "Free duel. Ratings still count.") + "</p>" +
+      '<p class="mm-line">Finding opponent · ' + esc(label) + (sl ? " · " + esc(sl) : "") + " · " + esc(stakeTxt(cur.stake)) + " · rating ± " + spread + "</p>" +
+      '<p class="dg-note">' + (cur.stake > 0 ? P.fmt(cur.stake) + " gold is held in escrow until the result." : noRating ? "Free duel." : "Free duel. Ratings still count.") + (noRating ? " Unrated: your rating will not change." : "") + "</p>" +
       '<button class="dg-btn" id="mmCancel">Cancel</button></div>');
     $("#mmCancel").onclick = () => { refund(cur); closeOverlay(); P.toast("Matchmaking cancelled. Stake returned."); };
     const minMs = 1100 + Math.random() * 700;
@@ -293,11 +307,12 @@
   function buildParticipants(cur, base) {
     const f = cur.format, gid = cur.games[0].id;
     const fixed = cur.setup.opponent ? [personOf(cur.setup.opponent)] : null;
+    const sp = spreadFor(cur);
     const reuse = cur.setup.people; // rematch: same opponents
-    if (f === "1v1" || f === "mix") cur.opps = reuse && reuse.opps || fixed || makePeople(1, base);
-    else if (f === "2v2") { const ps = reuse ? null : makePeople(3, base); cur.ally = reuse ? reuse.ally : ps[0]; cur.opps = reuse ? reuse.opps : ps.slice(1); }
-    else if (f === "ffa") cur.opps = reuse && reuse.opps || makePeople(3, base);
-    else if (f === "tournament") cur.opps = makePeople(7, base);
+    if (f === "1v1" || f === "mix") cur.opps = reuse && reuse.opps || fixed || makePeople(1, base, null, sp);
+    else if (f === "2v2") { const ps = reuse ? null : makePeople(3, base, null, sp); cur.ally = reuse ? reuse.ally : ps[0]; cur.opps = reuse ? reuse.opps : ps.slice(1); }
+    else if (f === "ffa") cur.opps = reuse && reuse.opps || makePeople(3, base, null, sp);
+    else if (f === "tournament") cur.opps = makePeople(7, base, null, sp);
     cur.me = meFor(gid);
     if (f === "tournament") initTour(cur);
   }
@@ -310,7 +325,8 @@
     let left = [[cur.me, "me"]], right = cur.opps.map((p) => [p, "rival"]);
     if (f === "2v2") left.push([cur.ally, "ally"]);
     if (f === "tournament") right = [];
-    setBar(left, right, P.fmtName(f) + " · " + stakeTxt(cur.stake));
+    const sl = setupLabel(cur);
+    setBar(left, right, P.fmtName(f) + (sl ? " · " + sl : "") + " · " + stakeTxt(cur.stake));
     $("#ovStatus").textContent = f === "tournament" ? "Bracket" : "Versus";
     setButtons({ forfeit: true });
     if (f === "tournament") return showBracket(cur, true);
@@ -404,6 +420,7 @@
         opponents: rivals.map((p) => ({ name: p.name, rating: p.rating, skill: p.skill })),
         teammates: f === "2v2" ? [{ name: cur.ally.name, rating: cur.ally.rating, skill: cur.ally.skill }] : [],
         speed: M.speed,
+        options: optsFor(cur, g.id) || undefined,
         onStatus: (t) => { if (!r.finished) $("#ovStatus").textContent = String(t).slice(0, 80); },
         onProgress: (sc) => { const n = Number(sc); if (Number.isFinite(n)) { r.my = n; } },
         onEnd: (res) => {
@@ -604,6 +621,7 @@
     S.gold += r.payout;
     cur.escrow = 0; unpersist();
     const net = r.payout - stake;
+    for (const gid in r.dr) if (unrated(cur, gid)) r.dr[gid] = 0;
     for (const gid in r.dr) applyGame(gid, r.outcome === "place" ? "draw" : r.outcome, r.dr[gid], gid === g.id ? r.score : null);
     const dp = E.dpFor(r.outcome === "place" ? "draw" : r.outcome, stake);
     P.addDp(dp);
@@ -634,7 +652,7 @@
       tile("Stake", cur.stake > 0 ? P.fmt(cur.stake) : "Free", "") +
       tile("Payout", P.fmt(r.payout), r.payout > 0 ? "dg-gold" : "") +
       tile("Net", P.signed(r.net), r.net > 0 ? "dg-good" : r.net < 0 ? "dg-bad" : "") +
-      tile("Rating", P.signed(r.drTotal), r.drTotal > 0 ? "dg-good" : r.drTotal < 0 ? "dg-bad" : "") +
+      (cur.format !== "mix" && unrated(cur, g.id) ? tile("Rating", "Unrated", "") : tile("Rating", P.signed(r.drTotal), r.drTotal > 0 ? "dg-good" : r.drTotal < 0 ? "dg-bad" : "")) +
       tile("Duel points", "+" + P.fmt(r.dp), "") + "</div>" +
       (cur.ach && cur.ach.length ? '<p class="res-ach" data-test="unlocked"><span class="dg-eyebrow dg-gold">Unlocked</span> ' + cur.ach.map((n) => '<span class="ach-pill">' + esc(n) + "</span>").join("") + "</p>" : "") +
       (r.detail ? '<div class="res-detail dg-box">' + P.cleanHTML(r.detail) + "</div>" : "") +
@@ -828,7 +846,7 @@
       o = U.rng(seed + ":tb")() < 0.5 ? "win" : "loss"; // after 3 ties a seeded coin decides
     }
     T.ties = 0;
-    const dr = E.elo(P.rating(g.id), opp.rating, sc(o));
+    const dr = unrated(cur, g.id) ? 0 : E.elo(P.rating(g.id), opp.rating, sc(o));
     applyGame(g.id, o, dr, my);
     T.drTotal = (T.drTotal || 0) + dr;
     T.dpTotal = (T.dpTotal || 0) + E.dpFor(o, 0);
@@ -1001,7 +1019,7 @@
     }
     const gid = a.format === "mix" ? null : a.game;
     let dr = 0;
-    if (gid) { dr = E.elo(P.rating(gid), a.opp, 0); applyGame(gid, "loss", dr, null); }
+    if (gid) { dr = a.unrated ? 0 : E.elo(P.rating(gid), a.opp, 0); applyGame(gid, "loss", dr, null); }
     P.addDp(E.dpFor("loss", a.stake));
     P.recordDuel("loss", -a.stake);
     P.addHistory({ g: a.format === "mix" ? "mix" : a.game, gn: a.gn, f: a.format, stake: a.stake, o: "loss", s: "forfeit (left)", net: -a.stake, dr, vs: a.vs });

@@ -443,7 +443,9 @@
 .g-chess-err{padding:24px;text-align:center}
 `);
 
-  function chessGame(ctx, spectate) {
+  /* tc = { base, inc (ms), color: "w"|"b"|"random", rated, label } — defaults are Chess Blitz: 3+2, coin toss */
+  function chessGame(ctx, spectate, tc) {
+    tc = Object.assign({ base: 180000, inc: 2000, color: "random", rated: true, label: "" }, tc || {});
     const P = "g-chess";
     guardScrollKeys(ctx);
     const players = playersFor(ctx, spectate);
@@ -457,13 +459,15 @@
     }
     const rng = ctx.rng;
     const g = new window.Chess();
-    const goldColor = rng() < 0.5 ? "w" : "b";
+    const toss = rng();
+    const goldColor = spectate || (tc.color !== "w" && tc.color !== "b") ? (toss < 0.5 ? "w" : "b") : tc.color;
     const colorOf = [goldColor, goldColor === "w" ? "b" : "w"];
     const flip = goldColor === "b";
-    const INC = 2000;
+    const INC = tc.inc;
+    const LOW = Math.min(20000, tc.base * 0.25); // clock turns red: 20 s, or a quarter of very short controls
     const clocksOn = !spectate;
     let clocksFrozen = false;
-    const rem = { w: 180000, b: 180000 };
+    const rem = { w: tc.base, b: tc.base };
     let turnStart = ctx.now();
     let selected = null, targets = [], lastMove = null, over = false, pendingAi = false, promo = null, autoSkill = null, drag = null, result = null;
     const sans = [];
@@ -489,7 +493,7 @@
     const noteEl = $("[data-test=note]"), movesEl = $("[data-test=moves]");
     let note = spectate
       ? `<b>${esc(players[0].name)}</b> plays ${colorName(colorOf[0])}. <b>${esc(players[1].name)}</b> plays ${colorName(colorOf[1])}.`
-      : `You play <b>${colorName(goldColor)}</b>. Tap a piece, then a highlighted square (or drag it).`;
+      : `You play <b>${colorName(goldColor)}</b>${tc.label ? ` · ${esc(tc.label)}` : ""}. Tap a piece, then a highlighted square (or drag it).`;
 
     function clockLeft(c) {
       let v = rem[c];
@@ -541,7 +545,7 @@
         const sub = `${colorName(c)} <span class="${P}-cap">${cap.took(c)}</span>${diff > 0 ? ` <b class="dg-mono">+${diff}</b>` : ""}`
           + (!over && pendingAi && turn === c ? " · thinking…" : "");
         const left = clockLeft(c);
-        setBar(i === 0 ? meBar : oppBar, P, { on: !over && turn === c, sub, clock: clocksOn ? fmtClock(left) : "", low: clocksOn && left < 20000 });
+        setBar(i === 0 ? meBar : oppBar, P, { on: !over && turn === c, sub, clock: clocksOn ? fmtClock(left) : "", low: clocksOn && left < LOW });
       }
       /* move list */
       let ml = "";
@@ -603,7 +607,7 @@
         if (spectate) ctx.end({ winner: winnerIdx, scores });
         else ctx.end({
           outcome: winnerIdx === 0 ? "win" : winnerIdx === 1 ? "loss" : "draw", myScore: scores[0], oppScore: scores[1],
-          detail: `<p class="dg-note">${esc(reason)} after ${moves} moves. You played ${colorName(colorOf[0])}.</p>`,
+          detail: `<p class="dg-note">${esc(reason)} after ${moves} moves. You played ${colorName(colorOf[0])}${tc.label ? ` · ${esc(tc.label)}` : ""}.</p>`,
         });
       }, 1100);
     }
@@ -641,7 +645,7 @@
       selected = null; targets = []; promo = null;
       seen.add(CE.keyOf(g.fen()));
       turnStart = ctx.now();
-      if (!spectate && sans.length <= 2 && note.startsWith("You play")) note = `You play <b>${colorName(goldColor)}</b>.`;
+      if (!spectate && sans.length <= 2 && note.startsWith("You play")) note = `You play <b>${colorName(goldColor)}</b>${tc.label ? ` · ${esc(tc.label)}` : ""}.`;
       if (!checkEnd()) next();
       return true;
     }
@@ -741,7 +745,7 @@
         if (clockLeft(t) <= 0) { rem[t] = 0; flag(t); return; }
         for (let i = 0; i < 2; i++) {
           const c = colorOf[i], left = clockLeft(c);
-          setBar(i === 0 ? meBar : oppBar, P, { clock: fmtClock(left), low: left < 20000 });
+          setBar(i === 0 ? meBar : oppBar, P, { clock: fmtClock(left), low: left < LOW });
         }
       }
       status();
@@ -810,6 +814,141 @@
     spectate(ctx) { chessGame(ctx, true); },
   });
   chessDef._engine = { think: CE.think, perft: CE.perft, simulate: chessSimulate, toObj: CE.toObj };
+
+  /* ---------------- Chess (your settings): the game-setup section shown in Duel setup ----------------
+     Time control (Bullet / Blitz / Rapid presets, more presets, or custom minutes + increment), which colour you play,
+     rated or unrated, and how far your opponent's rating may be from yours. The platform renders html(), calls bind(),
+     keeps the values per game, and hands them to play() as ctx.options. */
+  const TC_CLASSES = [
+    { id: "bullet", name: "Bullet", main: [[60, 0], [60, 1], [120, 1]], more: [[30, 0], [20, 1], [120, 0]] },
+    { id: "blitz", name: "Blitz", main: [[180, 0], [180, 2], [300, 0]], more: [[180, 1], [300, 2], [300, 5]] },
+    { id: "rapid", name: "Rapid", main: [[600, 0], [900, 10], [1800, 0]], more: [[600, 5], [1200, 0], [3600, 0]] },
+  ];
+  const TC_MINUTES = [0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 25, 30, 45, 60, 90, 120, 180];
+  const TC_INCS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 25, 30, 45, 60];
+  const TC_PRESETS = TC_CLASSES.flatMap((c) => c.main.concat(c.more));
+  const CS_RANGES = [50, 100, 200, 400, 0]; // 0 = any rating
+  const CS_ANY = 800;
+  const CS_COLORS = ["white", "random", "black"];
+  const CS_KEY = "dg.chess.setup";
+  const CS_ICON = {
+    bullet: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.2 12.8l-.9-.9 7.4-7.4a2.6 2.6 0 0 1 3.7 3.7l-7.4 7.4-.9-.9z"/><path d="M2 14l2.2-2.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+    blitz: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.6 1L3.4 9.2h4.1L6.4 15l6.2-8.3H8.5z"/></svg>',
+    rapid: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.6a5.6 5.6 0 1 0 0 11.2A5.6 5.6 0 0 0 8 3.6zm.7 5.9H7.3V6h1.4zM6 1h4v1.5H6z"/></svg>',
+  };
+  const tcClass = (base, inc) => { const est = base + 40 * inc; return est < 180 ? "bullet" : est < 600 ? "blitz" : "rapid"; };
+  const tcClassName = (base, inc) => TC_CLASSES.find((c) => c.id === tcClass(base, inc)).name;
+  function tcLabel(base, inc) {
+    const b = base < 60 ? base + " sec" : String(base / 60);
+    return inc ? b + " | " + inc : base < 60 ? b : b + " min";
+  }
+  const csDefaults = () => ({ base: 600, inc: 0, custom: false, more: false, color: "random", rated: true, range: 200 });
+  function csValid(v) {
+    if (!v || typeof v !== "object") return false;
+    const preset = TC_PRESETS.some(([b, i]) => b === v.base && i === v.inc);
+    const custom = TC_MINUTES.includes(v.base / 60) && TC_INCS.includes(v.inc);
+    return (preset || custom) && CS_COLORS.includes(v.color) && typeof v.rated === "boolean" && CS_RANGES.includes(v.range);
+  }
+  function csClean(raw) {
+    const d = csDefaults();
+    if (!raw || typeof raw !== "object") return d;
+    const v = { base: Number(raw.base), inc: Number(raw.inc), custom: raw.custom === true, more: raw.more === true,
+      color: String(raw.color), rated: raw.rated !== false, range: Number(raw.range) };
+    return csValid(v) ? v : d;
+  }
+  const csSummary = (v) => tcLabel(v.base, v.inc) + " " + tcClassName(v.base, v.inc) + (v.rated ? "" : " · Unrated") +
+    (v.color === "random" ? "" : " · as " + (v.color === "white" ? "White" : "Black"));
+  const CHESS_SETUP = {
+    defaults: csDefaults,
+    load() { try { const s = localStorage.getItem(CS_KEY); return s ? csClean(JSON.parse(s)) : null; } catch (e) { return null; } },
+    save(v) { try { localStorage.setItem(CS_KEY, JSON.stringify(v)); } catch (e) { /* storage blocked: keep for this session */ } },
+    validate: (v) => (csValid(v) ? "" : "Pick a time control."),
+    summary: csSummary,
+    rated: (v) => v.rated !== false,
+    ratingRange: (v) => (v.range > 0 ? v.range : CS_ANY),
+    html(v, o) {
+      DG.css("chess-setup", `
+.cs-sec{display:grid;gap:6px}
+.dn-gset{container-type:inline-size}
+.cs-sec+.cs-sec{margin-top:12px}
+.cs-tc{display:grid;gap:6px}
+.cs-row{display:grid;grid-template-columns:78px minmax(0,1fr);gap:8px;align-items:center}
+.cs-cls{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--muted);white-space:nowrap}
+.cs-cls svg{width:15px;height:15px;flex:none;fill:currentColor}
+.cs-cls.bullet svg{color:#F5C94A}.cs-cls.blitz svg{color:#FFB35C}.cs-cls.rapid svg{color:#5AD690}
+.cs-row .chips .dg-chip,.cs-sec>.chips .dg-chip{min-width:58px;justify-content:center}
+.cs-custom{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.cs-custom label{display:grid;gap:4px;font-size:12px;color:var(--muted)}
+.cs-k{font-family:"DejaVu Sans","Segoe UI Symbol","Noto Sans Symbols 2",serif;font-size:17px;line-height:1;margin-right:5px}
+.cs-k.w{color:#FFF9EA;-webkit-text-stroke:.8px #1A1406;paint-order:stroke fill}.cs-k.b{color:#161428;-webkit-text-stroke:.8px #F2EEFF88;paint-order:stroke fill}
+.cs-k.r{background:linear-gradient(90deg,#FFF9EA 50%,#161428 50%);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-stroke:.8px #888}
+.cs-hint{margin:0;font-size:12px;color:var(--muted)}
+/* narrow panels: class name above its chips (after .cs-row so it wins) */
+@container (max-width:460px){.cs-row{grid-template-columns:minmax(0,1fr);gap:4px}.cs-row .chips .dg-chip,.cs-sec>.chips .dg-chip{min-width:0}}
+`);
+      const px = o.px, esc = o.esc, cur = tcClass(v.base, v.inc);
+      const chip = (attr, val, label, pressed, extra) => `<button type="button" class="dg-chip" ${attr}="${esc(val)}" aria-pressed="${pressed}"${extra || ""}>${label}</button>`;
+      const tcChip = ([b, i]) => chip("data-cs-tc", b + "+" + i, esc(tcLabel(b, i)), !v.custom && v.base === b && v.inc === i, ` data-test="cs-tc-${b}-${i}"`);
+      const rows = TC_CLASSES.map((c) => `<div class="cs-row"><span class="cs-cls ${c.id}">${CS_ICON[c.id]}${c.name}</span>` +
+        `<div class="chips" role="group" aria-label="${c.name} time controls">${c.main.concat(v.more ? c.more : []).map(tcChip).join("")}</div></div>`).join("");
+      const opt = (list, sel, fmt) => list.map((x) => `<option value="${x}"${x === sel ? " selected" : ""}>${fmt(x)}</option>`).join("");
+      const custom = v.custom ? `<div class="cs-custom" data-test="cs-custom">
+          <label for="${px}CsMin">Minutes per side<select class="inp" id="${px}CsMin" data-cs-min>${opt(TC_MINUTES, v.base / 60, (m) => (m < 1 ? m * 60 + " sec" : m + " min"))}</select></label>
+          <label for="${px}CsInc">Increment per move<select class="inp" id="${px}CsInc" data-cs-inc>${opt(TC_INCS, v.inc, (s) => s + " sec")}</select></label></div>` : "";
+      const kings = { white: '<span class="cs-k w">♚︎</span>White', random: '<span class="cs-k r">♚︎</span>Random', black: '<span class="cs-k b">♚︎</span>Black' };
+      const lo = Math.max(100, o.rating - v.range), hi = o.rating + v.range;
+      return `<div class="cs-sec"><span class="dg-eyebrow" id="${px}CsTcL">Time control <b class="dn-pick" data-test="cs-summary">${esc(tcLabel(v.base, v.inc))} · ${esc(tcClassName(v.base, v.inc))}</b></span>
+          <div class="cs-tc" aria-labelledby="${px}CsTcL">${rows}</div>
+          <div class="chips">${chip("data-cs", "more", v.more ? "Fewer time controls" : "More time controls", v.more, ' data-test="cs-more"')}${chip("data-cs", "custom", "Custom", v.custom, ' data-test="cs-custom-btn"')}</div>${custom}
+          ${v.custom ? `<p class="cs-hint">Counts as ${esc(TC_CLASSES.find((c) => c.id === cur).name)}: starting time + 40 × increment${cur === "rapid" ? " is 10 minutes or more" : cur === "blitz" ? " is under 10 minutes" : " is under 3 minutes"}.</p>` : ""}</div>
+        <div class="cs-sec"><span class="dg-eyebrow" id="${px}CsColL">I play as</span>
+          <div class="chips" role="group" aria-labelledby="${px}CsColL">${CS_COLORS.map((c) => chip("data-cs-color", c, kings[c], v.color === c, ` data-test="cs-color-${c}"`)).join("")}</div></div>
+        <div class="cs-sec"><span class="dg-eyebrow" id="${px}CsRatL">Game type</span>
+          <div class="chips" role="group" aria-labelledby="${px}CsRatL">${chip("data-cs-rated", "1", "Rated", v.rated, ' data-test="cs-rated"')}${chip("data-cs-rated", "0", "Unrated", !v.rated, ' data-test="cs-unrated"')}</div>
+          <p class="cs-hint">${v.rated ? "Your Chess rating goes up or down with the result." : "Your rating stays the same whatever happens. Stakes still apply."}</p></div>
+        <div class="cs-sec"><span class="dg-eyebrow" id="${px}CsRngL">Opponent rating <b class="dn-pick" data-test="cs-range">${v.range ? lo + " – " + hi : "Any rating"}</b></span>
+          <div class="chips" role="group" aria-labelledby="${px}CsRngL">${CS_RANGES.map((r) => chip("data-cs-range", r, r ? "± " + r : "Any", v.range === r, ` data-test="cs-range-${r || "any"}"`)).join("")}</div></div>`;
+    },
+    bind(root, v, o) {
+      const on = (sel, fn) => root.querySelectorAll(sel).forEach((el) => fn(el));
+      on("[data-cs-tc]", (b) => (b.onclick = () => { const [bb, ii] = b.dataset.csTc.split("+").map(Number); v.base = bb; v.inc = ii; v.custom = false; o.change(); }));
+      on('[data-cs="more"]', (b) => (b.onclick = () => { v.more = !v.more; o.change(); }));
+      on('[data-cs="custom"]', (b) => (b.onclick = () => {
+        v.custom = !v.custom;
+        if (v.custom && !TC_MINUTES.includes(v.base / 60)) v.base = 600;
+        if (v.custom && !TC_INCS.includes(v.inc)) v.inc = 0;
+        o.change();
+      }));
+      on("[data-cs-min]", (s) => (s.onchange = () => { v.base = Math.round(Number(s.value) * 60); o.change(); }));
+      on("[data-cs-inc]", (s) => (s.onchange = () => { v.inc = Number(s.value); o.change(); }));
+      on("[data-cs-color]", (b) => (b.onclick = () => { v.color = b.dataset.csColor; o.change(); }));
+      on("[data-cs-rated]", (b) => (b.onclick = () => { v.rated = b.dataset.csRated === "1"; o.change(); }));
+      on("[data-cs-range]", (b) => (b.onclick = () => { v.range = Number(b.dataset.csRange); o.change(); }));
+    },
+  };
+  /* ctx.options (from the setup above) → chessGame's time-control config; anything invalid falls back to the defaults */
+  function tcFrom(opts) {
+    const v = csClean(opts);
+    return { base: v.base * 1000, inc: v.inc * 1000, color: v.color === "white" ? "w" : v.color === "black" ? "b" : "random", rated: v.rated,
+      label: tcLabel(v.base, v.inc) + " " + tcClassName(v.base, v.inc) + (v.rated ? " · Rated" : " · Unrated") };
+  }
+  const chessCustomDef = DG.registerGame({
+    id: "chess-custom", name: "Chess", category: "strategy", kind: "versus", formats: ["1v1", "tournament"],
+    skill: 10, luck: 1, cashEligible: true, duration: "Your choice (30 s to 3 h per side)", pack: PACK, scoreLabel: "points",
+    blurb: "Set up the game your way: Bullet, Blitz, Rapid or a custom clock, your colour, rated or unrated.",
+    rules: [
+      "Standard chess rules, including castling, en passant and promotion.",
+      "Before you duel, pick a time control (Bullet, Blitz, Rapid or Custom), the colour you play, rated or unrated, and how far your opponent's rating may be from yours.",
+      "Each side starts with the chosen time and gains the increment after every move. Run out of time and you lose, unless your rival cannot mate.",
+      "Unrated games never change your rating. Stakes still apply.",
+      "Stalemate, threefold repetition, the 50-move rule and insufficient material are draws.",
+      "Tap a piece, then a highlighted square. You can also drag.",
+    ],
+    setup: CHESS_SETUP,
+    play(ctx) { chessGame(ctx, false, tcFrom(ctx.options)); },
+    spectate(ctx) { chessGame(ctx, true, tcFrom(null)); },
+  });
+  if (chessCustomDef) chessCustomDef._setup = { tcFrom, tcLabel, tcClass, csValid, TC_CLASSES };
 
   /* =====================================================================
      GENERIC TURN CONTROLLER for four / reversi / gomoku.
