@@ -1,7 +1,12 @@
 /* Sweeper: moves confirmed deposits from the per-player deposit addresses into the treasury so it has liquidity to
    pay withdrawals. It never touches the ledger — players were credited when the deposit confirmed; this is only
    plumbing. Sweep gas is paid out of the swept funds (so the treasury receives slightly less than was credited).
-   A failed or dropped sweep just leaves the funds where they are; the next pass retries. */
+   A failed or dropped sweep just leaves the funds where they are; the next pass retries.
+
+   Gas awareness: fees come from the provider's EIP-1559 fee data on every pass, never from a constant. An address is swept only
+   when its balance is at least SWEEP_MIN_WEI and at least `sweepMinMultiplier` times the sweep's gas cost (3x on mainnet), so
+   gas never eats a meaningful share of a deposit. A balance that is too small for the *current* gas price keeps its sweep flag
+   and is retried on later passes, when gas may be cheaper. */
 import { Transaction } from "ethers";
 import { broadcast } from "./broadcast.js";
 import { toStr } from "../util/amounts.js";
@@ -15,6 +20,16 @@ export class Sweeper {
     this.timer = null;
     this.current = null;
     this.rerun = false;
+    this.deferred = 0; // addresses left unswept on the last pass because gas was too high for their balance
+  }
+
+  /* the smallest balance worth sweeping at the given fee cap */
+  minBalanceFor(maxFeePerGas) {
+    const gasCost = TRANSFER_GAS * maxFeePerGas;
+    const c = this.cfg.chain;
+    const viaGas = gasCost * BigInt(c.sweepMinMultiplier ?? 1);
+    const floor = c.sweepMinWei > viaGas ? c.sweepMinWei : viaGas;
+    return floor > gasCost ? floor : gasCost + 1n; // must always leave something to send
   }
 
   /* Same coalescing rule as Withdrawals.pass: a call during a pass waits, then runs once more. */
@@ -72,11 +87,19 @@ export class Sweeper {
     const { maxFeePerGas, maxPriorityFeePerGas } = await this.chain.feeData();
     const gasCost = TRANSFER_GAS * maxFeePerGas;
     const treasury = this.keys.treasury().address;
+    const minBalance = this.minBalanceFor(maxFeePerGas);
+    this.deferred = 0;
 
     for (const r of rows) {
       const balance = await provider.getBalance(r.address);
-      if (balance < this.cfg.chain.sweepMinWei || balance <= gasCost) {
+      if (balance === 0n || balance < this.cfg.chain.sweepMinWei) {
         this.db.run("UPDATE deposit_addresses SET needs_sweep = 0 WHERE user_id = ?", r.user_id); // dust waits for the next deposit
+        continue;
+      }
+      if (balance < minBalance) {
+        // big enough in principle, but not worth the gas at today's price: keep the flag and look again next pass
+        this.deferred++;
+        this.log.debug("sweep deferred: balance is below the gas threshold", { userId: r.user_id, balance: toStr(balance), threshold: toStr(minBalance), maxFeePerGas: toStr(maxFeePerGas) });
         continue;
       }
       const value = balance - gasCost;

@@ -10,6 +10,7 @@
 .ledger .dg-stat:last-child{padding-right:0}
 .ledger .dg-stat+.dg-stat{border-left:1px solid var(--hair)}
 .stat-v{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px;margin-top:var(--sp-12);min-width:0}
+.stat-v>b{white-space:nowrap} /* a signed amount never breaks inside the number */
 .ledger .dg-stat b{margin:0;font-weight:400;font-size:clamp(36px,2vw + 22px,52px);line-height:1;letter-spacing:-.01em;overflow-wrap:anywhere}
 .ledger-3 .dg-stat:first-child b{font-size:clamp(44px,3.4vw + 20px,76px)}
 .ledger .dg-stat b i{font-style:normal;color:var(--stone-400);margin:0 .12em}
@@ -153,4 +154,37 @@ form[data-name-form]:has(.err:not(:empty)) #nameHint{display:none}
   .ledger .dg-stat b{font-size:30px}
   .hs-skel{height:60px}
 }
-@media(prefers-reduced-motion:reduce){.meter-bar i{transition:none}}
+/* ---- mainnet wallet: limits line, withdraw confirm step */
+.wl-limits{margin:0;max-width:62ch}
+.wl-limits a{color:var(--gold-300);text-decoration:underline;text-decoration-color:var(--hair-gold);text-underline-offset:3px}
+.wl-limits a:hover{text-decoration-color:var(--gold-300)}
+.wd-confirm{display:grid;gap:var(--sp-16);padding:var(--sp-24);border:1px solid var(--hair-gold);border-radius:var(--radius-1);background:var(--ink-900)}
+.wd-confirm-h{margin:0;font:500 12px/1.4 var(--font-body);letter-spacing:.16em;text-transform:uppercase;color:var(--gold-500)}
+.wd-sum{margin:0;display:grid;gap:0}
+.wd-sumrow{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-16);padding:12px 0;border-top:1px solid var(--hair)}
+.wd-sumrow:first-child{border-top:0}
+.wd-sumrow dt{font:500 11px/1.4 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
+.wd-sumrow dd{margin:0;text-align:right;overflow-wrap:anywhere;color:var(--ivory-100)}
+.wd-sumrow.total dd{font-family:var(--font-display);font-size:24px;line-height:1.1;color:var(--gold-300)}
+.wd-confirm .dg-note{margin:0}
+.wd-acts{display:flex;flex-wrap:wrap;gap:12px}
+.age-status{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;color:var(--text-2);font-size:15px;line-height:1.5}
+
+/* ---- 18+ confirmation dialog: a plain ink panel on a solid dark backdrop (no blur, no glow) */
+.age-gate{position:fixed;inset:0;z-index:90;display:grid;place-items:center;padding:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) max(16px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));background:rgba(12,11,9,.88);overflow-y:auto;animation:dgFade var(--dur-1) var(--ease)}
+.age-gate[hidden]{display:none}
+body.age-open{overflow:hidden}
+.age-card{width:min(520px,100%);display:grid;gap:var(--sp-16);padding:clamp(20px,5vw,36px);border:1px solid var(--hair-gold);border-radius:var(--radius-1);background:var(--ink-900);position:relative;box-shadow:var(--shadow-raised)}
+.age-card::before{content:"";position:absolute;left:-1px;top:-1px;width:var(--bracket);height:var(--bracket);pointer-events:none;background:linear-gradient(var(--gold-500),var(--gold-500)) left top/var(--bracket) 2px no-repeat,linear-gradient(var(--gold-500),var(--gold-500)) left top/2px var(--bracket) no-repeat}
+.age-eyebrow{margin:0;font:500 12px/1.4 var(--font-body);letter-spacing:.16em;text-transform:uppercase;color:var(--gold-500)}
+.age-title{margin:0;font-family:var(--font-display);font-weight:400;font-size:var(--fs-28);line-height:1.12;letter-spacing:-.01em;color:var(--ivory-100)}
+.age-text{margin:0;font-size:15px;line-height:1.6;color:var(--text-2)}
+.age-check{display:flex;align-items:flex-start;gap:14px;min-height:44px;padding:14px 16px;border:1px solid var(--field-line);border-radius:var(--radius-1);background:var(--ink-800);cursor:pointer;font-size:15px;line-height:1.5;color:var(--ivory-100)}
+.age-check input{margin-top:2px}
+.age-check:has(input:checked){border-color:var(--gold-500)}
+.age-check:has(input:focus-visible){outline:1px solid var(--gold-500);outline-offset:3px}
+.age-err{margin:0}
+.age-err:empty{display:none}
+.age-acts{display:flex;flex-wrap:wrap;gap:12px}
+@media(max-width:480px){.age-acts .dg-btn{flex:1 1 100%}.wd-acts .dg-btn{flex:1 1 100%}}
+@media(prefers-reduced-motion:reduce){.meter-bar i{transition:none}.age-gate{animation:none}}

@@ -27,6 +27,9 @@ export async function createApp(config, { now = () => Date.now() } = {}) {
   try {
     wallet = await WalletService.create({ db, ledger, cfg: config, log, bus: hub, now });
   } catch (e) { db.close(); throw e; }
+  if (wallet.enabled && wallet.chain.realMoney && !config.adminToken) {
+    log.warn("ADMIN_TOKEN is not set on a real-money deployment: /v1/admin/* (ledger audit, solvency, flagged scores) is disabled. Set it, and watch the logs for INSOLVENT.");
+  }
   const auth = new Auth({ db, users, config, chainId: () => (wallet.enabled ? wallet.chain.chainId : 0), now });
   const catalog = loadCatalog({ gamesDir: config.gamesDir, log });
   const matches = new MatchService({ db, ledger, users, responsible, catalog, cfg: config, log, hub, now });

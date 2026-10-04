@@ -1,7 +1,8 @@
-/* Schema migrations, applied in order; the index+1 is stored in PRAGMA user_version.
+/* Schema migrations, applied in order; the index+1 is stored in PRAGMA user_version. An entry is SQL text, or a function
+   (rawDatabase) => void for a step that must inspect the database first. Applied migrations are never edited.
    Amount columns are TEXT holding decimal wei (see util/amounts.js). Timestamps are epoch milliseconds.
    Database files created before two retired features were removed still carry two unused `users` columns (one NOT NULL
-   with a default). No query reads or writes them, so they are left in place rather than dropped. */
+   with a default). Migration 4 brings `age_attested_at` back; the other (`cool_off_until`) is still unused and left in place. */
 export const MIGRATIONS = [
   /* 1 — initial schema */
   `
@@ -196,5 +197,22 @@ export const MIGRATIONS = [
   `
   ALTER TABLE tickets ADD COLUMN lobby_ticket_id INTEGER;
   CREATE INDEX tickets_lobby_ticket ON tickets(lobby_ticket_id) WHERE lobby_ticket_id IS NOT NULL;
+  `,
+  /* 4 — 18+ attestation, required before any staked action. Databases created before the attestation was retired still have the
+     column (with their players' old answers, which stay valid), so it is only added where it is missing. */
+  (raw) => {
+    const has = raw.prepare("PRAGMA table_info(users)").all().some((c) => c.name === "age_attested_at");
+    if (!has) raw.exec("ALTER TABLE users ADD COLUMN age_attested_at INTEGER");
+  },
+  /* 5 — minimum deposit: a deposit below the minimum is recorded as 'pending' and credited (with the other pending deposits
+     at that address) once their total reaches it. credited_at is 0 while pending; detected_at is when the watcher saw it. */
+  `
+  ALTER TABLE deposits ADD COLUMN status TEXT NOT NULL DEFAULT 'credited';
+  ALTER TABLE deposits ADD COLUMN detected_at INTEGER;
+  CREATE INDEX deposits_pending ON deposits(address) WHERE status = 'pending';
+  `,
+  /* 6 — withdrawal network fee, charged on top of `amount` and recorded in the ledger as its own entry (house:gas) */
+  `
+  ALTER TABLE withdrawals ADD COLUMN fee TEXT NOT NULL DEFAULT '0';
   `,
 ];

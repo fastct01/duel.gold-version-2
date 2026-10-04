@@ -1,9 +1,9 @@
 /* Lobby, Game library and the (upcoming) Tournaments page. Styles live in /play/lobby.css under the .lb- prefix.
    Invite-only: the lobby page is a compact "Create a lobby" card (game, stake, terms, button). The core `create-lobby`
    action does the creating; the host then waits in the waiting room. Everything shown is real: the player's own data,
-   S.cfg, S.lobby (the lobby the player is in, as host or guest; S.host is the same lobby while they host it), and the public
-   /v1/lobby aggregate (S.live: online, playing, recent results). A lobby holds 2 to 10 players. */
-import { icon, avatar } from "../ui.js";
+   S.cfg and S.lobby (the lobby the player is in, as host or guest; S.host is the same lobby while they host it). Nothing about other
+   players is public: no online counts, no queue, no search. A lobby holds 2 to 10 players. */
+import { icon } from "../ui.js";
 import { practiceHTML } from "./practice.js";
 import { art, artBg } from "../gameart.js";
 
@@ -88,9 +88,8 @@ function titleLines(name) {
 const CHEV2 = `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 6l-6 6 6 6M19 6l-6 6 6 6"/></svg>`;
 const QMARK = `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.2 9.3a2.9 2.9 0 0 1 5.6 1c0 1.9-2.8 2.3-2.8 4.2"/><path d="M12 18.2v.1"/></svg>`;
 
-/* the backdrop: orbit lines, the floor ring, a restrained warm light and a few sparkles. Decorative only. */
+/* the backdrop: engraved orbit lines and the floor ring. Decorative only; no glow, no sparkles (gold-style rules). */
 const CV_DECOR = `<div class="cv-bg" aria-hidden="true">
-    <span class="cv-glow"></span>
     <svg class="cv-orbits" viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid slice" focusable="false"><g fill="none">
       <ellipse class="o1" cx="600" cy="440" rx="585" ry="150" transform="rotate(-4 600 440)"/>
       <ellipse class="o2" cx="600" cy="350" rx="500" ry="300" transform="rotate(-17 600 350)"/>
@@ -98,9 +97,6 @@ const CV_DECOR = `<div class="cv-bg" aria-hidden="true">
       <ellipse class="o4" cx="600" cy="300" rx="330" ry="285" transform="rotate(24 600 300)"/>
     </g></svg>
     <span class="cv-floor"></span>
-    <i class="cv-sp" style="--x:7%;--y:5%;--s:18px;--k:.7"></i><i class="cv-sp" style="--x:93%;--y:7%;--s:22px;--k:.6"></i>
-    <i class="cv-sp" style="--x:30%;--y:2%;--s:11px;--k:.5"></i><i class="cv-sp" style="--x:71%;--y:3%;--s:13px;--k:.55"></i>
-    <i class="cv-sp" style="--x:5%;--y:72%;--s:12px;--k:.5"></i><i class="cv-sp" style="--x:95%;--y:70%;--s:15px;--k:.6"></i>
   </div>`;
 
 /* one card: a full-card button (choose this game) with the picture, names and controls laid over it. The controls (the circled +,
@@ -214,7 +210,7 @@ export function calcHTML(ctx) {
   if (S.pick.stake === "0") return `<p class="lb-terms">Free play · no money moves · still rated</p>`;
   if (si.wei == null) return `<p class="lb-terms">Enter a stake between ${eth(cfg.stake.min)} and ${eth(cfg.stake.max)} ${h.esc(sym())}</p>`;
   const max = (cfg.match && Number(cfg.match.lobbyMaxPlayers)) || 10;
-  return `<p class="lb-terms">Every player stakes this. With 2 players: pot <b class="dg-mono">${eth(si.pot)}</b> · winner gets <b class="dg-mono win">${eth(si.payout)} ${h.esc(sym())}</b> · the pot grows with each player, up to ${max} · ${cfg.feeBps / 100}% fee · test network, no real money${si.outOfRange ? ` <span class="lb-warn">Stakes run from ${eth(cfg.stake.min)} to ${eth(cfg.stake.max)}.</span>` : ""}</p>`;
+  return `<p class="lb-terms">Every player stakes this. With 2 players: pot <b class="dg-mono">${eth(si.pot)}</b> · winner gets <b class="dg-mono win">${eth(si.payout)} ${h.esc(sym())}</b> · the pot grows with each player, up to ${max} · ${cfg.feeBps / 100}% fee · ${h.real() ? `real ${h.esc(sym())} on ${h.esc(h.chainName())}, held in escrow until the match is decided` : "test network, no real money"}${si.outOfRange ? ` <span class="lb-warn">Stakes run from ${eth(cfg.stake.min)} to ${eth(cfg.stake.max)}.</span>` : ""}</p>`;
 }
 
 export function noticesHTML(ctx) {
@@ -249,7 +245,7 @@ function setup(ctx) {
   const blocked = banned;
   return `<section class="lb-card lb-setup" id="lbSetup" tabindex="-1" aria-label="Game details and stake">
     <div id="lbSelected">${selectedHTML(ctx)}</div>
-    <div class="lb-stakerow"><span class="lb-stakel lb-label" id="lbStakeL">Stake <small>${esc(h.sym())} · test network</small></span>
+    <div class="lb-stakerow"><span class="lb-stakel lb-label" id="lbStakeL">Stake <small>${esc(h.sym())} · ${h.real() ? esc(h.chainName()) : "test network"}</small></span>
       <div class="lb-chips" role="group" aria-labelledby="lbStakeL">${stakeChips(ctx)}</div></div>
     ${S.pick.stake === "custom" ? `<div class="lb-custom"><label for="customStake">Custom stake in ${esc(h.sym())} (${h.eth(S.cfg.stake.min)} to ${h.eth(S.cfg.stake.max)})</label><input id="customStake" type="text" inputmode="decimal" value="${esc(S.pick.custom)}" placeholder="0.002" autocomplete="off"></div>` : ""}
     <div id="lbCalc" aria-live="polite">${calcHTML(ctx)}</div>
@@ -329,7 +325,7 @@ function walletCard(ctx) {
   const { S, h } = ctx; const { eth, sym, esc } = h;
   const b = S.me.balances;
   return `<section class="lb-card lb-wallet" aria-labelledby="lbWallet">
-    <header class="lb-card-head"><h2 id="lbWallet">Wallet</h2><span class="lb-chip-s">Test ${esc(sym())}</span></header>
+    <header class="lb-card-head"><h2 id="lbWallet">Wallet</h2><span class="lb-chip-s">${h.real() ? esc(sym()) : `Test ${esc(sym())}`}</span></header>
     <div class="lb-bal"><span class="lb-bal-l">Available</span><span class="lb-bal-n"><b class="dg-mono" id="balAvail">${eth(b.available)}</b><span class="lb-bal-u" aria-hidden="true">${esc(sym())}</span></span></div>
     <div class="lb-bal-sub"><span>In play <b class="dg-mono">${eth(b.inPlay)}</b></span>${BigInt(b.pendingWithdrawal || 0) > 0n ? `<span>Withdrawing <b class="dg-mono">${eth(b.pendingWithdrawal)}</b></span>` : ""}</div>
     <div class="lb-row">${S.cfg.devFaucet ? `<button type="button" class="lb-btn gold" data-act="faucet" data-eth="1" id="faucetBtn"${S.depositing ? " disabled" : ""}>${S.depositing ? "Depositing…" : `Deposit 1 test ${esc(sym())}`}</button>` : ""}<button type="button" class="lb-link-btn" data-go="wallet">Deposit and withdraw ${icon("arrow")}</button></div>
@@ -358,31 +354,13 @@ function formCard(ctx) {
   </section>`;
 }
 
-/* leaderboard card: hidden for now (not placed in the rail, and its rows are not fetched in mount) */
-function boardCard(ctx) {
-  const { S, h } = ctx; const { esc } = h;
-  const g = h.game(S.pick.game);
-  if (!g) return "";
-  const rows = S.boards[g.id];
-  const body = rows === undefined ? `<p class="lb-empty sm">Loading…</p>`
-    : !rows.length ? `<p class="lb-empty sm">Nobody is ranked in ${esc(g.name)} yet. Play a match to be the first.</p>`
-    : `<ol class="lb-top">${rows.slice(0, 3).map((r) => {
-      const nm = (r.player && (r.player.name || r.player.displayName)) || "Player";
-      const you = nm === S.me.displayName;
-      return `<li class="${you ? "you" : ""}"><span class="lb-rank r${r.rank}">${r.rank}</span>${avatar(nm, 28)}<span class="lb-top-name">${esc(nm)}${you ? " <em>you</em>" : ""}</span><b class="dg-mono">${r.rating}</b></li>`;
-    }).join("")}</ol>`;
-  return `<section class="lb-card lb-board" aria-labelledby="lbBoard">
-    <header class="lb-card-head"><h2 id="lbBoard">Top in ${esc(g.name)}</h2><button type="button" class="lb-link-btn" data-go="leaderboard">All ${icon("arrow")}</button></header>
-    ${body}
-  </section>`;
-}
-
 function playCard(ctx) {
   const { S, h } = ctx; const { eth, sym, esc } = h;
   const r = S.me.responsible;
-  const limit = r.lossLimit ? `Daily loss limit ${eth(r.lossLimit)} ${esc(sym())}, lost today ${eth(r.lossToday)}` : "No daily loss limit set";
+  const limit = r.lossLimit ? `Daily loss limit ${eth(r.lossLimit)} ${esc(sym())}, lost today ${eth(r.lossToday)}` : h.real() ? "No daily loss limit set. Setting one is recommended" : "No daily loss limit set";
+  const lead = h.real() ? `<a class="lb-play-link" href="#settings" data-go="settings"><b>Play within your limits.</b></a>` : `<b>Play within your limits.</b>`;
   return `<section class="lb-card lb-play" aria-label="Account limits">
-    <div class="lb-play-in">${icon("shield")}<p><b>Play within your limits.</b> ${limit}.</p></div>
+    <div class="lb-play-in">${icon("shield")}<p>${lead} ${limit}.</p></div>
     <button type="button" class="lb-link-btn" data-go="settings">Manage limits ${icon("arrow")}</button>
   </section>`;
 }

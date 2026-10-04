@@ -189,7 +189,7 @@ test("WebSocket: hello first, auth required, bad tokens and silence are dropped"
   await sleep(50);
   assert.equal(a.msgs[0].type, "hello");
   assert.equal(a.msgs[0].protocol, 1);
-  a.ws.send(JSON.stringify({ type: "queue.join", id: 1, game: "aim", stake: "0" }));
+  a.ws.send(JSON.stringify({ type: "lobby.create", id: 1, game: "aim", stake: "0" }));
   await sleep(50);
   assert.deepEqual(a.msgs.find((m) => m.type === "ack"), { type: "ack", id: 1, ok: false, error: { code: "UNAUTHORIZED", message: "Send an auth message first." } });
   a.ws.send(JSON.stringify({ type: "auth", id: 2, token: "dg_wrong_wrong_wrong_wrong" }));
@@ -209,7 +209,7 @@ test("WebSocket: malformed input is answered, not fatal; binary frames and flood
   s.ws.send(JSON.stringify(["array"]));
   s.ws.send(JSON.stringify({ type: 5 }));
   s.ws.send(JSON.stringify({ type: "does.not.exist", id: 9 }));
-  s.ws.send(JSON.stringify({ type: "queue.join", id: 10, game: {}, stake: [] }));
+  s.ws.send(JSON.stringify({ type: "lobby.create", id: 10, game: {}, stake: [] }));
   s.ws.send(JSON.stringify({ type: "match.submit", id: 11, matchId: "abc; DROP TABLE users", score: 1 }));
   await sleep(120);
   const acks = s.msgs.filter((m) => m.type === "ack");
@@ -261,7 +261,7 @@ test("WebSocket: a session that expires stops working on the open socket", async
 test("the client SDK surfaces server errors as typed exceptions", async () => {
   const h = await boot();
   const p = await h.player();
-  await assert.rejects(p.client.joinQueue({ game: "nope" }), (e) => e.name === "DuelError" && e.code === "UNKNOWN_GAME");
+  await assert.rejects(p.client.request("lobby.create", { game: "nope" }), (e) => e.name === "DuelError" && e.code === "UNKNOWN_GAME");
   await assert.rejects(p.client.api("GET", "/v1/matches/xyz"), (e) => e.code === "NOT_FOUND" && e.status === 404);
   await assert.rejects(p.client.waitFor("match.found", null, 100), /timed out waiting/);
 });
@@ -306,11 +306,11 @@ test("logging out (or being banned) ends live WebSocket sessions, not just futur
   assert.ok(await a.client.request("ping"), "works while signed in");
   const closed = new Promise((r) => a.client.on("close", r));
   await a.client.api("POST", "/v1/auth/logout");
-  await assert.rejects(a.client.joinQueue({ game: "aim", stake: String(mETH) }), { code: "SESSION_EXPIRED" }, "a revoked token cannot stake over an open socket");
+  await assert.rejects(a.client.request("lobby.create", { game: "aim", stake: String(mETH) }), { code: "SESSION_EXPIRED" }, "a revoked token cannot stake over an open socket");
   assert.equal((await closed).code, 4003);
   assert.equal(h.app.db.get("SELECT COUNT(*) AS n FROM tickets WHERE user_id = ?", a.id).n, 0, "nothing was staked");
 
   const b = await h.player();
   h.app.db.run("UPDATE users SET banned = 1 WHERE id = ?", b.id);
-  await assert.rejects(b.client.joinQueue({ game: "aim", stake: "0" }), { code: "SESSION_EXPIRED" }, "a banned player is cut off on their live socket");
+  await assert.rejects(b.client.request("lobby.create", { game: "aim", stake: "0" }), { code: "SESSION_EXPIRED" }, "a banned player is cut off on their live socket");
 });

@@ -10,7 +10,10 @@
    receipt and is unknown to the node, for long enough that RPC lag cannot explain it. Anything less keeps waiting and
    re-broadcasting, because refunding a transaction that later mines would pay the player twice.
 
-   Payouts go only to the address the player signed in with. Gas is paid by the treasury.
+   Payouts go only to the address the player signed in with. Gas is paid by the treasury; the player is charged a network fee
+   on top of the amount (WITHDRAWAL_FEE_MODE: the current gas estimate plus a margin, or a fixed amount). The fee is its own
+   ledger entry (user → house:gas), taken in the same transaction as the hold and given back with the refund if the
+   withdrawal fails. The recipient always receives exactly the amount asked for.
    Only this class may send from the treasury key, so it owns the treasury nonce sequence.                          */
 import { Transaction } from "ethers";
 import { ACCT } from "../ledger.js";
@@ -21,6 +24,7 @@ import { checksum } from "../util/address.js";
 
 const TRANSFER_GAS = 21000n;
 const DAY = 24 * 3600000;
+const FEE_CACHE_MS = 15000;
 const IDEM_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 export class Withdrawals {
@@ -30,11 +34,32 @@ export class Withdrawals {
     this.current = null;
     this.rerun = false;
     this.underfunded = false;
+    this.feeCache = null; // { at, fee, gasPrice } for the estimate mode
+  }
+
+  /* What a withdrawal costs in network fee right now: { mode, fee: BigInt, ... }. In estimate mode the number comes from the
+     provider's EIP-1559 fee data (never hard-coded): gas of a plain transfer × the expected price × (1 + margin). Cached briefly. */
+  async quoteFee() {
+    const f = this.cfg.economy.withdrawalFee;
+    if (f.mode === "fixed") return { mode: "fixed", fee: f.fixed, marginBps: 0 };
+    const t = this.now();
+    if (!this.feeCache || t - this.feeCache.at > FEE_CACHE_MS || t < this.feeCache.at) {
+      let d;
+      try { d = await this.chain.feeData(); }
+      catch (e) {
+        this.log.warn("could not read fee data for a withdrawal quote", { error: safeMessage(e) });
+        throw new AppError("FEE_UNAVAILABLE", "The network fee cannot be estimated right now. Try again in a moment.", 503);
+      }
+      const price = d.expectedFeePerGas ?? d.maxFeePerGas;
+      this.feeCache = { at: t, gasPrice: price, fee: (TRANSFER_GAS * price * BigInt(10000 + f.marginBps) + 9999n) / 10000n };
+    }
+    return { mode: "estimate", fee: this.feeCache.fee, gasPrice: this.feeCache.gasPrice, marginBps: f.marginBps };
   }
 
   view(r) {
+    const fee = big(r.fee ?? "0");
     return {
-      id: r.id, amount: r.amount, to: checksum(r.to_address), status: r.status, txHash: r.tx_hash, blockNumber: r.block_number,
+      id: r.id, amount: r.amount, fee: toStr(fee), total: toStr(big(r.amount) + fee), to: checksum(r.to_address), status: r.status, txHash: r.tx_hash, blockNumber: r.block_number,
       error: r.error, createdAt: r.created_at, updatedAt: r.updated_at,
       explorerUrl: r.tx_hash && this.chain.meta.explorer ? `${this.chain.meta.explorer}/tx/${r.tx_hash}` : null,
     };
@@ -47,12 +72,19 @@ export class Withdrawals {
       .reduce((s, r) => s + big(r.amount), 0n);
   }
 
-  /* Ask to withdraw `amount` wei to the player's own sign-in address. */
-  request({ userId, to, amount, idemKey = null }) {
+  /* Ask to withdraw `amount` wei to the player's own sign-in address. The player pays `amount + fee`; the recipient gets `amount`.
+     `maxFee` (optional) is the most network fee the player agreed to: a quote above it is refused with FEE_CHANGED. */
+  async request({ userId, to, amount, idemKey = null, maxFee = null }) {
     const e = this.cfg.economy;
     if (idemKey != null && !IDEM_RE.test(idemKey)) throw bad("BAD_IDEMPOTENCY_KEY", "Idempotency-Key must be 1–64 characters: letters, numbers, dash or underscore.");
     if (amount < e.minWithdrawal) throw bad("BELOW_MINIMUM", `The minimum withdrawal is ${e.minWithdrawal} wei.`, { min: toStr(e.minWithdrawal) });
     if (amount > e.maxWithdrawal) throw bad("ABOVE_MAXIMUM", `The maximum single withdrawal is ${e.maxWithdrawal} wei.`, { max: toStr(e.maxWithdrawal) });
+
+    const quote = await this.quoteFee();
+    const fee = quote.fee;
+    if (maxFee != null && fee > maxFee) {
+      throw conflict("FEE_CHANGED", "The network fee went up since you looked. Review it and try again.", { fee: toStr(fee), maxFee: toStr(maxFee) });
+    }
 
     const out = this.db.tx(() => {
       if (idemKey) {
@@ -68,10 +100,14 @@ export class Withdrawals {
       if (recent + amount > e.dailyWithdrawalCap) {
         throw new AppError("DAILY_WITHDRAWAL_CAP", "That would exceed your rolling 24-hour withdrawal limit.", 403, { cap: toStr(e.dailyWithdrawalCap), used: toStr(recent) });
       }
+      if (this.ledger.balance(ACCT.user(userId)) < amount + fee) {
+        throw new AppError("INSUFFICIENT_FUNDS", "Not enough balance: a withdrawal needs the amount plus the network fee.", 402, { amount: toStr(amount), fee: toStr(fee), total: toStr(amount + fee) });
+      }
       const id = Number(this.db.run(
-        "INSERT INTO withdrawals (user_id, to_address, amount, status, idem_key, created_at, updated_at) VALUES (?, ?, ?, 'queued', ?, ?, ?)",
-        userId, to, toStr(amount), idemKey, this.now(), this.now()).lastInsertRowid);
+        "INSERT INTO withdrawals (user_id, to_address, amount, fee, status, idem_key, created_at, updated_at) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?)",
+        userId, to, toStr(amount), toStr(fee), idemKey, this.now(), this.now()).lastInsertRowid);
       this.ledger.transfer(ACCT.user(userId), ACCT.withdrawal(id), amount, { kind: "withdrawal-hold", ref: id, uniq: `wd-hold:${id}` });
+      if (fee > 0n) this.ledger.transfer(ACCT.user(userId), ACCT.gas, fee, { kind: "withdrawal-fee", ref: id, uniq: `wd-fee:${id}`, memo: `network fee (${quote.mode})` });
       return { row: this.db.get("SELECT * FROM withdrawals WHERE id = ?", id), replay: false };
     });
     if (!out.replay) {
@@ -210,6 +246,8 @@ export class Withdrawals {
       const c = this.db.run(`UPDATE withdrawals SET status = 'failed', error = ?, updated_at = ? WHERE id = ? AND status IN ('queued','signed','broadcast')`, reason, this.now(), row.id).changes;
       if (!c) return false;
       this.ledger.transfer(ACCT.withdrawal(row.id), ACCT.user(row.user_id), big(row.amount), { kind: "withdrawal-refund", ref: row.id, uniq: `wd-refund:${row.id}`, memo: reason });
+      const fee = big(row.fee ?? "0");
+      if (fee > 0n) this.ledger.transfer(ACCT.gas, ACCT.user(row.user_id), fee, { kind: "withdrawal-fee-refund", ref: row.id, uniq: `wd-fee-refund:${row.id}`, memo: reason });
       return true;
     });
     if (done) {

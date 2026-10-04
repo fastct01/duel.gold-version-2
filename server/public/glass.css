@@ -1,6 +1,0 @@
-/* Intentionally empty. This sheet used to add glassmorphism (blurred translucent panels, light sweeps, glowing coins) to the
-   "Create / Send the link / Play" steps strip and the test-network badge. The gold-style rules ban all of that:
-   - the steps strip is styled by lobby.css (.lb-steps), flat and hairline-only;
-   - the network badge was removed from the top bar earlier and is not rendered;
-   - the lobby / waiting-room buttons that lived here (.lb-cancel, .mx-back, .mx-invite-actions) now live in app.css as flat gold-outline buttons.
-   The <link> in index.html is kept so no markup has to change. */

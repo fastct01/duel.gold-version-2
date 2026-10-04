@@ -36,7 +36,7 @@ select.inp{background-image:none;
 .lib-search .inp{padding-left:44px}
 .dg-chip{min-height:38px;padding:6px 16px;border-radius:12px;background:transparent;border:1px solid var(--line-2);color:var(--muted);font-weight:500;font-size:15px}
 .dg-chip:hover:not(:disabled){color:var(--fg);border-color:rgba(255,255,255,.3)}
-.dg-chip[aria-pressed="true"]{border-color:var(--gold);color:var(--gold-2);background:rgba(227,182,59,.12)}
+.dg-chip[aria-pressed="true"]{border-color:var(--gold);color:var(--gold-2);background:color-mix(in srgb,var(--gold-500) 12%,transparent)}
 .chips{gap:8px}
 .dg-btn{border-radius:12px;background:var(--panel-2);border:1px solid var(--line-2);text-transform:none;letter-spacing:0;font-weight:500;font-size:15px;min-height:44px}
 .dg-btn.slim{min-height:38px;font-size:14px}
@@ -53,8 +53,7 @@ select.inp{background-image:none;
 .live-tag{text-transform:none;letter-spacing:0;font-size:13px;font-weight:500}
 
 /* ---------- home hero = trading panel ---------- */
-.hero{padding:32px;gap:24px;background:radial-gradient(420px 260px at 105% -10%,rgba(227,182,59,.14),transparent 70%),var(--glass),var(--panel)}
-.hero::after{right:-120px;top:-120px;width:300px;height:300px;filter:blur(30px);background:radial-gradient(circle,rgba(227,182,59,.16),transparent 70%)}
+.hero{padding:32px;gap:24px;background:var(--glass),var(--panel)}
 .hero-head .dg-eyebrow{display:none}
 .hero-h{font-size:clamp(26px,4vw,32px);font-weight:600;line-height:1.15;letter-spacing:-.02em}
 .hero-h em{color:var(--gold)}
@@ -70,7 +69,7 @@ select.inp{background-image:none;
 .dn-opp b{font-size:18px;text-transform:none;font-weight:600}
 .cta{background:var(--gold-grad);color:var(--on-gold);font-family:var(--f-body);font-weight:500;font-size:18px;letter-spacing:0;text-transform:none;
   min-height:68px;border-radius:14px;padding:16px 24px;justify-content:center;text-align:center;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.5),inset 0 -1px 0 rgba(0,0,0,.14),0 10px 30px -12px rgba(227,182,59,.45);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.5),inset 0 -1px 0 rgba(0,0,0,.14);
   position:relative;overflow:hidden;transition:filter .15s,transform .1s}
 .cta::before{content:"";position:absolute;inset:0;background:linear-gradient(115deg,transparent 30%,rgba(255,255,255,.28) 48%,transparent 66%);pointer-events:none}
 .cta small{font-size:13px;font-weight:500;opacity:.7}
@@ -82,7 +81,7 @@ select.inp{background-image:none;
 .feature{padding:28px;gap:10px}
 .feature h3{font-size:20px;font-weight:600}
 .mix-card{background:radial-gradient(300px 180px at 100% 0,rgba(111,195,255,.10),transparent 70%),var(--glass),var(--panel)}
-.tour-card{background:radial-gradient(300px 180px at 100% 0,rgba(227,182,59,.13),transparent 70%),var(--glass),var(--panel)}
+.tour-card{background:var(--glass),var(--panel)}
 
 /* ---------- summary-style rows ---------- */
 .rowlist li,.feedlist li,.friend,.dg-table td{border-top-color:var(--line)}
@@ -90,7 +89,7 @@ select.inp{background-image:none;
 .feedlist li{padding:12px 0;font-size:15px}
 .feedlist,.rowlist{font-variant-numeric:tabular-nums}
 .friend{padding:12px 0}
-.tstats div,.shop li,.ach li{background:#1A1A1C;border-radius:14px;border:1px solid var(--line)}
+.tstats div,.shop li,.ach li{background:var(--ink-800);border-radius:var(--radius-2);border:1px solid var(--line)}
 .add-friend{border-top-color:var(--line)}
 .dg-table{font-size:15px;font-variant-numeric:tabular-nums}
 .dg-table th{text-transform:none;letter-spacing:0;font-size:14px;font-weight:400;color:var(--muted);padding:8px 10px}
@@ -98,7 +97,7 @@ select.inp{background-image:none;
 .dg-table tbody tr:hover td{background:rgba(255,255,255,.02)}
 tr.me td{color:var(--gold)}
 .av{font-family:var(--f-body);font-weight:600;font-size:15px;background:var(--panel-2);border:1px solid var(--line)}
-.av::after{border-color:#141415}
+.av::after{border-color:var(--ink-900)}
 .fr-main b{font-weight:500}
 
 /* ---------- stat tiles ---------- */
@@ -124,7 +123,7 @@ tr.me td{color:var(--gold)}
 .meter{grid-template-columns:44px 1fr 20px;font-size:13px;font-weight:400}
 .segs{gap:3px}
 .segs i{height:6px;border-radius:3px;background:rgba(255,255,255,.08)}
-.meter.skill .segs i.on{background:var(--gold-grad);box-shadow:0 0 8px rgba(227,182,59,.35)}
+.meter.skill .segs i.on{background:var(--gold-grad)}
 .meter.luck .segs i.on{background:var(--rival);box-shadow:none}
 
 /* ---------- watch ---------- */
@@ -134,7 +133,7 @@ tr.me td{color:var(--gold)}
 
 /* ---------- tournaments ---------- */
 .tcard{padding:24px;gap:14px}
-.tcard[data-tour="daily"]{background:radial-gradient(300px 180px at 100% 0,rgba(227,182,59,.13),transparent 70%),var(--glass),var(--panel);border-color:rgba(227,182,59,.28)}
+.tcard[data-tour="daily"]{background:var(--glass),var(--panel);border-color:color-mix(in srgb,var(--gold-500) 28%,transparent)}
 .tcard h3{font-size:20px;font-weight:600}
 .tstats{gap:10px}
 .tstats div{padding:10px 14px}
@@ -148,7 +147,7 @@ tr.me td{color:var(--gold)}
 .ach{gap:12px}
 .ach li{border-style:dashed;padding:14px 16px}
 .ach li b{color:var(--fg);font-weight:500}
-.ach li.got{border-style:solid;border-color:rgba(227,182,59,.4);background:rgba(227,182,59,.07)}
+.ach li.got{border-style:solid;border-color:color-mix(in srgb,var(--gold-500) 4%,transparent);background:color-mix(in srgb,var(--gold-500) 7%,transparent)}
 .shop{gap:12px}
 .shop li{padding:12px 14px}
 .shop li.on{border-color:var(--gold)}
@@ -166,7 +165,7 @@ tr.me td{color:var(--gold)}
 .dg-box.empty{padding:40px 16px}
 
 /* ---------- modal ---------- */
-.modal-back{background:rgba(6,6,7,.66);-webkit-backdrop-filter:blur(14px) saturate(1.1);backdrop-filter:blur(14px) saturate(1.1)}
+.modal-back{background:rgba(12,11,9,.8)}
 .modal{background:var(--glass),rgba(24,24,26,.92);padding:28px;gap:20px;box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 30px 80px rgba(0,0,0,.6)}
 .modal-head h2{font-size:22px;font-weight:600;text-transform:none;letter-spacing:-.01em}
 .modal-body{gap:12px;color:var(--muted)}
@@ -174,8 +173,8 @@ tr.me td{color:var(--gold)}
 .modal-actions .dg-btn{min-height:48px;padding-inline:22px}
 
 /* ---------- toasts ---------- */
-.toast{background:rgba(28,28,30,.82);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);border:1px solid var(--line-2);border-radius:var(--r-pill);padding:10px 10px 10px 20px;font-size:15px;box-shadow:0 12px 32px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.06)}
-.toast.gold{border-color:rgba(227,182,59,.5)}
+.toast{background:var(--ink-800);border:1px solid var(--line-2);border-radius:var(--r-pill);padding:10px 10px 10px 20px;font-size:15px;box-shadow:0 12px 32px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.06)}
+.toast.gold{border-color:color-mix(in srgb,var(--gold-500) 5%,transparent)}
 .toast.bad{border-color:color-mix(in srgb,var(--bad) 55%,transparent)}
 .toast.remind{border-color:color-mix(in srgb,var(--ally) 55%,transparent)}
 
@@ -205,41 +204,24 @@ tr.me td{color:var(--gold)}
 @media (prefers-reduced-motion:reduce){.cta{transition:none}}
 
 /* ---------- card look: soft bezel, corner glow with pixel grid, inset tiles (ref: glass feature cards) ---------- */
-:root{--card-r:28px;--card-in-r:18px;--card-bg:#111113;--card-in:#0C0C0E;--card-glow:rgba(227,182,59,.20);--card-px:rgba(227,182,59,.55)}
+:root{--card-r:4px;--card-in-r:2px;--card-bg:var(--ink-900);--card-in:var(--ink-950)}
 .dg-box,.hero,.gcard,.wcard,.tcard,.feature{
-  position:relative;isolation:isolate;border-radius:var(--card-r);
-  background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,0) 40%),var(--card-bg);
-  border:1px solid rgba(255,255,255,.07);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 0 0 4px rgba(255,255,255,.015),0 30px 60px -30px rgba(0,0,0,.85);
+  position:relative;isolation:isolate;border-radius:var(--card-r);background:var(--card-bg);
+  border:1px solid var(--line);box-shadow:var(--shadow-raised);
 }
-/* soft glow bleeding in from a corner; alternates sides like the reference */
+/* the shape rhyme: the same gold corner bracket as base.css .dg-box, on every card */
 .dg-box::before,.gcard::before,.wcard::before,.tcard::before,.feature::before,.hero::before{
-  content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;
-  background:radial-gradient(340px 220px at 0 0,var(--card-glow),transparent 70%);
-}
-/* pixel mosaic inside the glow */
-.dg-box::after,.gcard::after,.wcard::after,.tcard::after,.feature::after{
-  content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;opacity:.28;background:var(--card-px);
-  -webkit-mask:linear-gradient(90deg,#000 6px,transparent 0) 0 0/9px 9px,linear-gradient(#000 6px,transparent 0) 0 0/9px 9px,radial-gradient(120px 90px at 0 0,#000,transparent 75%);
-  -webkit-mask-composite:source-in,source-in;
-  mask:linear-gradient(90deg,#000 6px,transparent 0) 0 0/9px 9px,linear-gradient(#000 6px,transparent 0) 0 0/9px 9px,radial-gradient(120px 90px at 0 0,#000,transparent 75%);
-  mask-composite:intersect;
-}
-:is(.gcard,.wcard,.tcard,.feature,.dg-box):nth-child(even)::before{background:radial-gradient(340px 220px at 100% 0,var(--card-glow),transparent 70%)}
-:is(.gcard,.wcard,.tcard,.feature,.dg-box):nth-child(even)::after{
-  -webkit-mask:linear-gradient(90deg,#000 6px,transparent 0) 0 0/9px 9px,linear-gradient(#000 6px,transparent 0) 0 0/9px 9px,radial-gradient(120px 90px at 100% 0,#000,transparent 75%);
-  -webkit-mask-composite:source-in,source-in;
-  mask:linear-gradient(90deg,#000 6px,transparent 0) 0 0/9px 9px,linear-gradient(#000 6px,transparent 0) 0 0/9px 9px,radial-gradient(120px 90px at 100% 0,#000,transparent 75%);
-  mask-composite:intersect;
+  content:"";position:absolute;left:-1px;top:-1px;width:var(--bracket);height:var(--bracket);pointer-events:none;
+  background:linear-gradient(var(--gold-500),var(--gold-500)) left top/var(--bracket) 2px no-repeat,linear-gradient(var(--gold-500),var(--gold-500)) left top/2px var(--bracket) no-repeat;
 }
 /* inset tiles read as a recessed inner panel */
-.tstats div,.shop li,.ach li{background:var(--card-in);border-radius:var(--card-in-r);border:1px solid rgba(255,255,255,.06);box-shadow:inset 0 1px 2px rgba(0,0,0,.6)}
+.tstats div,.shop li,.ach li{background:var(--card-in);border-radius:var(--card-in-r);border:1px solid rgba(255,255,255,.06);box-shadow:var(--shadow-pressed)}
 /* headings: larger, lighter weight, tight tracking; body copy muted */
-.box-h h3,.feature h3,.tcard h3,.gcard-name,.wcard-vs b{font-weight:500;letter-spacing:-.025em;color:#F4F4F5}
+.box-h h3,.feature h3,.tcard h3,.gcard-name,.wcard-vs b{font-weight:500;letter-spacing:-.025em;color:var(--ivory-100)}
 .box-h h3,.feature h3,.tcard h3{font-size:24px}
 .gcard-name{font-size:26px}
 .hero-h{font-weight:500;letter-spacing:-.03em}
-.gcard-blurb,.feature p,.tcard p,.hero-sub{color:#8B8B92}
+.gcard-blurb,.feature p,.tcard p,.hero-sub{color:var(--stone-400)}
 @media (max-width:720px){
   :root{--card-r:22px;--card-in-r:14px}
   .box-h h3,.feature h3,.tcard h3{font-size:21px}

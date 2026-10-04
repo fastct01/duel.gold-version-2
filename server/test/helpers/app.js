@@ -14,7 +14,7 @@ export const mETH = ETH / 1000n; // 0.001
 export const FAST = {
   match: {
     acceptMs: 500, countdownMs: 40, graceMs: 200, durationScale: 0.004, durationFactor: 1.5,
-    queueTimeoutMs: 3000, publicQueue: true, disconnectQueueMs: 150, pairIntervalMs: 40, banMs: 60000,
+    banMs: 60000,
   },
   economy: { minStake: mETH / 100n, maxStake: ETH / 10n, stakeTiers: [mETH] },
   rate: { authPerMin: 1000, apiPerMin: 100000, wsPerSec: 500 },
@@ -30,8 +30,8 @@ export async function startApp(overrides = {}) {
   const helpers = {
     app,
     url: app.url,
-    /* a signed-in, connected, funded player */
-    async player({ fund = 100n * mETH, connect = true, name } = {}) {
+    /* a signed-in, connected, funded player; adult: false skips the 18+ attestation that staked lobbies require */
+    async player({ fund = 100n * mETH, connect = true, name, adult = true } = {}) {
       const wallet = Wallet.createRandom();
       const client = new DuelClient({ baseUrl: app.url, address: wallet.address, sign: (m) => wallet.signMessage(m) });
       await client.login();
@@ -39,6 +39,7 @@ export async function startApp(overrides = {}) {
       const id = client.me.id;
       if (fund > 0n) helpers.credit(id, fund);
       if (name) await client.api("PATCH", "/v1/me", { displayName: name });
+      if (adult) await client.api("POST", "/v1/me/age", { adult: true });
       const p = { client, wallet, id, address: wallet.address.toLowerCase(), bal: () => app.ledger.balance(ACCT.user(id)) };
       players.push(p);
       return p;
@@ -49,12 +50,12 @@ export async function startApp(overrides = {}) {
       app.ledger.post({ kind: "deposit", ref: `test-${helpers.seq}`, uniq: `test-deposit:${helpers.seq}`, entries: [[ACCT.chain, -wei], [ACCT.user(userId), wei]] });
     },
     house: () => app.ledger.balance(ACCT.house),
-    /* both players queue for the same game/stake and end up in a match; returns their match ids */
-    async pair(a, b, { game = "reaction", stake = mETH, code } = {}) {
-      await a.client.joinQueue({ game, stake: String(stake), code });
-      await b.client.joinQueue({ game, stake: String(stake), code });
-      const [fa, fb] = await Promise.all([a.client.waitFor("match.found"), b.client.waitFor("match.found")]);
-      return { id: fa.match.id, a: fa.match, b: fb.match };
+    /* two players meet the only way there is: an invite lobby. `a` hosts, `b` joins with the code, `a` starts it; both then
+       have match.found. Returns { id, a, b } with each player's view of the match (state "found"). */
+    async pair(a, b, { game = "reaction", stake = mETH } = {}) {
+      const m = await helpers.lobbyMatch([a, b], { game, stake });
+      const [va, vb] = await Promise.all([a, b].map((p) => p.client.api("GET", `/v1/matches/${m.id}`)));
+      return { id: m.id, a: va, b: vb, code: m.code };
     },
     /* both ready → both get the seed → wait until the match's start time */
     async begin(a, b, matchId) {

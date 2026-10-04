@@ -8,7 +8,7 @@
      node scripts/ui-audit.js --list                  print the screen names and exit
 
    Starts the same dev stack as test/browser.test.js (local chain + server on ephemeral ports, in-memory DB), drives real
-   Chromium through every reachable screen with burner-wallet players, and for each screen and width:
+   Chromium through every reachable screen with mock browser-wallet players, and for each screen and width:
      - saves a full-page screenshot to test/shots/audit/<screen>-<width>.png
      - page overflow     document wider than the viewport
      - offscreen         elements whose visible box sticks out of the viewport horizontally (outermost offender only)
@@ -25,6 +25,26 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "playwright-core";
 import { startDevStack } from "./dev-stack.js";
+import { Wallet } from "ethers";
+
+/* a minimal EIP-1193 browser wallet (stands in for MetaMask), as in test/browser.test.js */
+function mockWallet(pk) {
+  let w;
+  const wallet = () => (w ||= new window.ethers.Wallet(pk));
+  window.ethereum = {
+    async request({ method, params = [] }) {
+      switch (method) {
+        case "eth_requestAccounts": case "eth_accounts": return [wallet().address];
+        case "eth_chainId": return "0x7a69";
+        case "net_version": return "31337";
+        case "personal_sign": return wallet().signMessage(window.ethers.getBytes(params[0]));
+        default: throw Object.assign(new Error(`unsupported method ${method}`), { code: 4200 });
+      }
+    },
+    on() {}, removeListener() {},
+  };
+}
+
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(here, "..", "test", "shots", "audit");
@@ -34,7 +54,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const SCREENS = [
   "signin", "lobby", "lobby-how", "toast", "avatar-menu", "games", "games-rules", "practice-ready", "practice-play", "practice-done",
-  "game-page", "tournaments", "settings", "waiting", "lobby-hosting", "invite-signedout", "invite", "found", "found-ready", "playing",
+  "game-page", "tournaments", "settings", "age-gate", "waiting", "lobby-hosting", "invite-signedout", "invite", "found", "found-ready", "playing",
   "playing-forfeit", "result-win", "result-loss", "history", "wallet",
 ];
 
@@ -96,7 +116,7 @@ export function pageAudit({ small = false, tol = 2 } = {}) {
   /* ---- per-element computed info, memoised down the tree (parents first) */
   const memo = new Map();
   const ROOT = { vis: true, op: 1, fixed: null, deco: false, popup: null, clipKids: INF, scrollKids: INF, hscrollKids: null, off: false };
-  const POPUP = "[role=menu],[role=dialog],[role=listbox],[popover],#acctMenu";
+  const POPUP = "[role=menu],[role=dialog],[role=listbox],[popover],#acctMenu,#ageGate";
   /* a control laid over a horizontal scroller from outside it (carousel prev/next arrows over faded edges): by design */
   const carouselOverlay = (inner, over) => {
     const sc = inner.hscroll;
@@ -104,6 +124,9 @@ export function pageAudit({ small = false, tol = 2 } = {}) {
     for (let e = over; e && e !== sc.parentElement; e = e.parentElement) if (/absolute|fixed/.test(getComputedStyle(e).position)) return true;
     return false;
   };
+  /* a 3D coverflow stacks its cards on purpose: items under one perspective container overlap by design, and the carousel's arrows sit over the cards */
+  const stackOf = (el) => { for (let e = el; e && e !== document.body; e = e.parentElement) if (getComputedStyle(e).perspective !== "none") return e; return null; };
+  const DESIGNED_OVERLAYS = ".cv-skip,.cv-scroll";
   function info(el) {
     if (!el || el === document.documentElement || el === document.body) return ROOT;
     let v = memo.get(el);
@@ -223,6 +246,8 @@ export function pageAudit({ small = false, tol = 2 } = {}) {
       const b = items[j];
       if (b.edge || a.fixed !== b.fixed || a.inf.popup !== b.inf.popup) continue;
       if (carouselOverlay(a.inf, b.el) || carouselOverlay(b.inf, a.el)) continue;
+      const sa = stackOf(a.el); if (sa && sa === stackOf(b.el)) continue;
+      if ((a.el.closest(DESIGNED_OVERLAYS) && stackOf(b.el)) || (b.el.closest(DESIGNED_OVERLAYS) && stackOf(a.el))) continue;
       let A, B;
       if (a.el.contains(b.el)) { if (!a.text.length) continue; A = a.text; B = b.g; if (!(a.tu.r > b.u.l && b.u.r > a.tu.l && a.tu.b > b.u.t && b.u.b > a.tu.t)) continue; }
       else { if (!(a.u.r > b.u.l && b.u.r > a.u.l && a.u.b > b.u.t && b.u.b > a.u.t)) continue; A = a.g; B = b.g; }
@@ -267,7 +292,8 @@ export function pageAudit({ small = false, tol = 2 } = {}) {
       if (top && !(top === el || el.contains(top) || top.contains(el))) {
         const ti = memo.get(top) || info(top);
         const layered = !!ti.fixed && ti.fixed !== inf.fixed;
-        if (stuckAt(cy, layered) && !(ti.popup && ti.popup !== inf.popup) && !carouselOverlay(inf, top)) {
+        const designed = !!top.closest(DESIGNED_OVERLAYS) || (stackOf(el) && stackOf(el) === stackOf(top));
+        if (stuckAt(cy, layered) && !(ti.popup && ti.popup !== inf.popup) && !carouselOverlay(inf, top) && !designed) {
           seen.add(el);
           res.covered.push({ el: label(el), by: label(top), where: phase, at: round(box) });
           continue;
@@ -342,6 +368,8 @@ export function pageAudit({ small = false, tol = 2 } = {}) {
       const r = inf.rect, s = inf.s;
       if (s.display === "inline" && el.parentElement && ownText(el.parentElement).length) continue; // inline link inside a sentence
       if (el.disabled) continue;
+      const lab = el.labels && el.labels[0]; // a checkbox's whole label is its target
+      if (lab && lab.getBoundingClientRect().height >= 44) continue;
       if (W(r) < 32 || H(r) < 32) res.tap.push({ el: label(el), size: `${Math.round(W(r))}x${Math.round(H(r))}` });
     }
   }
@@ -355,6 +383,7 @@ let stack, browser;
 const pages = [];
 async function open(width = 1280) {
   const ctx = await browser.newContext({ viewport: { width, height: HEIGHT }, reducedMotion: "reduce" });
+  await ctx.addInitScript(mockWallet, Wallet.createRandom().privateKey);
   const page = await ctx.newPage();
   page.errors = [];
   page.on("pageerror", (e) => page.errors.push("pageerror: " + e.message));
@@ -396,8 +425,17 @@ async function goTab(page, tab, waitSel) {
 }
 const note = (screen, reason) => { if (want(screen)) { skipped.push({ screen, reason }); console.log(`  - ${screen}: skipped (${reason})`); } };
 
+/* staked play asks for an 18+ confirmation once per account (views/age.js): tick it and continue when it appears */
+async function passAgeGate(page) {
+  const gate = await page.waitForSelector("#ageCheck", { timeout: 2500 }).catch(() => null);
+  if (!gate) return false;
+  await page.check("#ageCheck");
+  await page.click("#ageConfirm");
+  await page.waitForSelector("#ageCheck", { state: "detached", timeout: 8000 }).catch(() => {});
+  return true;
+}
 async function signInAndFund(page) {
-  await page.click("#signBurner");
+  await page.click("#signInjected");
   await page.waitForSelector("#faucetBtn");
   await page.click("#faucetBtn");
   await until(async () => parseFloat(await text(page, "#balAvail")) >= 1, "test ETH credited");
@@ -462,7 +500,7 @@ async function tour() {
   const signing = [A, B].filter(Boolean).map((p) => signInAndFund(p));
   const signed = Promise.all(signing).then(() => true, (e) => { broken.account = broken.match = "sign in: " + e.message.split("\n")[0]; return false; });
 
-  if (V) await capture("signedout", "signin", V, { setup: () => V.waitForSelector("#signBurner") });
+  if (V) await capture("signedout", "signin", V, { setup: () => V.waitForSelector("#signInjected") });
   await signed;
 
   /* ---------------- signed-in pages (player A) */
@@ -546,6 +584,8 @@ async function tour() {
       await goTab(A, "lobby", "#createBtn");
       await A.click('[data-act=stake][data-v="1000000000000000"]');
       await A.click("#createBtn");
+      if (want("age-gate") && await A.$("#ageCheck")) await capture(C, "age-gate", A);
+      await passAgeGate(A); /* confirming resumes the create */
       await A.waitForSelector("#inviteLink", { timeout: 15000 });
       link = await A.inputValue("#inviteLink");
     });
@@ -553,6 +593,8 @@ async function tour() {
     await capture(C, "lobby-hosting", A, {
       setup: () => goTab(A, "lobby", "#createBtn"),
     });
+    /* the lobby tab shows the hosted lobby, not the waiting room: a reload restores the waiting room (the server tests rely on this too) */
+    await flow(C, "host back in the waiting room", async () => { await A.reload(); await A.waitForSelector("#inviteLink", { timeout: 15000 }); });
     if (V && want("invite-signedout")) {
       if (broken[C]) await capture(C, "invite-signedout", V);
       else await capture(C, "invite-signedout", V, { setup: async () => { await V.goto(link + "&test=1"); await V.waitForSelector("#inviteBanner:not(.bad)", { timeout: 15000 }); } });
@@ -560,7 +602,14 @@ async function tour() {
     if (V) { await V.context().close().catch(() => {}); }
     await flow(C, "open invite", async () => { await B.goto(link + "&test=1"); await B.waitForSelector("#joinBtn", { timeout: 15000 }); });
     await capture(C, "invite", B);
-    await flow(C, "join", async () => { await B.click("#joinBtn"); await Promise.all([A, B].map((p) => p.waitForSelector("#readyBtn", { timeout: 15000 }))); });
+    /* a guest's Join seats them in the waiting room; the host presses Start match (it enables at the minimum) and both reach the ready screen */
+    await flow(C, "join", async () => {
+      await B.click("#joinBtn");
+      await passAgeGate(B); /* confirming resumes the join */
+      await A.waitForSelector("#startLobby:not([disabled])", { timeout: 15000 });
+      await A.click("#startLobby");
+      await Promise.all([A, B].map((p) => p.waitForSelector("#readyBtn", { timeout: 15000 })));
+    });
     await capture(C, "found", A, { check: () => view(A).then((v) => (v === "found" ? "" : "left the found screen: " + v)) });
     await flow(C, "ready (host)", () => A.click("#readyBtn"));
     await capture(C, "found-ready", A, { check: () => view(A).then((v) => (v === "found" ? "" : "left the found screen: " + v)) });
@@ -652,7 +701,7 @@ if (MAIN) await (async () => {
     console.log(`  starting dev stack…`);
     stack = await startDevStack({
       memory: true, quiet: true,
-      overrides: { match: { countdownMs: 1500, acceptMs: 180000, queueTimeoutMs: 30000, pairIntervalMs: 100, durationScale: 1 }, rate: { authPerMin: 1000, apiPerMin: 100000, wsPerSec: 200 } },
+      overrides: { match: { countdownMs: 1500, acceptMs: 180000, durationScale: 1 }, rate: { authPerMin: 1000, apiPerMin: 100000, wsPerSec: 200 } },
     });
     browser = await chromium.launch({ executablePath: CHROME, args: ["--no-sandbox"] });
     console.log(`  ${stack.url}/play/  ·  widths ${WIDTHS.join(",")}  ·  height ${HEIGHT}${ONLY ? `  ·  only ${[...ONLY].join(",")}` : ""}`);

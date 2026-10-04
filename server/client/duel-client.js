@@ -3,13 +3,18 @@
      const c = new DuelClient({ baseUrl: "http://localhost:8787", address, sign: (msg) => wallet.signMessage(msg) });
      await c.login();          // wallet signature → session token
      await c.connect();        // WebSocket, authenticated
-     await c.joinQueue({ game: "reaction", stake: "1000000000000000" });
+     const { code } = await c.createLobby({ game: "reaction", stake: "1000000000000000" });   // host; share the code or link
+     // a friend calls friend.joinLobby(code); then the host starts it:
+     await c.startLobby(code);
      const found = await c.waitFor("match.found");
      await c.ready(found.match.id);
      const start = await c.waitFor("match.start");   // { seed, startAt, submitDeadline }
      ...play the game locally with start.seed...
      await c.submit(found.match.id, score);
      const result = await c.waitFor("match.result");
+
+   Play is invite-only: players reach each other through lobby codes or links. There is no public queue or player search.
+   Staked lobbies (stake above 0) need the player's 18+ attestation first: await c.api("POST", "/v1/me/age", { adult: true }).
 
    Pushed events are buffered until you ask for them, so waitFor() never misses one that arrived early.        */
 
@@ -151,7 +156,6 @@ export class DuelClient {
 
   /* ------------------------------------------------------------ game helpers */
 
-  joinQueue({ game, stake = "0", code } = {}) { return this.request("queue.join", { game, stake, code }); }
   /* Invite-only lobbies (REST), up to config.match.lobbyMaxPlayers players (host included; default 10).
        createLobby  host opens a lobby                       → lobby (member view, role "host")
        getLobby     public view for anyone with the code     → lobby (names only, no ids or addresses)
@@ -168,7 +172,6 @@ export class DuelClient {
   async leaveLobby(code) { return (await this.api("POST", `/v1/lobbies/${encodeURIComponent(code)}/leave`)).lobby; }
   async startLobby(code) { return (await this.api("POST", `/v1/lobbies/${encodeURIComponent(code)}/start`)).match; }
   async closeLobby(code) { return (await this.api("DELETE", `/v1/lobbies/${encodeURIComponent(code)}`)).lobby; }
-  leaveQueue() { return this.request("queue.leave"); }
   ready(matchId) { return this.request("match.ready", { matchId }); }
   progress(matchId, score) { this.send("match.progress", { matchId, score }); }
   submit(matchId, score, detail) { return this.request("match.submit", { matchId, score, detail }); }

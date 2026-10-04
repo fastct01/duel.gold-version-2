@@ -38,9 +38,9 @@ export function topBar(ctx) {
   const pending = S.view !== "lobby" ? "" : S.lobby
     ? `<button class="top-add top-open" data-act="open-lobby" id="openLobby" title="${S.lobby.role === "guest" ? "Go to the lobby you joined" : "Go to your open lobby"}" aria-label="Open your waiting room">${icon("clock")}<span>Open lobby</span></button>`
     : inv ? `<button class="top-add top-open" data-act="open-invite" id="openInvite" title="You have a pending invite" aria-label="Open the pending invite from ${esc(inv.lobby.host.name)}">${icon("users")}<span>Invite</span></button>` : "";
-  /* Join: opens the "enter an invite code" page. Disabled while a queue / match prompt holds the screen, like the nav.
+  /* Join: opens the "enter an invite code" page. Disabled while a match prompt holds the screen, like the nav.
      During a game the bar only shows the balance (read-only) and the account menu: nothing else is reachable then. */
-  const locked = ["queue", "found", "orphan"].includes(S.view), playing = S.view === "play";
+  const locked = ["found", "orphan"].includes(S.view), playing = S.view === "play";
   const onJoin = S.view === "lobby" && S.tab === "join";
   const join = playing ? "" : locked
     ? `<button class="top-join" disabled title="Finish or leave the match first" aria-label="Join a game with an invite code (finish or leave the match first)">${icon("link")}<span>Join</span></button>`
@@ -69,8 +69,8 @@ export function topBar(ctx) {
 export function nav(ctx) {
   const { S, h } = ctx;
   if (!S.me) return "";
-  /* while a queue / match prompt is on screen the pages behind the nav are not reachable, so show the items but disable them */
-  const locked = ["queue", "found", "orphan"].includes(S.view);
+  /* while a match prompt is on screen the pages behind the nav are not reachable, so show the items but disable them */
+  const locked = ["found", "orphan"].includes(S.view);
   const here = S.view === "lobby" ? (S.tab === "game" ? "games" : S.tab) : ""; // a game's own page lives under Games
   const lab = (l, s) => `<span class="l-full">${h.esc(l)}</span><span class="l-short" aria-hidden="true">${h.esc(s)}</span>`;
   /* Account is the one destination the phone bottom bar leaves out (five fit with readable labels): the avatar menu has it */
@@ -79,9 +79,11 @@ export function nav(ctx) {
     : `<a class="nav-b${more}" href="#${id}" data-go="${id}" ${here === id ? 'aria-current="page"' : ""} title="${h.esc(label)}" aria-label="${h.esc(label)}">${icon(ico)}${lab(label, short)}</a>`; }).join("");
 }
 
-const STEPS = [
-  ["01", "Pick a game and a stake", "Free play, or a small test-ETH stake from your in-app balance. Every player puts in the same amount."],
-  ["02", "Send the invite link to friends", "No bots, no strangers. Up to 10 players can join one lobby. When you start the match, everyone plays the exact same seeded challenge at the same time."],
+const steps = (real, sym) => [
+  ["01", "Pick a game and a stake", real
+    ? `Free play, or a stake in ${sym} from your in-app balance. Every player puts in the same amount, and it is held in escrow until the match is decided.`
+    : `Free play, or a small test-${sym} stake from your in-app balance. Every player puts in the same amount.`],
+  ["02", "Send the invite link to friends", "Invite only: no public matchmaking, no strangers. Up to 10 players can join one lobby with the link or code. When you start the match, everyone plays the exact same seeded challenge at the same time."],
   ["03", "Highest score takes the pot", "The top score wins the pot minus the fee, and tied top scores split it. The seed is revealed afterwards so anyone can replay and check it."],
 ];
 
@@ -89,7 +91,7 @@ const STEPS = [
 const friendly = (m) => {
   const t = String(m || "");
   if (/reject|denied|cancel/i.test(t)) return "The wallet request was cancelled. Nothing was signed and no money moved.";
-  if (t.length > 160 || /payload=|code=|version=/.test(t)) return "Could not connect that wallet. You can try again, or continue with a burner wallet.";
+  if (t.length > 160 || /payload=|code=|version=/.test(t)) return "Could not connect that wallet. Unlock it and try again.";
   return t;
 };
 
@@ -98,7 +100,7 @@ export const views = {
     const { S, h } = ctx; const { esc } = h;
     const hasInjected = !!window.ethereum;
     const fee = S.cfg && S.cfg.feeBps != null ? `${S.cfg.feeBps / 100}%` : "a small fee";
-    const net = S.cfg && S.cfg.chain ? S.cfg.chain.name : "a test network";
+    const net = h.chainName(), real = h.real(), sym = h.sym();
     const inv = S.invite, l = inv && inv.lobby;
     const open = l && l.state === "open";
     const stakeTxt = l ? (String(l.stake) === "0" ? "Free" : `${h.eth(l.stake)} ${h.sym()}`) : "";
@@ -110,28 +112,32 @@ export const views = {
     const head = open
       ? `<span class="l1">${esc(l.host.name)} challenged&nbsp;you.</span><span class="l2">Sign in to <span class="gold-t">accept</span>.</span>`
       : `<span class="l1"><span class="nb">Out-play</span> a&nbsp;friend.</span><span class="l2">Winner takes the <span class="gold-t">pot</span>.</span>`;
+    /* sign-in is only with a wallet the player controls: withdrawals are paid to that address */
+    const injectedBtn = hasInjected
+      ? `<button class="dg-btn primary xl" data-act="injected" id="signInjected"><span>Connect wallet</span></button>`
+      : `<a class="dg-btn primary xl" id="getWallet" href="https://metamask.io/download/" target="_blank" rel="noopener"><span>Install a wallet to sign in</span></a>`;
     return `<div class="landing">
       <section class="landing-hero" aria-labelledby="hSign">
-        <p class="eyebrow">${open ? "You have been invited" : "Real players. Same challenge. One winner."}</p>
         <h1 class="landing-h${open ? " is-invite" : ""}" id="hSign">${head}</h1>
         ${banner}
         <p class="lede">Duel.gold lets you challenge friends to a short skill game with a private invite link, with up to 10 players in one lobby. Everyone gets the same seeded challenge, the highest score wins the pot minus ${esc(fee)}, and every result can be replayed and verified.</p>
         <div class="landing-cta">
-          <button class="dg-btn primary xl" data-act="burner" id="signBurner"><span>Continue with a burner wallet</span></button>
-          ${hasInjected ? `<button class="dg-btn xl" data-act="injected" id="signInjected"><span>Connect browser wallet</span></button>` : ""}
+          ${injectedBtn}
         </div>
         <div class="err" id="err" role="alert">${esc(friendly(S.error))}</div>
-        <p class="dg-note">A burner wallet is a key created and kept in this browser, only used to sign you in. Signing in costs no gas and moves no money. Never send real funds to it, and clearing your browser data removes it.</p>
+        <p class="dg-note">Sign in with a browser wallet you control, such as MetaMask. Signing in costs no gas and moves no money, and withdrawals are paid only to the wallet you sign in with.${hasInjected ? "" : " No wallet was found in this browser: install one, then reload this page."}</p>
       </section>
 
       <aside class="landing-side">
         <section aria-labelledby="hHow">
           <h2 id="hHow">How it works</h2>
-          <ol class="steps">${STEPS.map(([n, t, d]) => `<li><span class="step-n">${n}</span><div><b>${esc(t)}</b><p>${esc(d)}</p></div></li>`).join("")}</ol>
+          <ol class="steps">${steps(real, sym).map(([n, t, d]) => `<li><span class="step-n">${n}</span><div><b>${esc(t)}</b><p>${esc(d)}</p></div></li>`).join("")}</ol>
         </section>
-        <section class="testnote" aria-labelledby="hTest">
+        <section class="testnote" aria-labelledby="hTest">${real ? `
+          <h2 id="hTest">Real ETH on ${esc(net)}</h2>
+          <p>${esc(h.moneyNote())} Staked play is for players aged 18 or over. Only play with money you can afford to lose, and set a daily loss limit that suits you.</p>` : `
           <h2 id="hTest">Test network only</h2>
-          <p>Everything runs on ${esc(net)}. Test ETH has no real-world value, and nobody can buy or cash it out. You can set a daily loss limit at any time.</p>
+          <p>Everything runs on ${esc(net)}. Test ETH has no real-world value, and nobody can buy or cash it out. You can set a daily loss limit at any time.</p>`}
         </section>
       </aside>
     </div>`;

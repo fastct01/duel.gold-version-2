@@ -8,7 +8,7 @@ import { loadConfig } from "../src/config.js";
 const ETH = 10n ** 18n;
 const HOUR = 3600000;
 
-function setup() {
+function setup({ adult = true } = {}) {
   const clock = { t: Date.UTC(2026, 5, 15, 12, 0, 0) };
   const now = () => clock.t;
   const db = new Db(":memory:");
@@ -16,6 +16,7 @@ function setup() {
   const config = loadConfig({ NODE_ENV: "test" });
   const rp = new Responsible({ db, config, now });
   const u = users.getOrCreate("0x" + "11".repeat(20)).user;
+  if (adult) rp.attestAdult(u.id); // staking needs the 18+ attestation; the loss-limit tests are about the limit
   return { clock, db, rp, u, config };
 }
 
@@ -91,5 +92,28 @@ test("view() reports the room left", () => {
   const v = rp.view(u.id);
   assert.equal(v.lossToday, "250");
   assert.equal(v.lossRoom, "750");
-  assert.deepEqual(Object.keys(v).sort(), ["lossLimit", "lossRoom", "lossToday", "pending"], "the summary carries the loss limit only");
+  assert.deepEqual(Object.keys(v).sort(), ["adultConfirmed", "lossLimit", "lossRoom", "lossToday", "pending"], "the summary carries the age attestation and the loss limit");
+});
+
+test("18+ attestation: staking needs it, free play does not, the first attestation time is kept", () => {
+  const { rp, u, db, clock } = setup({ adult: false });
+  assert.equal(rp.adultConfirmed(u.id), false);
+  assert.equal(rp.view(u.id).adultConfirmed, false);
+  rp.assertAdult(u.id, 0n); // free play
+  rp.assertCanStake(u.id, 0n);
+  assert.throws(() => rp.assertAdult(u.id, 1n), { code: "AGE_NOT_CONFIRMED", status: 403 });
+  assert.throws(() => rp.assertCanStake(u.id, ETH / 1000n), { code: "AGE_NOT_CONFIRMED", status: 403 });
+
+  rp.attestAdult(u.id);
+  const at = db.get("SELECT age_attested_at AS t FROM users WHERE id = ?", u.id).t;
+  assert.equal(at, clock.t);
+  clock.t += HOUR;
+  rp.attestAdult(u.id);
+  assert.equal(db.get("SELECT age_attested_at AS t FROM users WHERE id = ?", u.id).t, at);
+  assert.equal(rp.adultConfirmed(u.id), true);
+  assert.equal(rp.view(u.id).adultConfirmed, true);
+  rp.assertAdult(u.id, 1n);
+  rp.assertCanStake(u.id, ETH / 1000n);
+  rp.setLossLimit(u.id, 1000n);
+  assert.throws(() => rp.assertCanStake(u.id, 1001n), { code: "LOSS_LIMIT" }, "the daily loss limit still applies after attesting");
 });

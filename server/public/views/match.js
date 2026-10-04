@@ -2,7 +2,7 @@
    A lobby holds 2–10 players: the host plus guests. Everything that lists people (roster, ready states, live race, standings) is a list
    built from lobby.players / match.players, so it works for 2 players and for 10.
    All markup uses .mx-* classes styled in /play/match.css (gold-style design rules: serif display headlines, uppercase tracked labels,
-   hairline rules, 2–4px corners, one solid-gold primary action per view). Views are pure; live()/playBar()/patchLobby() patch the DOM in place. */
+   hairline rules, 2–4px corners, one solid-gold primary action per view). Views are pure; playBar()/patchLobby() patch the DOM in place. Invite-only: there is no queue or matchmaking screen. */
 import { icon, avatar, esc } from "../ui.js";
 
 /* why a match ended, as a sentence. `ps` = playersOf(match); `shared` = more than one player holds first place. */
@@ -21,8 +21,6 @@ const REASONS = (m, ps = [], shared = false) => {
 
 const NB = " "; // non-breaking space: keeps a number and its unit on one line
 const nb = (s) => String(s).replace(/(\d) (?=[A-Za-zµ])/g, "$1" + NB);
-const stakeText = (h, stake) => (String(stake) === "0" ? "Free play" : `${h.eth(stake)}${NB}${h.sym()}`);
-const clock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 const plural = (n, a, b) => (n === 1 ? a : b);
 /* 1 → "1st", 2 → "2nd", 11 → "11th" */
 const ord = (n) => { const v = Number(n), t = v % 100; return v + (t >= 11 && t <= 13 ? "th" : ["th", "st", "nd", "rd"][v % 10] || "th"); };
@@ -80,41 +78,6 @@ function rulesSection(g, h, eyebrow, cls = "") {
     <ol class="mx-rules">${g.rules.map((r) => `<li>${h.esc(r)}</li>`).join("")}</ol>
   </section>`;
 }
-
-/* Honest context for the queue screen from GET /v1/lobby (S.live). Returns plain text, or "" when nothing real is known. */
-function liveText(S) {
-  const q = S.queue, L = S.live;
-  if (!q) return "";
-  if (q.code) return "Private match: only a player who enters your code can join.";
-  if (!L || !Array.isArray(L.games)) return "";
-  const g = L.games.find((x) => x.game === q.game);
-  const others = Math.max(0, (g ? Number(g.waiting) || 0 : 0) - 1); // the count includes your own ticket
-  const same = g && Array.isArray(g.stakes) ? g.stakes.find((s) => String(s.stake) === String(q.stake)) : null;
-  const sameOthers = Math.max(0, (same ? Number(same.waiting) || 0 : 0) - 1);
-  const parts = [];
-  if (others > 0) parts.push(`${others} ${plural(others, "other", "others")} waiting for this game`);
-  else parts.push("You are the only one waiting for this game right now");
-  if (others > 0 && sameOthers > 0) parts.push(`${sameOthers} at your stake`);
-  if (g && Number(g.playing) > 0) parts.push(`${g.playing} ${plural(Number(g.playing), "match", "matches")} in progress`);
-  return parts.join(" · ");
-}
-
-export function live(app) {
-  const el = document.getElementById("mxLive");
-  if (!el || app.S.view !== "queue") return;
-  const t = liveText(app.S);
-  el.textContent = t;
-  el.hidden = !t;
-}
-
-let clockNow = () => Date.now(); // swapped for the server-synced clock on first render
-/* elapsed-time labels: [data-since="epochMs"] */
-setInterval(() => {
-  for (const el of document.querySelectorAll("[data-since]")) {
-    const now = clockNow();
-    el.textContent = clock(Math.max(0, Math.floor((now - Number(el.dataset.since)) / 1000)));
-  }
-}, 1000);
 
 /* The terms as a ledger of hairline-separated rows. `l` = public lobby or match view (stake, pot, winnerPayout); g = game meta or undefined. */
 function terms(h, l, g, { duration = true } = {}) {
@@ -214,7 +177,7 @@ function hostRoom(ctx, l) {
           <h2 class="mx-h2">${esc(l.game.name)}</h2>
           <div id="lobbyTerms">${terms(h, l, g)}</div>
           ${g && g.blurb ? `<p class="mx-lede">${esc(g.blurb)}</p>` : ""}
-          <p class="mx-fine">${free ? "Free play. Ratings still count. Cancelling closes the lobby for everyone." : "Every player stakes the same amount, held until the match is decided. Cancelling the lobby returns every stake. Test ETH only, no real money."}</p>
+          <p class="mx-fine">${free ? "Free play. Ratings still count. Cancelling closes the lobby for everyone." : h.real() ? `Every player stakes the same amount. Cancelling the lobby returns every stake. ${esc(h.moneyNote())}` : "Every player stakes the same amount, held until the match is decided. Cancelling the lobby returns every stake. Test ETH only, no real money."}</p>
         </aside>
       </div>
       ${rulesSection(g, h, "While you wait")}
@@ -250,7 +213,7 @@ function guestRoom(ctx, l) {
           <h2 class="mx-h2">${esc(l.game.name)}</h2>
           <div id="lobbyTerms">${terms(h, l, g)}</div>
           ${g && g.blurb ? `<p class="mx-lede">${esc(g.blurb)}</p>` : ""}
-          <p class="mx-fine">${free ? "Free play. Ratings still count." : "Your stake is held until the match is decided. Leaving before it starts returns it in full. Test ETH only, no real money."}</p>
+          <p class="mx-fine">${free ? "Free play. Ratings still count." : h.real() ? `Leaving before it starts returns your stake in full. ${esc(h.moneyNote())}` : "Your stake is held until the match is decided. Leaving before it starts returns it in full. Test ETH only, no real money."}</p>
         </aside>
       </div>
       ${rulesSection(g, h, "While you wait")}
@@ -342,7 +305,7 @@ export const views = {
           <p class="mx-eyebrow">The terms</p>
           <h2 class="mx-h2">${esc(l.game.name)}</h2>
           <div id="lobbyTerms">${terms(h, l, g)}</div>
-          ${free ? "" : `<p class="mx-fine">Test ETH only, no real money. Your stake is taken when you press Join, and you can leave before the match starts for a full refund. If everyone ties, all stakes are returned.</p>`}
+          ${free ? "" : `<p class="mx-fine">${esc(h.moneyNote())} Your stake is taken when you press Join, and you can leave before the match starts for a full refund. If everyone ties, all stakes are returned.</p>${S.me && S.me.responsible && S.me.responsible.adultConfirmed === false ? `<p class="mx-fine">You will be asked to confirm that you are 18 or older before you join.</p>` : ""}`}
         </aside>
         <div class="mx-a-act">
           ${full ? `<div class="mx-short" role="status" id="fullNote"><p><b>This lobby is full</b><span class="mx-k">All ${max} seats are taken. Ask ${esc(l.host.name)} for a new link.</span></p></div>` : ""}
@@ -356,39 +319,6 @@ export const views = {
         </div>
       </div>
       ${rulesSection(g, h, "Rules")}
-    </section>`;
-  },
-
-  queue(ctx) {
-    const { S, h } = ctx; const { esc, left, game } = h;
-    clockNow = h.now;
-    const q = S.queue, g = game(q.game);
-    const total = (S.cfg && S.cfg.match && S.cfg.match.queueTimeoutMs) || 120000;
-    const since = Number(q.expiresAt) - total;
-    const lt = liveText(S);
-    const free = String(q.stake) === "0";
-    return `<section class="mx mx-queue" aria-labelledby="hq">
-      <div class="mx-split">
-        <header class="mx-a-head">
-          <p class="mx-eyebrow">Matchmaking</p>
-          <h1 class="mx-title" id="hq">Finding an <em>opponent</em></h1>
-          <p class="mx-lede">Searching within ±60 rating, widening as you wait.</p>
-          <div class="mx-wait" role="status"><span class="mx-scan" aria-hidden="true"></span></div>
-        </header>
-        <div class="mx-a-main">
-          <dl class="mx-ledger">
-            <div class="mx-row"><dt>Game</dt><dd class="mx-plain">${esc(g ? g.name : q.game)}</dd></div>
-            <div class="mx-row"><dt>Stake</dt><dd class="mx-plain">${esc(stakeText(h, q.stake))}</dd></div>
-            ${q.code ? `<div class="mx-row"><dt>Private code</dt><dd class="mx-plain">${esc(q.code)}</dd></div>` : ""}
-            <div class="mx-row"><dt>Elapsed</dt><dd><b class="mx-time" data-since="${since}">${clock(Math.max(0, Math.floor((h.now() - since) / 1000)))}</b></dd></div>
-            <div class="mx-row"><dt>Timeout in</dt><dd><b class="mx-time" data-until="${q.expiresAt}">${left(q.expiresAt)}</b></dd></div>
-          </dl>
-          <p class="mx-lede" id="mxLive" ${lt ? "" : "hidden"}>${esc(lt)}</p>
-          <div class="mx-actions"><button class="mx-btn" data-act="cancel-queue" id="cancelQueue">Cancel and get my stake back</button></div>
-          <p class="mx-fine">${free ? "Free play. Ratings still count." : "Your stake is held until the result. Test ETH only, no real money."}</p>
-        </div>
-      </div>
-      ${rulesSection(g, h, "While you wait")}
     </section>`;
   },
 
@@ -463,7 +393,7 @@ export const views = {
         <aside class="mx-a-terms mx-terms" aria-label="The terms">
           <p class="mx-eyebrow">The terms</p>
           ${terms(h, m, g, { duration: false })}
-          ${free ? "" : `<p class="mx-fine">Test ETH only, no real money. If everyone ties, all stakes are returned.</p>`}
+          ${free ? "" : `<p class="mx-fine">${esc(h.moneyNote())} If everyone ties, all stakes are returned.</p>`}
         </aside>
         ${rulesSection(g, h, "Rules", "mx-a-rules stack")}
       </div>
@@ -540,7 +470,7 @@ export const views = {
       </div>
       <div class="mx-finebox">
         ${m.seed != null ? `<p class="mx-fine">Seed #${esc(m.seed)}: the same challenge ${n === 2 ? "both players" : "every player"} got. Match #${esc(m.id)}.</p>` : ""}
-        ${stake > 0n ? `<p class="mx-fine">Test ETH only, no real money.</p>` : ""}
+        ${stake > 0n ? `<p class="mx-fine">${esc(h.moneyNote())}</p>` : ""}
       </div>
     </section>`;
   },

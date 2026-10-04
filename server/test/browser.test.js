@@ -1,9 +1,11 @@
 /* The reference browser client, driven in real Chromium against the dev stack (local chain + server):
-   two browsers sign in with burner wallets, get test ETH sent on-chain to their deposit addresses, play each other
+   two browsers sign in with their own wallets, get test ETH sent on-chain to their deposit addresses, play each other
    with the real game pack, and one withdraws the winnings on-chain. Invite lobbies hold 2 to 10 players: guests join
    through the link (joining puts them in the lobby), the host presses Start match, and everyone plays the same challenge.
    Further tests cover three browsers (a tied top score = "Shared win"), leaving / cancelling, and a full ten-player lobby
-   (two browsers plus eight API players). Screenshots go to test/shots/. */
+   (two browsers plus eight API players). The client is invite-only (no queue, no matchmaking, no player search) and asks for an
+   18+ confirmation before the first staked create / join; a mainnet-mode test overrides GET /v1/config in the browser to check the
+   real-money wording, the network badge, the deposit / withdraw copy and the withdraw confirm step. Screenshots go to test/shots/. */
 import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -27,7 +29,7 @@ before(async () => {
   fs.mkdirSync(SHOTS, { recursive: true });
   stack = await startDevStack({
     memory: true, quiet: true,
-    overrides: { match: { countdownMs: 1200, acceptMs: 20000, queueTimeoutMs: 30000, pairIntervalMs: 100, durationScale: 0.5 }, rate: { authPerMin: 1000, apiPerMin: 100000, wsPerSec: 200 } },
+    overrides: { match: { countdownMs: 1200, acceptMs: 20000, durationScale: 0.5 }, rate: { authPerMin: 1000, apiPerMin: 100000, wsPerSec: 200 } },
   });
   browser = await chromium.launch({ executablePath: CHROME, args: ["--no-sandbox"] });
 });
@@ -36,9 +38,28 @@ after(async () => {
   if (stack) await stack.stop();
 });
 
+/* a minimal EIP-1193 browser wallet (stands in for MetaMask): one key per browser context, signs with the page's own ethers */
+function mockWallet(pk) {
+  let w;
+  const wallet = () => (w ||= new window.ethers.Wallet(pk));
+  window.ethereum = {
+    async request({ method, params = [] }) {
+      switch (method) {
+        case "eth_requestAccounts": case "eth_accounts": return [wallet().address];
+        case "eth_chainId": return "0x7a69";
+        case "net_version": return "31337";
+        case "personal_sign": return wallet().signMessage(window.ethers.getBytes(params[0]));
+        default: throw Object.assign(new Error(`unsupported method ${method}`), { code: 4200 });
+      }
+    },
+    on() {}, removeListener() {},
+  };
+}
+
 /* a signed-in player in its own browser context, with error collection */
 async function open(t, { width = 1280, height = 900 } = {}) {
   const ctx = await browser.newContext({ viewport: { width, height } });
+  await ctx.addInitScript(mockWallet, Wallet.createRandom().privateKey);
   const page = await ctx.newPage();
   page.errors = [];
   page.on("pageerror", (e) => page.errors.push("pageerror: " + e.message));
@@ -65,16 +86,28 @@ const noOverflow = (page) => page.evaluate(() => document.documentElement.scroll
 const text = (page, sel) => page.locator(sel).first().innerText();
 
 async function signInAndFund(page, eth = 1) {
-  await page.click("#signBurner");
+  await page.click("#signInjected");
   await page.waitForSelector("#faucetBtn");
   await page.click("#faucetBtn");
   await until(async () => parseFloat(await text(page, "#balAvail")) >= eth, "test ETH credited to the balance");
+}
+
+/* The 18+ dialog: shown before a player's first staked create / join (never for free play). Tick the box and confirm; the action the
+   player was after then carries on by itself. `next` is what shows once it has. Returns true if the dialog appeared. */
+async function passAge(page, next) {
+  await page.waitForSelector(`#ageCheck, ${next}`, { timeout: 15000 });
+  if (!(await page.locator("#ageCheck").count())) return false;
+  await page.check("#ageCheck");
+  await page.click("#ageConfirm");
+  await page.waitForSelector("#ageCheck", { state: "detached", timeout: 10000 });
+  return true;
 }
 
 /* invite-only play: the host creates a lobby and gets a link; the guest opens the link and joins */
 async function hostLobby(page, { stakeWei = "1000000000000000" } = {}) {
   await page.click(`[data-act=stake][data-v="${stakeWei}"]`);
   await page.click("#createBtn");
+  await passAge(page, "#inviteLink");
   await page.waitForSelector("#inviteLink", { timeout: 15000 });
   const link = await page.inputValue("#inviteLink");
   assert.match(link, /\/play\/\?join=[A-Z2-9]{8}$/, "invite link has a join code");
@@ -87,6 +120,7 @@ async function openInvite(page, link) {
 async function joinInvite(page) {
   await page.waitForSelector("#joinBtn", { timeout: 15000 });
   await page.click("#joinBtn");
+  await passAge(page, "#leaveLobby");
   await page.waitForSelector("#leaveLobby", { timeout: 15000 });
 }
 /* the host presses Start match once the roster has at least two players */
@@ -127,6 +161,7 @@ async function apiPlayer(name, eth = 1) {
   const wei = parseEther(String(eth)), n = ++creditSeq;
   stack.app.ledger.post({ kind: "deposit", ref: `ui-${n}`, uniq: `ui-deposit:${n}`, entries: [[ACCT.chain, -wei], [ACCT.user(client.me.id), wei]] });
   await client.api("PATCH", "/v1/me", { displayName: name });
+  await client.api("POST", "/v1/me/age", { adult: true }); // staked lobbies need the 18+ confirmation
   return { client, name, id: client.me.id };
 }
 
@@ -145,14 +180,45 @@ test("two browsers: sign in, fund on-chain, play each other, win, withdraw on-ch
   const a = await open(t), b = await open(t);
   await shot(a, "01-signin-1280");
   assert.equal(await view(a), null, "not signed in yet");
+  assert.match(await text(a, ".testnote"), /Test network only/i, "a test network says so on the sign-in page");
+  assert.ok(await a.locator("#netTag").isVisible(), "the network badge is there before sign-in too");
   await Promise.all([signInAndFund(a), signInAndFund(b)]);
   assert.equal(await text(a, "#balAvail"), "1");
   await shot(a, "02-lobby-1280");
   assert.ok(await noOverflow(a));
 
-  assert.equal(await a.locator("#findBtn").count(), 0, "no public matchmaking button");
-  const link = await hostLobby(a);
+  assert.equal(await a.locator("#findBtn, [data-act=find], [data-act=cancel-queue]").count(), 0, "no public matchmaking button");
+
+  // the network badge: persistent, names the chain; this stack is a local chain, so it speaks of test money, not real money
+  const cfg = await a.evaluate(() => window.__duel.S.cfg);
+  assert.equal(cfg.chain.realMoney, false, "the test stack is not real money");
+  assert.match(await text(a, "#netTag"), new RegExp(cfg.chain.name.split(/[\s(]/)[0], "i"), "the badge names the chain");
+  assert.equal(await a.locator("#netTag.real").count(), 0, "a test network gets the quiet badge");
+  assert.match(await text(a, "#lbSetup"), /test network/i, "the stake label says test network");
+  assert.ok(await a.locator("#faucetBtn").isVisible(), "the faucet is offered on the local chain");
+
+  // 18+ confirmation: the first staked create asks, nothing is created until the player confirms, and Not now backs out cleanly
+  await a.click('[data-act=stake][data-v="1000000000000000"]');
+  await a.click("#createBtn");
+  await a.waitForSelector("#ageCheck");
+  assert.match(await text(a, "#ageText"), /adults only/i);
+  assert.ok(await a.locator('[role=dialog][aria-modal=true]').isVisible(), "the confirmation is an in-page dialog");
+  assert.ok(await a.locator("#ageConfirm").isDisabled(), "Confirm waits for the tick");
+  assert.equal(await a.evaluate(() => document.activeElement.id), "ageCheck", "focus moves into the dialog");
+  assert.equal(await a.evaluate(() => document.getElementById("main").inert), true, "the page behind it is inert");
+  await sleep(450); // let the dialog's fade-in finish, then photograph the viewport (the dialog is fixed, a full-page shot would smear it)
+  await a.screenshot({ path: path.join(SHOTS, "01b-age-dialog-1280.png") });
+  await a.setViewportSize({ width: 360, height: 780 });
+  assert.ok(await noOverflow(a), "the age dialog fits 360px");
+  await a.setViewportSize({ width: 1280, height: 900 });
+  await a.keyboard.press("Escape");
+  await a.waitForSelector("#ageCheck", { state: "detached" });
+  assert.equal(await a.evaluate(() => window.__duel.S.lobby), null, "no lobby was created without the confirmation");
+  assert.equal(await a.evaluate(() => document.activeElement.id), "createBtn", "focus goes back to Create lobby");
+  assert.equal(await a.evaluate(() => window.__duel.S.me.responsible.adultConfirmed), false);
+  const link = await hostLobby(a); // asks again, this time the player confirms
   assert.equal(await view(a), "waiting");
+  assert.equal(await a.evaluate(() => window.__duel.S.me.responsible.adultConfirmed), true, "the confirmation is saved on the account");
   assert.match(await text(a, "#hw"), /Waiting for players/i);
   assert.match(await text(a, "main [data-until]"), /^\d+(s|:\d\d)$/, "the lobby expiry shows a time");
   assert.match(await text(a, "#lobbyPlayers h2"), /^PLAYERS\s+1 \/ 10$/, "the Players label counts the seats");
@@ -169,7 +235,7 @@ test("two browsers: sign in, fund on-chain, play each other, win, withdraw on-ch
   const v = await open(t);
   await openInvite(v, link);
   await until(async () => /invited/i.test(await text(v, "main")), "invite banner on the sign-in screen");
-  assert.ok(await v.locator("#signBurner").isVisible());
+  assert.ok(await v.locator("#signInjected").isVisible());
   await shot(v, "02c-invite-signedout-1280");
   assert.deepEqual(v.errors, [], "no errors for the signed-out visitor");
   await v.context().close();
@@ -179,6 +245,7 @@ test("two browsers: sign in, fund on-chain, play each other, win, withdraw on-ch
   assert.match(await text(b, "#hi"), /invited/i);
   assert.match(await text(b, "#lobbyPlayers h2"), /^PLAYERS\s+1 \/ 10$/, "the invite page shows how many are in");
   assert.deepEqual((await roster(b)).map((r) => r.tags), [["HOST"]], "a guest sees the host, tagged HOST");
+  assert.match(await text(b, ".mx-terms"), /18 or older/i, "a staked invite says the age confirmation comes first");
   await shot(b, "02d-invite-1280");
   await b.setViewportSize({ width: 360, height: 780 });
   assert.ok(await noOverflow(b), "the invite screen fits 360px");
@@ -238,19 +305,31 @@ test("two browsers: sign in, fund on-chain, play each other, win, withdraw on-ch
   await until(async () => (await text(a, "#balAvail")) === "1.0008", "winner balance 1.0008");
   await until(async () => (await text(b, "#balAvail")) === "0.999", "loser balance 0.999");
 
-  // withdraw 0.5 to the winner's own burner address, on-chain
+  // withdraw 0.5 to the winner's own wallet address, on-chain
   const addr = await a.evaluate(() => window.__duel.client.address);
   assert.equal(await stack.provider.getBalance(addr), 0n);
   await a.click('[data-go="wallet"]'); // withdrawals live on the wallet page
   await a.waitForSelector("#wdAmt");
   await a.fill("#wdAmt", "0.5");
   await a.click("#wdBtn");
+  // a network that names a fee asks for one more confirmation (amount, fee, what arrives); a free local chain goes straight through
+  if (await a.locator("#wdConfirmBtn").count() || await a.waitForSelector("#wdConfirmBtn", { timeout: 1500 }).then(() => true, () => false)) {
+    assert.match(await text(a, "#wdConfirmBox"), /You receive/i);
+    await a.click("#wdConfirmBtn");
+  }
   await until(async () => (await a.locator('[aria-label="Recent withdrawals"]').innerText()).toLowerCase().includes("confirmed"), "withdrawal confirmed", 20000);
   assert.equal(await stack.provider.getBalance(addr), parseEther("0.5"), "the winnings arrived on-chain");
   await until(async () => (await text(a, "#balAvail")) === "0.5008", "balance after withdrawal");
   await shot(a, "08-wallet-after-1280");
   await a.setViewportSize({ width: 360, height: 900 });
   assert.ok(await noOverflow(a), "wallet fits 360px");
+  await a.setViewportSize({ width: 1280, height: 900 });
+  await a.click('#nav [data-go="settings"]');
+  await a.waitForSelector("#ageStatus");
+  assert.equal(await a.getAttribute("#ageStatus", "data-confirmed"), "yes");
+  assert.match(await text(a, "#ageStatus"), /Confirmed/i, "the Account page shows the age status");
+  await a.setViewportSize({ width: 360, height: 900 });
+  assert.ok(await noOverflow(a), "the account page fits 360px");
   await a.click('[data-go="lobby"]');
   await a.waitForSelector("#createBtn");
   assert.ok(await noOverflow(a), "lobby fits 360px");
@@ -318,6 +397,15 @@ test("Back to lobby keeps the lobby open; the red Cancel button only appears for
   const a = await open();
   await signInAndFund(a);
   const funded = await text(a, "#balAvail");
+
+  // free play never asks for the 18+ confirmation
+  await a.click('[data-act=stake][data-v="0"]');
+  await a.click("#createBtn");
+  await a.waitForSelector("#inviteLink", { timeout: 15000 });
+  assert.equal(await a.locator("#ageCheck").count(), 0, "a free lobby is created without the age dialog");
+  assert.equal(await a.evaluate(() => window.__duel.S.me.responsible.adultConfirmed), false, "and nothing was confirmed behind the player's back");
+  await a.click("#closeLobby");
+  await until(async () => (await view(a)) === "lobby", "back in the lobby after closing the free lobby");
 
   // no open lobby yet: there is nothing to cancel, so no Cancel button
   await a.click('[data-act=stake][data-v="1000000000000000"]');
@@ -534,6 +622,7 @@ test("a full ten-player lobby starts by itself: nine names on the invite page, t
 
     // b takes the last seat: the lobby is full and the match starts without anyone pressing Start
     await b.click("#joinBtn");
+    await passAge(b, "#readyBtn");
     await Promise.all([a, b].map((p) => p.waitForSelector("#readyBtn", { timeout: 15000 })));
     for (const p of [a, b]) {
       assert.equal(await p.locator("#fdList li").count(), 10, "the found screen lists all ten players");
@@ -656,4 +745,189 @@ test("forfeiting a three-player match: the match goes on for the others, you wai
   } finally {
     for (const g of guests) g.client.close();
   }
+});
+
+/* every top-bar piece sits inside the viewport and no two pieces overlap (the badge sits beside the wordmark on wide screens and under it on phones, so
+   this compares real rectangles; the wordmark is measured by its text, not by its full-height link box). The page hides horizontal overflow, so noOverflow() cannot see this. */
+const topFits = (page) => page.evaluate(() => {
+  const W = window.innerWidth, vis = (el) => el && el.getClientRects().length > 0;
+  const brand = document.querySelector(".top-brand"), range = document.createRange();
+  range.selectNodeContents(brand);
+  const named = [["wordmark", range.getBoundingClientRect()]];
+  for (const el of document.querySelectorAll("#topNet > *, #topRight > *")) if (vis(el)) named.push([el.id || el.className || el.tagName, el.getBoundingClientRect()]);
+  const inside = named.every(([, r]) => r.left >= -0.5 && r.right <= W + 0.5);
+  const overlaps = [];
+  for (let i = 0; i < named.length; i++) for (let k = i + 1; k < named.length; k++) {
+    const [na, a] = named[i], [nb, b] = named[k];
+    if (a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5) overlaps.push(`${na} / ${nb}`);
+  }
+  return { inside, apart: overlaps.length === 0, overlaps };
+});
+
+test("invite-only: no queue, no matchmaking and no player search anywhere in the client", { skip: !CHROME && "no Chromium available" }, async () => {
+  const a = await open();
+  await a.click("#signInjected");
+  await a.waitForSelector("#createBtn");
+  const BANNED = /matchmaking|find(ing)? an? opponent|random opponent|\bqueue\b|search (for )?(players?|opponents?|users?)|find players?|challenge a player/i;
+  const pages = [["lobby", "lobby"], ["games", "games"], ["game/reaction", "game"], ["join", "join"], ["tournaments", "tournaments"], ["history", "history"], ["wallet", "wallet"], ["settings", "settings"]];
+  for (const [hash, tab] of pages) {
+    await a.evaluate((h) => { location.hash = h; }, hash);
+    await until(() => a.evaluate((t) => window.__duel.S.tab === t && document.body.dataset.tab === t, tab), `the ${tab} page`);
+    await sleep(150);
+    assert.doesNotMatch(await a.evaluate(() => document.body.innerText), BANNED, `${tab}: no queue, matchmaking or player search wording`);
+    assert.equal(await a.locator('[data-act="find"], [data-act="cancel-queue"], #findBtn, #cancelQueue, .mx-queue, [data-go="leaderboard"]').count(), 0, `${tab}: no queue or leaderboard controls`);
+    // the only search box filters the game library (games, not people)
+    const boxes = await a.$$eval('input[type=search], input[placeholder*="earch" i], input[placeholder*="player" i], input[placeholder*="opponent" i]', (els) => els.map((e) => ({ id: e.id, label: (document.querySelector(`label[for="${e.id}"]`) || {}).innerText || "" })));
+    for (const b of boxes) assert.deepEqual([b.id, b.label.trim()], ["lbSearch", "Search games"], `${tab}: the only search field is the game filter`);
+    assert.notEqual(await view(a), "queue");
+  }
+  assert.equal(await a.locator("#lbSearch").count(), 0, "the game filter is only on the library page");
+
+  // the server side agrees: no public queue in the config, no queue command in the SDK or on the socket
+  const { cfg, hasSdkQueue, refused } = await a.evaluate(async () => ({
+    cfg: window.__duel.S.cfg,
+    hasSdkQueue: typeof window.__duel.client.joinQueue !== "undefined" || typeof window.__duel.client.leaveQueue !== "undefined",
+    refused: await window.__duel.client.request("queue.join", { game: "reaction", stake: "0" }).then(() => null, (e) => e.code || "refused"),
+  }));
+  assert.equal("publicQueue" in cfg.match, false, "the config has no publicQueue flag");
+  assert.equal(hasSdkQueue, false, "the SDK has no queue methods");
+  assert.ok(refused, "the socket refuses queue.join");
+  assert.deepEqual(a.errors, []);
+});
+
+test("mainnet mode (GET /v1/config and /v1/wallet overridden in the browser): real-money wording, network badge, deposit and withdraw copy, no faucet", { skip: !CHROME && "no Chromium available" }, async () => {
+  const MIN = "5000000000000000", FEE = "300000000000000", ADDR_EXPLORER = "https://etherscan.io";
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await ctx.addInitScript(mockWallet, Wallet.createRandom().privateKey);
+  const a = await ctx.newPage();
+  a.errors = [];
+  a.on("pageerror", (e) => a.errors.push("pageerror: " + e.message));
+  a.on("console", (m) => { if (m.type() === "error" && !/fonts\.g|ERR_FAILED|favicon/.test(m.text() + (m.location().url || ""))) a.errors.push("console: " + m.text()); });
+  await a.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+  const chain = (c) => ({ ...c, name: "Ethereum Mainnet", explorer: ADDR_EXPLORER, confirmations: 12, network: "mainnet", realMoney: true });
+  await a.route("**/v1/config", async (route) => {
+    const res = await route.fetch(), j = await res.json();
+    delete j.devFaucet;
+    await route.fulfill({ response: res, json: { ...j, network: "mainnet", chain: chain(j.chain) } });
+  });
+  await a.route("**/v1/wallet", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    const res = await route.fetch(), j = await res.json();
+    await route.fulfill({ response: res, json: { ...j, network: "mainnet", chain: chain(j.chain), deposit: { min: MIN, pending: "1000000000000000", remaining: "4000000000000000", confirmations: 12 }, withdrawalFee: { mode: "estimate", fee: FEE, marginBps: 2500 } } });
+  });
+  await a.route("**/v1/wallet/deposits", async (route) => {
+    const res = await route.fetch(), j = await res.json();
+    await route.fulfill({ response: res, json: { ...j, deposits: [{ txHash: "0x" + "ab".repeat(32), amount: "1000000000000000", blockNumber: 7, status: "pending", credited: false, creditedAt: null, detectedAt: Date.now() - 60000, explorerUrl: `${ADDR_EXPLORER}/tx/0x${"ab".repeat(32)}` }] } });
+  });
+  await a.goto(`${stack.url}/play/?test=1`);
+
+  // signed out: the badge, the title, sober real-money copy, and no test wording
+  await a.waitForSelector("#netTag");
+  assert.match(await text(a, "#netTag"), /Ethereum Mainnet/i);
+  assert.equal(await a.locator("#netTag.real").count(), 1, "real money gets the gold-framed badge");
+  assert.match(await a.title(), /real ETH/i);
+  assert.match(await text(a, ".testnote"), /Real ETH on Ethereum Mainnet/);
+  assert.match(await text(a, ".testnote"), /Stakes are held in escrow until the match is decided\. A 10% fee is taken from the pot\./);
+  assert.match(await text(a, ".testnote"), /18 or over/);
+  assert.match(await text(a, ".landing-side"), /Invite only: no public matchmaking/);
+  assert.doesNotMatch(await a.evaluate(() => document.body.innerText), /test network|test ETH|no real money|Test ETH only/i, "no test wording on mainnet");
+  await shot(a, "30-mainnet-signin-1280");
+  await a.setViewportSize({ width: 360, height: 780 });
+  assert.ok(await noOverflow(a) && (await topFits(a)).inside, "the mainnet sign-in page fits 360px");
+  await a.setViewportSize({ width: 1280, height: 900 });
+
+  await a.click("#signInjected");
+  await a.waitForSelector("#createBtn");
+  const noTest = async (label) => assert.doesNotMatch(await a.evaluate(() => document.body.innerText), /test network|test ETH|no real money|Test ETH only/i, `${label}: no test wording on mainnet`);
+
+  // lobby: real-money stake copy, no faucet anywhere, a visible limits line
+  assert.match(await text(a, "#lbSetup"), /ETH\s*·\s*Ethereum Mainnet/i);
+  assert.equal(await a.locator("#faucetBtn, #topFaucet, #inviteFaucet").count(), 0, "no faucet or test-ETH buttons when devFaucet is off");
+  assert.match(await text(a, ".lb-play"), /Play within your limits/);
+  assert.equal(await a.locator(".lb-play a[data-go=settings]").count(), 1, "Play within your limits is a link to the account page");
+  await a.click('[data-act=stake][data-v="1000000000000000"]');
+  assert.match(await text(a, "#lbCalc"), /real ETH on Ethereum Mainnet, held in escrow until the match is decided/);
+  await noTest("lobby");
+  await shot(a, "31-mainnet-lobby-1280");
+  for (const w of [320, 360, 390, 430, 520, 640]) {
+    await a.setViewportSize({ width: w, height: 800 });
+    assert.ok(await noOverflow(a), `the mainnet lobby fits ${w}px`);
+    const fit = await topFits(a);
+    assert.ok(fit.inside && fit.apart, `the top bar and the network badge fit ${w}px without overlap: ${JSON.stringify(fit)}`);
+    assert.match(await text(a, "#netTag"), /Mainnet/i, "the phone badge still names the network");
+  }
+  await shot(a, "32-mainnet-lobby-390");
+  await a.setViewportSize({ width: 1280, height: 900 });
+
+  // the first staked create asks for the 18+ confirmation with the real-money wording
+  await a.click("#createBtn");
+  await a.waitForSelector("#ageCheck");
+  assert.equal((await text(a, ".age-check")).trim(), "I am 18 or older and play with real money at my own risk");
+  assert.match(await text(a, "#ageTitle"), /real ETH/i);
+  await a.keyboard.press("Escape");
+  await a.waitForSelector("#ageCheck", { state: "detached" });
+
+  // fund the account (ledger credit) and reload so the page sees the balance
+  const uid = await a.evaluate(() => window.__duel.client.me.id);
+  stack.app.ledger.post({ kind: "deposit", ref: "mainnet-ui", uniq: "ui-deposit:mainnet-ui", entries: [[ACCT.chain, -parseEther("1")], [ACCT.user(uid), parseEther("1")]] });
+  await a.reload();
+  await a.waitForSelector("#createBtn");
+  await a.click('[data-go="wallet"]');
+  await a.waitForSelector("#depositAddr");
+  const addr = await text(a, "#depositAddr");
+
+  // wallet: warning, address, copy, explorer link, minimum, confirmations, pending deposit
+  assert.match(await text(a, "#depWarn"), /Send only ETH on Ethereum Mainnet\. Other tokens or networks are lost\./);
+  assert.ok(await a.locator("#copyAddr").isVisible(), "a copy button for the deposit address");
+  assert.equal(await a.getAttribute("#addrExplorer", "href"), `${ADDR_EXPLORER}/address/${addr.trim()}`, "an explorer link for the deposit address");
+  assert.match(await text(a, "#depNotes"), /Minimum deposit: 0\.005\sETH/);
+  assert.match(await text(a, "#depNotes"), /after 12 confirmations/);
+  assert.match(await text(a, "#depPending"), /0\.001\sETH.*below the minimum deposit.*0\.004\sETH more/s, "a deposit below the minimum shows what is missing");
+  assert.match(await text(a, '[aria-label="Recent deposits"]'), /Below the minimum deposit of 0\.005\sETH[\s\S]*pending/i);
+  assert.match(await text(a, "#wlLimits"), /Play within your limits/);
+  assert.match(await text(a, "main"), /real ETH: deposits and withdrawals are on-chain/);
+  assert.equal(await a.locator("#faucetBtn").count(), 0);
+  assert.equal(await a.locator("#burnerWarn, #signBurner").count(), 0, "no burner wallets anywhere");
+  await noTest("wallet");
+
+  // withdraw: Max leaves room for the fee; the confirm step shows what arrives, the fee on top and the total
+  assert.match(await text(a, "#wdHint"), /Network fee: 0\.0003\sETH, charged on top/);
+  await a.click("#wdMax");
+  assert.equal(await a.inputValue("#wdAmt"), "0.9997", "Max = balance minus the network fee");
+  await a.fill("#wdAmt", "1");
+  await a.click("#wdBtn");
+  await until(async () => /must cover the amount plus the network fee/i.test(await text(a, "#wdErr")), "a withdrawal the balance cannot cover with the fee is refused");
+  await a.fill("#wdAmt", "0.1");
+  await a.click("#wdBtn");
+  await a.waitForSelector("#wdConfirmBox");
+  const box = await text(a, "#wdConfirmBox");
+  assert.match(box, /You receive\s*0\.1\sETH/i);
+  assert.match(box, /Network fee\s*\+0\.0003\sETH/i);
+  assert.match(box, /Taken from your balance\s*0\.1003\sETH/i);
+  assert.ok(await a.locator("#wdAmt").evaluate((e) => e.readOnly), "the amount is locked while confirming");
+  assert.ok(await a.locator("#wdConfirmBtn").isVisible());
+  await shot(a, "33-mainnet-wallet-confirm-1280");
+  await a.setViewportSize({ width: 360, height: 800 });
+  assert.ok(await noOverflow(a), "the wallet with the confirm step fits 360px");
+  await shot(a, "34-mainnet-wallet-confirm-360");
+  await a.setViewportSize({ width: 1280, height: 900 });
+  await a.click("#wdEdit");
+  assert.equal(await a.locator("#wdConfirmBox").count(), 0, "Change amount closes the confirm step");
+  assert.equal(await a.locator("#wdAmt").evaluate((e) => e.readOnly), false);
+
+  // account: age status and the daily loss limit stay visible
+  await a.click('#nav [data-go="settings"]');
+  await a.waitForSelector("#ageStatus");
+  assert.equal(await a.getAttribute("#ageStatus", "data-confirmed"), "no", "not confirmed yet");
+  assert.ok(await a.locator("#ageOpen").isVisible(), "the account page offers the confirmation");
+  assert.match(await text(a, "main"), /Daily loss limit/);
+  assert.match(await text(a, "main"), /Stakes are real ETH on Ethereum Mainnet/);
+  await noTest("account");
+  await a.click("#ageOpen");
+  await a.check("#ageCheck");
+  await a.click("#ageConfirm");
+  await a.waitForSelector("#ageCheck", { state: "detached" });
+  await until(async () => (await a.getAttribute("#ageStatus", "data-confirmed")) === "yes", "the account page shows the confirmation");
+  assert.deepEqual(a.errors, [], "no console or page errors");
+  await ctx.close();
 });

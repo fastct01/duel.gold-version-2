@@ -1,5 +1,6 @@
 /* Responsible-play rules, enforced on the server so a modified client cannot skip them.
    They mirror the front-end spec (PLATFORM.md):
+     - 18+ attestation: required before any staked (non-free) action; free play never needs it
      - daily loss limit: lowering it applies at once, raising or removing it waits `lossLimitDelayMs` (24 h)
    "Loss today" is the net of settled staked matches on the UTC day; stakes still in escrow also count as at risk. */
 import { AppError, bad } from "./util/errors.js";
@@ -12,6 +13,22 @@ export class Responsible {
     this.db = db;
     this.cfg = config;
     this.now = now;
+  }
+
+  /* "I am 18 or older". Idempotent: the first attestation time is kept. */
+  attestAdult(userId) {
+    this.db.run("UPDATE users SET age_attested_at = COALESCE(age_attested_at, ?) WHERE id = ?", this.now(), userId);
+  }
+
+  adultConfirmed(userId) {
+    const u = this.db.get("SELECT age_attested_at FROM users WHERE id = ?", userId);
+    return !!(u && u.age_attested_at);
+  }
+
+  /* Throws AGE_NOT_CONFIRMED (403) when `stake` is above zero and the player has not confirmed they are 18 or older. */
+  assertAdult(userId, stake) {
+    if (stake === 0n) return;
+    if (!this.adultConfirmed(userId)) throw new AppError("AGE_NOT_CONFIRMED", "Confirm you are 18 or older before playing for stakes.", 403);
   }
 
   /* promote a loosening whose delay has elapsed */
@@ -59,6 +76,7 @@ export class Responsible {
   /* Throws if this player may not put `stake` at risk right now. `atRisk` = stakes they already have in escrow. */
   assertCanStake(userId, stake, atRisk = 0n) {
     if (stake === 0n) return;
+    this.assertAdult(userId, stake);
     this.applyPending(userId);
     const u = this.db.get("SELECT loss_limit FROM users WHERE id = ?", userId);
     if (u.loss_limit != null) {
@@ -75,6 +93,7 @@ export class Responsible {
     const limit = u.loss_limit == null ? null : big(u.loss_limit);
     const loss = this.lossToday(userId);
     return {
+      adultConfirmed: this.adultConfirmed(userId),
       lossLimit: limit === null ? null : toStr(limit),
       lossToday: toStr(loss),
       lossRoom: limit === null ? null : toStr(limit > loss ? limit - loss : 0n),

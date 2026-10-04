@@ -33,16 +33,30 @@ export function registerRoutes(r, app) {
     ok: true, time: Date.now(), wallet: wallet.status(), games: catalog.list().length,
   }));
 
-  r.get("/v1/config", {}, () => ({
-    chain: wallet.chainInfo(),
-    feeBps: cfg.economy.feeBps,
-    stake: { min: toStr(cfg.economy.minStake), max: toStr(cfg.economy.maxStake), tiers: cfg.economy.stakeTiers.map(toStr) },
-    withdrawal: { min: toStr(cfg.economy.minWithdrawal), max: toStr(cfg.economy.maxWithdrawal), dailyCap: toStr(cfg.economy.dailyWithdrawalCap) },
-    match: { acceptMs: cfg.match.acceptMs, countdownMs: cfg.match.countdownMs, queueTimeoutMs: cfg.match.queueTimeoutMs, lobbyTtlMs: cfg.match.lobbyTtlMs, lobbyMaxPlayers: cfg.match.lobbyMaxPlayers, publicQueue: cfg.match.publicQueue },
-    websocket: "/v1/ws",
-    notice: "Test network only. Funds have no real-world value.",
-    ...(cfg.devFaucet ? { devFaucet: true } : {}),
-  }));
+  /* `network` ("mainnet" | "testnet" | "local") and chain.realMoney let the front end switch its wording. A server without a
+     wallet moves no money, so it reports "local" and chain: null. */
+  r.get("/v1/config", {}, () => {
+    const fee = cfg.economy.withdrawalFee;
+    const real = wallet.enabled && wallet.chain.realMoney;
+    return {
+      network: wallet.network(),
+      chain: wallet.chainInfo(),
+      feeBps: cfg.economy.feeBps,
+      stake: { min: toStr(cfg.economy.minStake), max: toStr(cfg.economy.maxStake), tiers: cfg.economy.stakeTiers.map(toStr) },
+      deposit: { min: toStr(cfg.economy.minDeposit), confirmations: cfg.chain.confirmations },
+      withdrawal: {
+        min: toStr(cfg.economy.minWithdrawal), max: toStr(cfg.economy.maxWithdrawal), dailyCap: toStr(cfg.economy.dailyWithdrawalCap),
+        feeMode: fee.mode, ...(fee.mode === "fixed" ? { fee: toStr(fee.fixed) } : { feeMarginBps: fee.marginBps }), // the live estimate is in GET /v1/wallet
+      },
+      age: { minimum: 18, requiredForStakes: true },
+      match: { acceptMs: cfg.match.acceptMs, countdownMs: cfg.match.countdownMs, lobbyTtlMs: cfg.match.lobbyTtlMs, lobbyMaxPlayers: cfg.match.lobbyMaxPlayers, inviteOnly: true },
+      websocket: "/v1/ws",
+      notice: real
+        ? "Real money. Deposits and stakes are real ETH and can be lost. 18+ only. Play only what you can afford to lose."
+        : "Test network only. Funds have no real-world value.",
+      ...(cfg.devFaucet ? { devFaucet: true } : {}),
+    };
+  });
 
   r.get("/v1/games", {}, () => ({ games: catalog.list() }));
 
@@ -51,9 +65,6 @@ export function registerRoutes(r, app) {
     if (!g) throw bad("UNKNOWN_GAME", "Pass ?game=<id>.");
     return { game: g.id, players: matches.leaderboard(g.id, intParam(query.limit, 20, 1, 100)) };
   });
-
-  /* live activity for the lobby: anonymous aggregates only, see MatchService.lobby(); `online` = distinct signed-in players with an open socket */
-  r.get("/v1/lobby", {}, () => matches.lobby(app.gateway ? app.gateway.onlineCount() : 0));
 
   /* ---------------------------------------------------------------- auth */
 
@@ -75,6 +86,13 @@ export function registerRoutes(r, app) {
 
   r.patch("/v1/me", { auth: true }, ({ user, body }) => ({ displayName: users.setDisplayName(user.id, body.displayName) }));
 
+  /* 18+ attestation: required before any staked action (create / join / start a lobby with a stake above 0). Free play never needs it. */
+  r.post("/v1/me/age", { auth: true }, ({ user, body }) => {
+    if (body.adult !== true) throw bad("BAD_REQUEST", 'Send { "adult": true } to confirm you are 18 or older.');
+    responsible.attestAdult(user.id);
+    return responsible.view(user.id);
+  });
+
   r.put("/v1/me/loss-limit", { auth: true }, ({ user, body }) => {
     const value = body.amount === null ? null : parseWei(body.amount, "amount");
     const out = responsible.setLossLimit(user.id, value);
@@ -83,15 +101,24 @@ export function registerRoutes(r, app) {
 
   /* ---------------------------------------------------------------- wallet */
 
-  r.get("/v1/wallet", { auth: true }, ({ user }) => {
+  r.get("/v1/wallet", { auth: true }, async ({ user }) => {
     wallet.require();
+    const q = await wallet.withdrawals.quoteFee().catch(() => null); // a fee we cannot quote right now must not hide the wallet
+    const real = wallet.chain.realMoney;
     return {
+      network: wallet.network(),
       chain: wallet.chainInfo(),
       depositAddress: checksum(wallet.depositAddress(user.id)),
       withdrawTo: checksum(user.address),
       balances: wallet.balances(user.id),
-      limits: { min: toStr(cfg.economy.minWithdrawal), max: toStr(cfg.economy.maxWithdrawal), dailyCap: toStr(cfg.economy.dailyWithdrawalCap) },
-      note: "Send test funds from a normal wallet (not a smart-contract wallet). Deposits are credited after the confirmations shown above.",
+      /* deposit.min: deposits below it are recorded but not credited until the uncredited total reaches it (pending/remaining show where you are) */
+      deposit: wallet.depositState(user.id),
+      limits: { min: toStr(cfg.economy.minWithdrawal), max: toStr(cfg.economy.maxWithdrawal), dailyCap: toStr(cfg.economy.dailyWithdrawalCap), minDeposit: toStr(cfg.economy.minDeposit) },
+      /* network fee on top of a withdrawal: you pay amount + fee, the recipient gets amount. fee is null if it cannot be estimated right now. */
+      withdrawalFee: { mode: cfg.economy.withdrawalFee.mode, fee: q ? toStr(q.fee) : null, marginBps: q ? q.marginBps : cfg.economy.withdrawalFee.marginBps },
+      note: real
+        ? `Send ETH from a normal wallet (not a smart-contract wallet). Deposits below ${toStr(cfg.economy.minDeposit)} wei are held until the total reaches it, and are credited after ${cfg.chain.confirmations} confirmations.`
+        : "Send test funds from a normal wallet (not a smart-contract wallet). Deposits are credited after the confirmations shown above.",
     };
   });
 
@@ -103,8 +130,10 @@ export function registerRoutes(r, app) {
     wallet.require();
     const explorer = wallet.chain.meta.explorer;
     return {
-      deposits: app.db.all("SELECT tx_hash, amount, block_number, credited_at FROM deposits WHERE user_id = ? ORDER BY credited_at DESC LIMIT 50", user.id)
-        .map((d) => ({ txHash: d.tx_hash, amount: d.amount, blockNumber: d.block_number, creditedAt: d.credited_at, explorerUrl: explorer ? `${explorer}/tx/${d.tx_hash}` : null })),
+      deposit: wallet.depositState(user.id),
+      /* status "credited" or "pending" (seen on-chain, below the minimum deposit so far; creditedAt is null until it is credited) */
+      deposits: app.db.all("SELECT tx_hash, amount, block_number, credited_at, status, detected_at FROM deposits WHERE user_id = ? ORDER BY COALESCE(NULLIF(credited_at, 0), detected_at) DESC LIMIT 50", user.id)
+        .map((d) => ({ txHash: d.tx_hash, amount: d.amount, blockNumber: d.block_number, status: d.status, credited: d.status === "credited", creditedAt: d.status === "credited" ? d.credited_at : null, detectedAt: d.detected_at ?? d.credited_at, explorerUrl: explorer ? `${explorer}/tx/${d.tx_hash}` : null })),
     };
   });
 
@@ -113,10 +142,13 @@ export function registerRoutes(r, app) {
     return { withdrawals: wallet.withdrawals.list(user.id) };
   });
 
-  r.post("/v1/wallet/withdraw", { auth: true }, ({ user, body, req }) => {
+  /* The player pays amount + network fee (see GET /v1/wallet withdrawalFee); the recipient gets amount. Optional `maxFee` (wei):
+     refuse with 409 FEE_CHANGED if the fee is above what the player was shown. */
+  r.post("/v1/wallet/withdraw", { auth: true }, async ({ user, body, req }) => {
     wallet.require();
     const amount = parseWei(body.amount, "amount");
-    const out = wallet.withdrawals.request({ userId: user.id, to: user.address, amount, idemKey: req.headers["idempotency-key"] || null });
+    const maxFee = body.maxFee == null ? null : parseWei(body.maxFee, "maxFee");
+    const out = await wallet.withdrawals.request({ userId: user.id, to: user.address, amount, idemKey: req.headers["idempotency-key"] || null, maxFee });
     return { status: out.replay ? 200 : 201, body: out };
   });
 
@@ -128,10 +160,9 @@ export function registerRoutes(r, app) {
 
   r.get("/v1/matches/:id", { auth: true }, ({ user, params }) => matches.get(user.id, params.id));
 
-  r.post("/v1/queue", { auth: true }, ({ user, body }) => ({ status: 201, body: matches.join(user.id, body) }));
-  r.delete("/v1/queue", { auth: true }, ({ user }) => matches.leave(user.id));
-
-  /* invite-only lobbies (up to cfg.match.lobbyMaxPlayers). GET is public (rate-limited per IP by the API limiter) and returns the
+  /* Invite-only: lobbies are the only way to play another person (up to cfg.match.lobbyMaxPlayers). There is no public queue
+     and no endpoint that lists or searches players. A staked lobby (stake above 0) needs the 18+ attestation (403 AGE_NOT_CONFIRMED)
+     on create, join and start; free lobbies do not. GET is public (rate-limited per IP by the API limiter) and returns the
      public view only; every authenticated call answers with the caller's own member view.
        join   → { lobby } (or { lobby, match } when this join filled the lobby and it auto-started)
        leave  → { lobby }  guests only, stake refunded

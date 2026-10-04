@@ -1,7 +1,7 @@
 /* Practice vs a bot (views/practice.js). Prefix: .pr-
    Buttons, chips, labels, the back link and the focus look come from the kit at the top of /play/gamelobby.css (.gl-btn .gl-chip .gl-seg .gl-label .gl-back).
    Three screens: ready (title, rules, one gold Start button in a plate), playing (a quiet HUD above the running game: no art behind the stage),
-   result (an editorial result with large serif scores, one gold Play again). Colours, type and spacing come from /play/tokens.css. */
+   result (an editorial result with large serif scores, one gold Play again). Colours, type and spacing come from /game/core/base.css. */
 .pr-page{container:prp/inline-size;display:grid;gap:var(--sp-16);min-width:0}
 .pr-page>*{min-width:0}
 .pr-gone{display:grid;gap:var(--sp-24);justify-items:start;padding-top:var(--sp-32);border-top:1px solid var(--hair)}

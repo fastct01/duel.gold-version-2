@@ -12,6 +12,15 @@ export function makeHelpers(S) {
     return cut ? `${i}.${cut}` : i;
   };
   const sym = () => (S.cfg && S.cfg.chain ? S.cfg.chain.symbol : "ETH");
+  /* real money or test money: every piece of money copy switches on this (GET /v1/config → chain.realMoney) */
+  const real = () => !!(S.cfg && S.cfg.chain && S.cfg.chain.realMoney);
+  const chainName = () => (S.cfg && S.cfg.chain && S.cfg.chain.name) || (real() ? "Ethereum" : "the test network");
+  const feePct = () => (S.cfg && S.cfg.feeBps != null ? `${S.cfg.feeBps / 100}%` : "");
+  const feeText = () => (feePct() ? `A ${feePct()} fee` : "A fee");
+  /* one sober sentence for the rooms and terms: what the money is and where it sits */
+  const moneyNote = () => (real()
+    ? `Real ${sym()} on ${chainName()}. Stakes are held in escrow until the match is decided. ${feeText()} is taken from the pot.`
+    : `Test ${sym()} only, no real money.`);
   const now = () => (S.client ? S.client.serverNow() : Date.now());
   /* seconds left until epoch-ms `t`, as "1:05" or "42s"; pair with data-until="t" so app.js keeps it ticking */
   const left = (t) => { const s = Math.max(0, Math.ceil((Number(t) - now()) / 1000)); return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : `${s}s`; };
@@ -19,7 +28,7 @@ export function makeHelpers(S) {
   const game = (id) => S.games.find((g) => g.id === id);
   const ago = (t) => { const s = Math.max(0, Math.round((now() - Number(t)) / 1000)); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.floor(s / 60)}m ago` : s < 86400 ? `${Math.floor(s / 3600)}h ago` : `${Math.floor(s / 86400)}d ago`; };
   const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : "");
-  return { esc, eth, sym, now, left, short, game, ago, cap, avatar, icon, meter };
+  return { esc, eth, sym, real, chainName, feePct, moneyNote, now, left, short, game, ago, cap, avatar, icon, meter };
 }
 
 /* Deterministic avatar for an address or name: a 5×5 mirrored pixel mark on a dark disc. Returns inline SVG. */
@@ -71,4 +80,19 @@ export function icon(name, cls = "") {
 export function meter(label, n, kind = "") {
   const segs = Array.from({ length: 10 }, (_, i) => `<i class="${i < n ? "on" : ""}"></i>`).join("");
   return `<div class="meter ${kind}" role="img" aria-label="${esc(label)} ${n} out of 10"><span>${esc(label)}</span><span class="segs">${segs}</span><b>${n}</b></div>`;
+}
+
+/* The persistent network badge: "ETHEREUM MAINNET" in a hairline gold frame for real money, a quieter "… · TEST" otherwise.
+   `long` is the full label; `short` is what a phone shows (MAINNET / TESTNET / LOCAL). Returns "" until the config is loaded. */
+export function netBadge(S) {
+  const c = S.cfg && S.cfg.chain;
+  if (!c) return "";
+  const net = S.cfg.network || (c.realMoney ? "mainnet" : "testnet");
+  const name = String(c.name || "Ethereum");
+  const long = net === "mainnet" ? (/mainnet/i.test(name) ? name : `${name} mainnet`)
+    : net === "local" ? (/local/i.test(name) ? name : `${name} local`)
+    : (/test/i.test(name) ? name : `${name} testnet`);
+  const short = net === "mainnet" ? "Mainnet" : net === "local" ? "Local" : "Testnet";
+  const title = c.realMoney ? `${name}: real ${c.symbol || "ETH"}` : `${name}: test ${c.symbol || "ETH"} with no real value`;
+  return `<span class="net-tag${c.realMoney ? " real" : ""}" id="netTag" title="${esc(title)}"><i aria-hidden="true"></i><span class="sr-only">Network: ${esc(long)}</span><span class="nt-long" aria-hidden="true">${esc(long)}</span><span class="nt-short" aria-hidden="true">${esc(short)}</span></span>`;
 }

@@ -1,61 +1,13 @@
-/* Pure rules: pairing, Elo, game catalog. No network, no database. */
+/* Pure rules: Elo, standings, game catalog. No network, no database. */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bucketKey, windowFor, findPartner } from "../src/matches/queue.js";
 import { expected, delta, K, pairwiseDeltas } from "../src/matches/elo.js";
 import { decide, standings, placesOf } from "../src/matches/standings.js";
 import { loadCatalog, parseDurationSeconds } from "../src/games/catalog.js";
 import { createLogger } from "../src/util/log.js";
 import { loadConfig } from "../src/config.js";
 
-const CFG = { ratingBase: 60, ratingGrowthPerSec: 15, ratingMax: 600 };
-const t = (id, userId, rating, at = 0, extra = {}) => ({ id, userId, rating, at, game: "aim", stake: "5", code: null, ...extra });
-
-/* ------------------------------------------------------------------ pairing */
-
-test("windowFor: starts at the base, grows per whole second waited, and stops at the cap", () => {
-  const x = t(1, 1, 1200, 1000);
-  assert.equal(windowFor(x, 1000, CFG), 60);
-  assert.equal(windowFor(x, 1999, CFG), 60, "partial seconds do not count");
-  assert.equal(windowFor(x, 2000, CFG), 75);
-  assert.equal(windowFor(x, 11000, CFG), 210);
-  assert.equal(windowFor(x, 1000 + 3_600_000, CFG), 600);
-  assert.equal(windowFor(x, 0, CFG), 60, "clock skew never makes the window negative");
-});
-
-test("findPartner: never the same player, even if they somehow hold two tickets", () => {
-  const a = t(1, 7, 1200), a2 = t(2, 7, 1200);
-  assert.equal(findPartner(a, [a, a2], 0, CFG), null);
-  const other = t(3, 8, 1200);
-  assert.equal(findPartner(a, [a, a2, other], 0, CFG), other);
-});
-
-test("findPartner: picks the closest rating, breaking ties by the longest wait", () => {
-  const me = t(1, 1, 1200, 5000);
-  const far = t(2, 2, 1250, 0), near = t(3, 3, 1210, 4000), nearOlder = t(4, 4, 1190, 1000);
-  assert.equal(findPartner(me, [me, far, near], 5000, CFG), near);
-  assert.equal(findPartner(me, [me, near, nearOlder], 5000, CFG), nearOlder, "10 apart both; the older ticket wins");
-});
-
-test("findPartner: respects the window, and the wider of the two windows applies", () => {
-  const me = t(1, 1, 1200, 10000), stranger = t(2, 2, 1400, 10000);
-  assert.equal(findPartner(me, [me, stranger], 10000, CFG), null, "200 apart, both windows are 60");
-  const waited = t(3, 3, 1400, 0); // has waited 10 s → window 210
-  assert.equal(findPartner(me, [me, waited], 10000, CFG), waited, "the long-waiting player's window covers it");
-});
-
-test("findPartner: a private code ignores rating entirely", () => {
-  const me = t(1, 1, 800, 0, { code: "ABCD" }), friend = t(2, 2, 2400, 0, { code: "ABCD" });
-  assert.equal(findPartner(me, [me, friend], 0, CFG), friend);
-});
-
-test("bucketKey separates game, stake and private code", () => {
-  const keys = new Set([bucketKey(t(1, 1, 1, 0)), bucketKey(t(1, 1, 1, 0, { game: "darts" })), bucketKey(t(1, 1, 1, 0, { stake: "6" })), bucketKey(t(1, 1, 1, 0, { code: "X" }))]);
-  assert.equal(keys.size, 4);
-  assert.equal(bucketKey(t(1, 1, 1, 0)), bucketKey(t(9, 9, 999, 99)), "rating, user and time do not matter");
-});
-
-/* ------------------------------------------------------------------ Elo */
+/* ------------------------------------------------------------------ ratings */
 
 test("Elo matches the front-end constants: K = 24, equal ratings move 12", () => {
   assert.equal(K, 24);

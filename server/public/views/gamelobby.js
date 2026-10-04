@@ -1,7 +1,7 @@
 /* One game's own page (#game/<id>): what the game is, how to play it against a bot or a friend, the settings, and Create lobby.
    Opened from a card in the Game library (app.go("game", id) sets S.ui.gameId and S.pick.game). Styles: /play/gamelobby.css (.gl- prefix).
    The stake picker, terms line and open-lobby banner reuse the lobby page's helpers, so both pages behave the same.
-   Everything shown is real: the game pack's text (or gamecopy.js), S.cfg, the player's own rating, and S.live.
+   Everything shown is real: the game pack's text (or gamecopy.js), S.cfg and the player's own rating. Nothing public: no online counts, no results of other players.
    Layout: an editorial page. A large hero plate (the game's art as a quiet picture), hairline-ruled sections with the heading in a
    narrow left column, and a rail on wide screens that holds the one primary action, Create lobby. */
 import { icon } from "../ui.js";
@@ -55,13 +55,6 @@ const isBanned = (S, h) => !!(S.me && S.me.queueBanUntil && Number(S.me.queueBan
 
 /* ------------------------------------------------------------------ pieces */
 
-function liveHTML(ctx) {
-  const { S } = ctx; const L = S.live;
-  if (!L || typeof L !== "object") return "";
-  if (!Number.isFinite(L.online)) return "";
-  return `<p class="gl-live" aria-label="Live numbers"><span class="gl-dot" aria-hidden="true"></span><b class="dg-mono">${L.online}</b>&nbsp;${L.online === 1 ? "player" : "players"} online</p>`;
-}
-
 function hero(ctx, g, t) {
   const { S, h } = ctx; const { esc } = h;
   /* the game's illustration from the lobby cards: a big, quiet picture behind the title (decorative; nothing renders when a game has no art) */
@@ -88,7 +81,6 @@ function hero(ctx, g, t) {
         ${g.scoreLabel ? stat("Scored by", esc(scoreName(g.scoreLabel)), "Higher wins") : ""}
       </dl>
     </div>
-    <div id="glLive">${liveHTML(ctx)}</div>
   </section>`;
 }
 
@@ -124,23 +116,8 @@ function rulesCard(ctx, g) {
       ${row("Players", "2 to 10 in one private lobby. The host starts the match")}
       ${row("Challenge", "Same seeded challenge for every player")}
       ${g.maxSeconds ? row("Length", `Up to <b>${esc(shortTime(g.maxSeconds))}</b>, full version of the game`) : row("Version", "Full version of the game")}
-      ${row("Network", `Test network. Test ${esc(h.sym())} only, no real money`)}
+      ${row("Network", h.real() ? `${esc(h.chainName())}. Real ${esc(h.sym())}: stakes are held in escrow until the match is decided` : `Test network. Test ${esc(h.sym())} only, no real money`)}
     </dl>
-  </div></section>`;
-}
-
-function recentHTML(ctx, g) {
-  const { S, h } = ctx; const { esc } = h;
-  const rows = S.live && Array.isArray(S.live.recent) ? S.live.recent.filter((r) => r.game === g.id).slice(0, 4) : [];
-  if (!rows.length) return "";
-  return `<section class="gl-sec gl-recent" aria-labelledby="glRecentH"><div class="gl-sec-in">
-    <header class="gl-sec-head"><p class="gl-label">Public matches</p><h2 class="gl-h2" id="glRecentH">Recent results</h2></header>
-    <ul class="gl-rlist">${rows.map((r) => {
-      const who = r.winner && r.winner.name ? r.winner.name : "";
-      const what = r.result === "draw" ? "Draw" : who ? `${esc(who)} won` : "Won";
-      const pot = r.stake === "0" ? "Free" : `Pot <b class="dg-mono">${h.eth(r.pot)}</b> ${esc(h.sym())}`;
-      return `<li><span class="gl-rwho">${what}</span><span class="gl-rpot">${pot}</span><span class="gl-rago">${esc(h.ago(r.endedAt))}</span></li>`;
-    }).join("")}</ul>
   </div></section>`;
 }
 
@@ -163,7 +140,7 @@ function inviteCard(ctx, g) {
     </ol>
     <div class="gl-inv-set">
       <div class="gl-stake">
-        <span class="gl-label" id="glStakeL">Stake <small>${esc(h.sym())} · test network</small></span>
+        <span class="gl-label" id="glStakeL">Stake <small>${esc(h.sym())} · ${h.real() ? esc(h.chainName()) : "test network"}</small></span>
         <div class="gl-chips" role="group" aria-labelledby="glStakeL">${stakeChips(ctx)}</div>
       </div>
       ${S.pick.stake === "custom" ? `<div class="gl-custom"><label for="customStake">Custom stake in ${esc(h.sym())} (${h.eth(cfg.stake.min)} to ${h.eth(cfg.stake.max)})</label><input id="customStake" type="text" inputmode="decimal" value="${esc(S.pick.custom)}" placeholder="0.002" autocomplete="off"></div>` : ""}
@@ -233,7 +210,6 @@ export const views = {
         <div class="gl-main">
           ${aboutCard(ctx, g, t)}
           ${rulesCard(ctx, g)}
-          <div id="glRecent">${recentHTML(ctx, g)}</div>
         </div>
       </div>
     </div>`;
@@ -243,19 +219,3 @@ export const views = {
 export const actions = {};
 
 export function mount(name, app) {}
-
-/* S.live refreshed: patch the numbers in place so a poll never re-renders the page under the player */
-export function live(app) {
-  const { S, ctx, h } = app;
-  if (S.view !== "lobby" || S.tab !== "game") return;
-  const g = h.game(S.ui.gameId);
-  if (!g) return;
-  const a = document.querySelector("#glLive"), b = document.querySelector("#glRecent");
-  patch(a, liveHTML(ctx));
-  patch(b, recentHTML(ctx, g));
-}
-/* only touch the DOM when the numbers changed: rewriting it every poll restarts animations and drops text selection */
-function patch(el, html) {
-  if (!el || el._html === html) return;
-  el._html = html; el.innerHTML = html;
-}
