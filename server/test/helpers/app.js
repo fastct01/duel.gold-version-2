@@ -65,6 +65,31 @@ export async function startApp(overrides = {}) {
       if (wait > 0) await new Promise((r) => setTimeout(r, wait + 10));
       return { a: sa, b: sb };
     },
+    /* every player ready → everybody gets the seed → wait until the shared start time. Returns the match.start messages. */
+    async beginAll(group, matchId) {
+      for (const p of group) await p.client.ready(matchId);
+      const starts = await Promise.all(group.map((p) => p.client.waitFor("match.start")));
+      const wait = starts[0].startAt - group[0].client.serverNow();
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait + 10));
+      return starts;
+    },
+    /* a lobby: the first player hosts, the rest join over REST. Returns { code, lobby, match }: the lobby as the last joiner
+       saw it, and that joiner's view of the match when their join filled the lobby and started it (otherwise undefined). */
+    async lobbyOf(group, { game = "reaction", stake = mETH } = {}) {
+      const [host, ...guests] = group;
+      const { code } = await host.client.createLobby({ game, stake: String(stake) });
+      let out = null;
+      for (const g of guests) out = await g.client.joinLobby(code);
+      return { code, lobby: out && out.lobby, match: out && out.match };
+    },
+    /* a lobby of `group` played through the real flow: create → join → host starts (unless the lobby filled and started itself)
+       → everyone has match.found. Returns { code, id, match } where match is the host's view. */
+    async lobbyMatch(group, opts = {}) {
+      const { code, match: auto } = await helpers.lobbyOf(group, opts);
+      const m = auto ? await group[0].client.api("GET", `/v1/matches/${auto.id}`) : await group[0].client.startLobby(code);
+      await Promise.all(group.map((p) => p.client.waitFor("match.found", (e) => e.match.id === m.id)));
+      return { code, id: m.id, match: m };
+    },
     async close() {
       for (const p of players) p.client.close();
       await app.stop();

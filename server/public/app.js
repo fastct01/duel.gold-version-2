@@ -5,6 +5,7 @@ import * as lobby from "/play/views/lobby.js";
 import * as matchUI from "/play/views/match.js";
 import * as account from "/play/views/account.js";
 import * as practice from "/play/views/practice.js";
+import * as celebrate from "/play/views/celebrate.js";
 import * as gamelobby from "/play/views/gamelobby.js";
 
 const { ethers, DG } = window;
@@ -33,10 +34,13 @@ const S = {
   view: "signin", busy: false, error: "",
   tab: (parseHash() || { tab: "lobby" }).tab,
   pick: { game: "", stake: "0", custom: "", code: "" },
-  host: null,      // the host's open lobby (public view object) while waiting for a friend, else null
+  lobby: null,     // the lobby I am in while it waits for its start (member view: players[], role "host" | "guest"), else null
+  host: null,      // that same lobby while I am its host (kept so older code paths keep working), else null
   invite: null,    // { code, lobby|null, error, loading } while the page was opened with ?join=CODE and not yet consumed
   queue: null, match: null, result: null, startInfo: null,
   handle: null, myScore: 0, oppScore: 0, submitted: false, confirmForfeit: false, oppFinished: false, oppReady: false, youReady: false,
+  forfeited: false, // I forfeited a match with 3+ players: it goes on for the others and I wait for its result
+  seats: {},       // the other players of the running match by seat → { ready, finished, forfeited, score }; oppScore/oppReady/oppFinished summarise it
   live: undefined, // GET /v1/lobby, refreshed every few seconds (undefined until the first answer, null if the server has no such endpoint)
   boards: {},      // game id → leaderboard rows (GET /v1/leaderboard)
   history: null,   // GET /v1/matches?limit=30
@@ -47,7 +51,7 @@ const S = {
 
 if (S.tab === "game") S.ui.gameId = parseHash().id;
 
-const MODULES = [shell, lobby, matchUI, account, practice, gamelobby];
+const MODULES = [shell, lobby, matchUI, account, practice, celebrate, gamelobby];
 const VIEWS = Object.assign({}, ...MODULES.map((m) => m.views || {}));
 const ACTIONS = Object.assign({}, ...MODULES.map((m) => m.actions || {}));
 const h = makeHelpers(S);
@@ -94,7 +98,7 @@ const app = {
 };
 
 /* render unless the player is typing: a re-render would steal focus from the field */
-let renderQueued = false, pointerDown = false;
+let renderQueued = false, pointerDown = false, lastPage = "", enterTimer = 0;
 window.addEventListener("pointerdown", () => { pointerDown = true; }, true);
 window.addEventListener("pointerup", () => { pointerDown = false; }, true);
 window.addEventListener("pointercancel", () => { pointerDown = false; }, true);
@@ -122,6 +126,13 @@ function render(force = false) {
   }
   const name = S.view === "lobby" ? S.tab : S.view;
   $("#main").innerHTML = (VIEWS[name] || VIEWS.lobby)(ctx);
+  /* playful page entrance (playful.css): only when the page actually changes, so background refreshes never replay it */
+  if (name !== lastPage) {
+    lastPage = name;
+    const main = $("#main");
+    main.classList.remove("pg-enter"); void main.offsetWidth; main.classList.add("pg-enter");
+    clearTimeout(enterTimer); enterTimer = setTimeout(() => main.classList.remove("pg-enter"), 1200);
+  }
   for (const m of MODULES) if (m.mount) m.mount(name, app);
 }
 
@@ -227,11 +238,14 @@ function readInviteParam() {
   if (code && CODE_RE.test(code)) S.invite = { code, lobby: null, error: "", loading: true };
 }
 
-/* fetch the public lobby behind the invite; `quiet` re-renders only when something visible changed */
+/* fetch the public lobby behind the invite; `quiet` re-renders only when something visible changed.
+   The visible part is the lobby's state or error plus who is in it: a changed roster is patched in place (focus stays on Join). */
+const inviteKind = (inv) => (inv.lobby ? inv.lobby.state : inv.error);
+const inviteSig = (inv) => (inv.lobby ? [inv.lobby.state, matchUI.countOf(inv.lobby), matchUI.lobbyPlayers(inv.lobby).map((p) => p.name).join(",")].join("|") : inv.error);
 async function loadInvite(quiet = false) {
   const inv = S.invite;
   if (!inv) return;
-  const before = inv.lobby ? inv.lobby.state : inv.error;
+  const before = inviteSig(inv), kindBefore = inviteKind(inv);
   try { const r = await http(`/v1/lobbies/${encodeURIComponent(inv.code)}`); inv.lobby = r.lobby; inv.error = ""; }
   catch (e) {
     if (S.invite !== inv) return;
@@ -240,8 +254,9 @@ async function loadInvite(quiet = false) {
   }
   inv.loading = false;
   if (S.invite !== inv) return;
-  const after = inv.lobby ? inv.lobby.state : inv.error;
-  if (!quiet || before !== after) { if (S.view === "signin" || S.view === "invite") render(true); }
+  if (quiet && before === inviteSig(inv)) return;
+  if (S.view === "signin") render(true);
+  else if (S.view === "invite") { if (quiet && inviteKind(inv) === kindBefore && matchUI.patchInvite(ctx)) return; render(true); }
 }
 
 function clearInvite() { S.invite = null; store.del("dg.invite", "sessionStorage"); }
@@ -250,9 +265,9 @@ function clearInvite() { S.invite = null; store.del("dg.invite", "sessionStorage
 function routeInvite() {
   const inv = S.invite;
   if (!inv) return;
-  if (S.view !== "lobby") { clearInvite(); if (S.view === "waiting") toast("You already have an open lobby. Close it first to accept an invite.", "gold"); else toast("Finish your current match first, then open the invite link again.", "gold"); return; }
-  if (S.host && S.host.code === inv.code) { clearInvite(); S.view = "waiting"; return; }
-  if (S.host) { clearInvite(); toast("You already have an open lobby. Close it first to accept an invite.", "gold"); return; }
+  if (S.lobby && S.lobby.code === inv.code) { clearInvite(); S.view = "waiting"; return; } // my own lobby's link (host), or a reload while already in it (guest)
+  if (S.lobby) { clearInvite(); toast(S.lobby.role === "host" ? "You already have an open lobby. Close it first to accept an invite." : "You are already in a lobby. Leave it first to accept an invite.", "gold"); return; }
+  if (S.view !== "lobby") { clearInvite(); toast("Finish your current match first, then open the invite link again.", "gold"); return; }
   S.error = ""; S.view = "invite";
 }
 
@@ -312,24 +327,124 @@ function signOut() {
     S.client.close();
   }
   store.del("dg.token", "sessionStorage");
-  Object.assign(S, { client: null, me: null, wallet: null, activity: null, view: "signin", queue: null, match: null, result: null, host: null });
+  Object.assign(S, { client: null, me: null, wallet: null, activity: null, view: "signin", queue: null, match: null, result: null, host: null, lobby: null, seats: {} });
   render(true);
 }
 
 /* ------------------------------------------------------------------ live events */
 
+/* ---- the lobby I am in (S.lobby; S.host is the same object while I am its host) ---- */
+
+const gone = new Set(); // codes of lobbies I left, cancelled, or that started: a late lobby.updated for one of them is ignored
+let exiting = null;     // code of the lobby I am leaving / cancelling right now: its lobby.closed event needs no toast of its own
+
+/* the server tags member views with role; guess one only for a server that does not */
+function normLobby(l, hint) {
+  if (!l || l.role) return l || null;
+  const me = Array.isArray(l.players) ? l.players.find((p) => p.you) : null;
+  return { ...l, role: hint || (me && !me.host ? "guest" : "host") };
+}
+function setLobby(l, hint) {
+  l = normLobby(l, hint);
+  S.lobby = l;
+  S.host = l && l.role === "host" ? l : null;
+  if (l) gone.delete(l.code);
+}
+function dropLobby() { if (S.lobby) gone.add(S.lobby.code); S.lobby = null; S.host = null; }
+/* the roster, Start button and pot changed: patch them in place when the waiting room is on screen */
+function refreshLobbyView() {
+  if (S.view === "waiting") { if (!matchUI.patchLobby(ctx)) render(true); }
+  else if (S.view === "lobby") render();
+}
+
+/* ---- the running match: the other players by seat ---- */
+
+function initMatchState(m) {
+  const ps = matchUI.playersOf(m, S.me);
+  S.seats = {};
+  for (const p of ps) if (!p.you) S.seats[p.seat] = { ready: !!p.ready, finished: !!p.finished, forfeited: !!p.forfeited, score: 0 };
+  S.youReady = !!(ps.find((p) => p.you) || m.you || {}).ready;
+  S.myScore = 0; S.submitted = false; S.confirmForfeit = false;
+  S.forfeited = !!(ps.find((p) => p.you) || {}).forfeited;
+  summariseSeats();
+}
+/* oppReady / oppFinished / oppScore: one answer for "the others" (the first opponent in a duel) */
+function summariseSeats() {
+  const all = Object.values(S.seats);
+  S.oppReady = all.length > 0 && all.every((x) => x.ready);
+  S.oppFinished = all.length > 0 && all.every((x) => x.finished || x.forfeited);
+  S.oppScore = Math.max(0, ...all.map((x) => (x.forfeited ? 0 : Number(x.score) || 0)));
+}
+/* an event about another player of my match; the server names that player by seat (a server without lobbies sends none: the one opponent) */
+function seatEvent(m, apply) {
+  if (!S.match || (m.matchId != null && String(m.matchId) !== String(S.match.id))) return false;
+  const seat = m.seat != null ? m.seat : Object.keys(S.seats)[0];
+  if (seat == null) return false;
+  apply(S.seats[seat] || (S.seats[seat] = { ready: false, finished: false, forfeited: false, score: 0 }));
+  summariseSeats();
+  return true;
+}
+/* a match was made from my lobby (or queue): everyone goes to the found screen. Safe to call twice for the same match. */
+function enterMatch(match) {
+  if (S.match && S.match.id === match.id && ["found", "play"].includes(S.view)) return;
+  clearInvite(); dropLobby();
+  S.match = match; S.result = null; S.error = ""; S.busy = false; S.view = "found";
+  initMatchState(match);
+  render(true); refreshMe();
+}
+
 function applyActive(active) {
   if (!active) {
-    S.host = null;
+    dropLobby();
     if (["queue", "found", "orphan", "waiting"].includes(S.view)) S.view = "lobby";
     return;
   }
-  if (active.kind === "lobby") { S.host = active.lobby; if (S.view !== "invite") S.view = "waiting"; return; }
-  S.host = null;
+  if (active.kind === "lobby") { setLobby(active.lobby); if (S.view !== "invite") S.view = "waiting"; return; }
+  dropLobby();
   if (active.kind === "queue") { S.queue = active.ticket; S.view = "queue"; return; }
   S.match = active.match;
-  if (active.match.state === "found") { S.youReady = active.match.you.ready; S.oppReady = active.match.opponent.ready; S.view = "found"; }
-  else if (S.view !== "play") S.view = "orphan";
+  if (active.match.state === "found") { initMatchState(active.match); S.view = "found"; }
+  else {
+    S.forfeited = !!(matchUI.playersOf(active.match, S.me).find((p) => p.you) || {}).forfeited; // reloaded after forfeiting a match that is still going
+    if (S.view !== "play") S.view = "orphan";
+  }
+}
+
+/* someone joined or left the lobby I am in (the server sends the new member view to every member, including me) */
+function onLobbyUpdated(raw) {
+  if (!raw) return;
+  const l = normLobby(raw, S.lobby ? S.lobby.role : undefined);
+  if (gone.has(l.code) || (S.lobby && S.lobby.code !== l.code)) return;
+  if (l.state && l.state !== "open") return; // a started or closed lobby is announced by match.found / lobby.closed
+  const before = S.lobby ? matchUI.lobbyPlayers(S.lobby).map((p) => p.name) : null;
+  setLobby(l);
+  if (S.view === "invite" && S.invite && S.invite.code === l.code) { /* my own join: this event and the HTTP answer race, the first one moves me into the room */
+    clearInvite(); S.view = "waiting"; S.busy = false; S.error = "";
+    render(true); window.scrollTo(0, 0); return;
+  }
+  if (before) {
+    const now = matchUI.lobbyPlayers(l);
+    for (const p of now) if (!p.you && !before.includes(p.name)) toast(`${p.name} joined the lobby.`, "gold");
+    for (const name of before) if (!now.some((p) => p.name === name)) toast(`${name} left the lobby.`, "");
+  }
+  refreshLobbyView();
+}
+
+/* the lobby ended without me pressing anything: the host cancelled it, it expired, or it started (match.found follows) */
+function onLobbyClosed(l) {
+  const cur = S.lobby;
+  if (!cur || (l && l.code !== cur.code)) return; // already handled locally, or not mine
+  const reason = l && l.closedReason, host = cur.role === "host", back = String(cur.stake) === "0" ? "" : " Stake returned.";
+  const mine = exiting === cur.code;
+  dropLobby();
+  if (reason === "matched" || mine) return; // match.found follows / leaveLobby() and closeLobby() finish the job themselves
+  if (S.view === "waiting") S.view = "lobby";
+  toast(reason === "left" ? "You left the lobby." + back // my own leave from another tab or device
+    : reason === "expired" ? (host ? "Your lobby expired." : "The lobby expired.") + back
+    : host ? "Lobby closed." + back
+    : reason === "cancelled" ? "The host closed the lobby." + back
+    : "The lobby was closed." + back, "gold");
+  render(true); refreshMe();
 }
 
 function wire(c) {
@@ -337,22 +452,15 @@ function wire(c) {
   c.on("queue.joined", (m) => { S.queue = m.ticket; S.view = "queue"; S.busy = false; render(true); });
   c.on("queue.left", () => { S.queue = null; S.view = "lobby"; refreshMe(); });
   c.on("queue.expired", () => { S.queue = null; S.view = "lobby"; toast("Nobody was found in time. Your stake is back.", "gold"); refreshMe(); });
-  c.on("lobby.created", (m) => { if (!m.lobby) return; S.host = m.lobby; if (S.view === "invite" || (S.view === "lobby" && S.tab === "lobby")) { S.view = "waiting"; S.busy = false; render(true); } else render(); });
-  c.on("lobby.closed", (m) => {
-    const l = m.lobby;
-    if (!S.host || (l && l.code !== S.host.code)) return; // already handled locally, or not ours
-    const reason = l && l.closedReason;
-    S.host = null;
-    if (reason === "matched") return; // match.found follows
-    if (S.view === "waiting") S.view = "lobby";
-    toast(reason === "expired" ? "Your lobby expired. Stake returned." : "Lobby closed. Stake returned.", "gold");
-    render(true); refreshMe();
-  });
-  c.on("match.found", (m) => { if (S.match && S.match.id === m.match.id && ["found", "play"].includes(S.view)) return; clearInvite(); S.host = null; S.match = m.match; S.youReady = false; S.oppReady = false; S.oppScore = 0; S.myScore = 0; S.submitted = false; S.oppFinished = false; S.confirmForfeit = false; S.result = null; S.error = ""; S.view = "found"; render(true); refreshMe(); });
-  c.on("match.opponent_ready", () => { S.oppReady = true; if (S.view === "found") render(true); });
+  c.on("lobby.created", (m) => { if (!m.lobby) return; setLobby(m.lobby, "host"); if (S.view === "invite" || (S.view === "lobby" && S.tab === "lobby")) { S.view = "waiting"; S.busy = false; render(true); } else render(); });
+  c.on("lobby.updated", (m) => onLobbyUpdated(m.lobby));
+  c.on("lobby.closed", (m) => onLobbyClosed(m.lobby));
+  c.on("match.found", (m) => enterMatch(m.match));
+  c.on("match.opponent_ready", (m) => { if (seatEvent(m, (s) => { s.ready = true; }) && S.view === "found" && !matchUI.patchFound(ctx)) render(true); });
   c.on("match.start", (m) => onStart(m));
-  c.on("match.opponent_progress", (m) => { S.oppScore = m.score; if (S.view === "play") updatePlayBar(); });
-  c.on("match.opponent_finished", () => { S.oppFinished = true; if (S.view === "play") updatePlayBar(); });
+  c.on("match.opponent_progress", (m) => { if (seatEvent(m, (s) => { s.score = m.score; }) && S.view === "play") updatePlayBar(); });
+  c.on("match.opponent_finished", (m) => { if (seatEvent(m, (s) => { s.finished = true; }) && S.view === "play") updatePlayBar(); });
+  c.on("match.opponent_forfeited", (m) => { if (seatEvent(m, (s) => { s.forfeited = true; }) && S.view === "play") updatePlayBar(); });
   c.on("match.result", (m) => onEnded(m.match));
   c.on("match.void", (m) => onEnded(m.match));
   c.on("wallet.updated", () => { refreshMe(); if (S.wallet) refreshWallet().then(() => render()); });
@@ -383,14 +491,16 @@ function onStart(m) {
 }
 
 function startGame(seed) {
-  if (S.view !== "play") return; // forfeited or finished while counting down
+  if (S.view !== "play" || S.forfeited) return; // forfeited or finished while counting down
   const m = S.match, g = DG.getGame(m.game.id);
   if (!g) { toast("This game could not be loaded. Forfeiting.", "bad"); return act("forfeit-yes"); }
   S.myScore = 0;
+  /* the game gets every other player of the match (most games only show the first one) */
+  const others = matchUI.playersOf(m, S.me).filter((p) => !p.you);
   S.handle = DG.start(g, {
     root: $("#stage"), seed, mode: "full", format: "1v1", speed: 1,
     me: { name: S.me.displayName, rating: m.you.ratingBefore },
-    opponents: [{ name: m.opponent.name, rating: m.opponent.ratingBefore, skill: DG.util.skillFromRating(m.opponent.ratingBefore) }],
+    opponents: others.map((p) => ({ name: p.name, rating: p.ratingBefore, skill: DG.util.skillFromRating(p.ratingBefore) })),
     onStatus: (t) => { const el = $("#status"); if (el) el.textContent = t; },
     onProgress: (s) => { S.myScore = s; updatePlayBar(); S.client.progress(m.id, s); },
     onEnd: (r) => finishGame(r),
@@ -409,9 +519,19 @@ async function finishGame(r) {
   catch (e) { if (e.code !== "MATCH_NOT_PLAYING") toast(e.message, "bad"); }
 }
 
+/* The server's answer to a forfeit. With 3+ players the match goes on for the others (state "playing") and I stay in it until it ends:
+   stop my game, show "You forfeited" and wait for match.result. A duel (or a declined match) ends at once and the result follows. */
+function afterForfeit(r) {
+  if (!r || r.state !== "playing" || !S.match) return;
+  S.forfeited = true; S.confirmForfeit = false;
+  if (S.handle) { try { S.handle.abort(); } catch { /* already over */ } S.handle = null; }
+  const st = $("#status"); if (st) st.textContent = ""; // the stopped game's "Round 1/5"
+  if (S.view === "play") updatePlayBar(); else if (S.view === "orphan") render(true);
+}
+
 function onEnded(match) {
   if (S.handle) { try { S.handle.abort(); } catch { /* already over */ } S.handle = null; }
-  S.result = match; S.match = null; S.queue = null; S.view = "result"; S.confirmForfeit = false;
+  S.result = match; S.match = null; S.queue = null; S.view = "result"; S.confirmForfeit = false; S.forfeited = false;
   render(true);
   refreshMe();
   if (S.wallet) refreshWallet().then(() => { if (S.view === "lobby") render(); });
@@ -468,6 +588,8 @@ async function act(name, el) {
       case "find": return find(); // only for a server with publicQueue on (the game page's "Random opponent" mode)
       case "create-lobby": return createLobby();
       case "close-lobby": return closeLobby();
+      case "start-lobby": return startLobby();
+      case "leave-lobby": return leaveLobby();
       case "reset-pick": S.pick = { ...S.pick, game: defaultGame(), stake: "0", custom: "" }; S.error = ""; render(true); break;
       case "copy-invite": return copyInvite();
       case "share-invite": return shareInvite();
@@ -478,7 +600,7 @@ async function act(name, el) {
       case "decline": await c.forfeit(S.match.id); break;
       case "forfeit": S.confirmForfeit = true; updatePlayBar(); break;
       case "forfeit-no": S.confirmForfeit = false; updatePlayBar(); break;
-      case "forfeit-yes": case "forfeit-now": if (S.match) await c.forfeit(S.match.id); break;
+      case "forfeit-yes": case "forfeit-now": if (S.match) afterForfeit(await c.forfeit(S.match.id)); break;
       case "back": S.result = null; S.view = "lobby"; await refreshMe(); render(true); break;
       case "rematch": {
         const r = S.result;
@@ -529,7 +651,7 @@ async function createLobby() {
   S.busy = true;
   try {
     const r = await S.client.api("POST", "/v1/lobbies", { game: g, stake: stake.toString() });
-    S.host = r.lobby; S.view = "waiting"; S.busy = false; S.error = ""; S.ui.copiedUntil = 0;
+    setLobby(r.lobby, "host"); S.view = "waiting"; S.busy = false; S.error = ""; S.ui.copiedUntil = 0;
     render(true); window.scrollTo(0, 0);
     refreshMe();
   } catch (e) {
@@ -545,16 +667,71 @@ function defaultGame() {
   return S.games.some((g) => g.id === "reaction") ? "reaction" : S.games[0].id;
 }
 
+/* error codes the lobby endpoints add, in plain words (anything else shows the server's own message) */
+const LOBBY_ERRORS = {
+  LOBBY_FULL: "This lobby is full.",
+  LOBBY_NOT_IN: "You are not in this lobby.",
+  LOBBY_ALREADY_IN: "You are already in this lobby.",
+  LOBBY_HOST_LEAVE: "The host cannot leave. Cancel the lobby instead.",
+  LOBBY_NOT_ENOUGH_PLAYERS: "Wait for at least one more player before starting.",
+  LOBBY_NOT_HOST: "Only the host can start the match.",
+  LOBBY_OWN: "This is your own lobby. Send the link to a friend.",
+};
+/* a few errors carry numbers (minPlayers, playerCount, maxPlayers in e.extra): use them when present */
+function lobbyError(e) {
+  const x = e.extra || {};
+  if (e.code === "LOBBY_NOT_ENOUGH_PLAYERS" && x.minPlayers) return `At least ${x.minPlayers} players are needed to start${x.playerCount ? ` (${x.playerCount} in the lobby)` : ""}. Wait for one more.`;
+  if (e.code === "LOBBY_FULL" && x.maxPlayers) return `This lobby is full (${x.maxPlayers} players).`;
+  return LOBBY_ERRORS[e.code] || e.message;
+}
+
+/* host: cancel the lobby. The server returns every player's stake and tells the guests. */
 async function closeLobby() {
   const l = S.host;
   if (!l) { S.view = "lobby"; return render(true); }
+  const free = String(l.stake) === "0", others = matchUI.countOf(l) > 1;
+  exiting = l.code;
   try {
     await S.client.api("DELETE", `/v1/lobbies/${encodeURIComponent(l.code)}`);
-    toast("Lobby closed. Stake returned.", "gold");
+    toast(free ? "Lobby closed." : others ? "Lobby closed. Every player’s stake was returned." : "Lobby closed. Stake returned.", "gold");
   } catch (e) {
     if (e.code === "LOBBY_CLOSED") toast("That lobby was already closed.", "gold"); else throw e;
+  } finally { exiting = null; }
+  dropLobby(); if (S.view === "waiting") S.view = "lobby"; S.error = "";
+  render(true); refreshMe();
+}
+
+/* host: start the match with the players who are in. The server answers with the match; every player also gets match.found. */
+async function startLobby() {
+  const l = S.host;
+  if (!l || S.busy) return;
+  S.error = ""; S.busy = true;
+  refreshLobbyView();
+  try {
+    const r = await S.client.api("POST", `/v1/lobbies/${encodeURIComponent(l.code)}/start`, {});
+    S.busy = false;
+    if (r && r.match) enterMatch(r.match);
+  } catch (e) {
+    S.busy = false;
+    S.error = lobbyError(e);
+    if (S.view === "waiting") render(true);
   }
-  S.host = null; S.view = "lobby"; S.error = "";
+}
+
+/* guest: leave before the start and get the stake back. The page itself (Back to lobby, a reload) never drops you from the lobby. */
+async function leaveLobby() {
+  const l = S.lobby;
+  if (!l || l.role === "host" || S.busy) return;
+  S.busy = true; S.error = ""; exiting = l.code;
+  try {
+    await S.client.api("POST", `/v1/lobbies/${encodeURIComponent(l.code)}/leave`, {});
+    toast(String(l.stake) === "0" ? "You left the lobby." : "You left the lobby. Stake returned.", "gold");
+  } catch (e) {
+    if (e.code === "LOBBY_CLOSED" || e.code === "LOBBY_NOT_FOUND") toast("That lobby was already closed.", "gold");
+    else if (e.code === "LOBBY_NOT_IN") toast("You were not in that lobby any more.", "gold"); // e.g. already left from another tab
+    else { S.error = lobbyError(e); if (S.view === "waiting") render(true); return; }
+  } finally { S.busy = false; exiting = null; }
+  dropLobby(); if (S.view === "waiting") S.view = "lobby"; S.error = "";
   render(true); refreshMe();
 }
 
@@ -573,7 +750,7 @@ async function shareInvite() {
   if (!S.host || !navigator.share) return;
   const l = S.host;
   const stake = String(l.stake) === "0" ? "free" : `${h.eth(l.stake)} ${h.sym()}`;
-  try { await navigator.share({ title: "Duel.gold challenge", text: `${S.me.displayName} challenges you to ${l.game.name} (${stake}) on Duel.gold.`, url: inviteUrl(l.code) }); }
+  try { await navigator.share({ title: "Duel.gold challenge", text: `${S.me.displayName} invites you to play ${l.game.name} (${stake}) on Duel.gold.`, url: inviteUrl(l.code) }); }
   catch (e) { if (e && e.name !== "AbortError") toast("Could not open the share sheet. Copy the link instead.", "bad"); }
 }
 
@@ -583,18 +760,25 @@ async function joinLobby() {
   S.error = "";
   S.busy = true; render(true);
   try {
+    gone.delete(inv.code);
     const r = await S.client.api("POST", `/v1/lobbies/${encodeURIComponent(inv.code)}/join`, {});
     S.busy = false;
-    if (S.view === "invite" && r && r.match) { /* match.found normally arrives first; apply it ourselves if not */
-      const m = r.match;
-      clearInvite(); S.host = null; S.match = m; S.youReady = false; S.oppReady = false; S.oppScore = 0; S.myScore = 0; S.submitted = false; S.oppFinished = false; S.confirmForfeit = false; S.result = null; S.error = ""; S.view = "found";
-      render(true); refreshMe();
-    }
+    if (r && r.match) enterMatch(r.match); // this join filled the lobby, which started the match at once (match.found normally arrives first; enterMatch ignores the duplicate)
+    else if (r && r.lobby) {
+      /* joining puts me in the lobby; the host starts the match. lobby.updated may already have moved me into the room. */
+      const fromInvite = S.view === "invite";
+      clearInvite(); setLobby(r.lobby, "guest");
+      if (fromInvite) { S.view = "waiting"; S.error = ""; render(true); window.scrollTo(0, 0); }
+      else refreshLobbyView();
+      refreshMe();
+    } else render(true);
   } catch (e) {
     S.busy = false;
-    if (e.code === "LOBBY_CLOSED" || e.code === "LOBBY_NOT_FOUND") { await loadInvite(true); S.error = ""; }
-    else if (e.code === "LOBBY_OWN") S.error = "This is your own lobby. Send the link to a friend.";
-    else S.error = e.message;
+    if (e.code === "LOBBY_CLOSED" || e.code === "LOBBY_NOT_FOUND" || e.code === "LOBBY_FULL") { await loadInvite(true); S.error = e.code === "LOBBY_FULL" ? lobbyError(e) : ""; }
+    else if (e.code === "LOBBY_ALREADY_IN") { /* e.g. joined in another tab: the server knows where I am */
+      await refreshMe(); clearInvite(); S.view = "lobby"; applyActive(S.me && S.me.active); S.error = "";
+    }
+    else S.error = lobbyError(e);
     render(true);
   }
 }

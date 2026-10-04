@@ -90,6 +90,8 @@ export function loadConfig(env = process.env, overrides = {}) {
       queueTimeoutMs: int(env.QUEUE_TIMEOUT_MS, 90000, "QUEUE_TIMEOUT_MS", 20),
       /* invite-only lobbies: how long an unclaimed lobby (and the host's escrowed stake) stays open */
       lobbyTtlMs: int(env.LOBBY_TTL_MS, 30 * 60000, "LOBBY_TTL_MS", 20),
+      /* most players one invite lobby can hold (host included); the lobby auto-starts the moment it is full. 2 = classic 1v1 */
+      lobbyMaxPlayers: int(env.LOBBY_MAX_PLAYERS, 10, "LOBBY_MAX_PLAYERS", 2, 10),
       /* random matchmaking without an invite; off by default (private-code tickets still work) */
       publicQueue: bool(env.PUBLIC_QUEUE, false),
       disconnectQueueMs: int(env.QUEUE_DISCONNECT_MS, 10000, "QUEUE_DISCONNECT_MS", 0),
@@ -134,6 +136,8 @@ function validate(cfg) {
   if (e.minWithdrawal > e.maxWithdrawal) throw new Error("config: MIN_WITHDRAWAL_WEI must be <= MAX_WITHDRAWAL_WEI");
   if (!(cfg.match.durationFactor >= 1)) throw new Error("config: MATCH_DURATION_FACTOR must be >= 1");
   if (!(cfg.match.durationScale > 0)) throw new Error("config: MATCH_DURATION_SCALE must be > 0");
+  const lmp = cfg.match.lobbyMaxPlayers; // also checked here because test/programmatic overrides bypass the env parser
+  if (!Number.isInteger(lmp) || lmp < 2 || lmp > 10) throw new Error(`config: LOBBY_MAX_PLAYERS must be an integer in [2, 10], got "${lmp}"`);
   if (cfg.production) {
     if (cfg.chain.rpcUrl && !cfg.keys.mnemonic) throw new Error("config: HD_MNEMONIC is required in production (refusing to generate a dev wallet)");
     if (cfg.allowedOrigins.includes("*")) throw new Error("config: set ALLOWED_ORIGINS explicitly in production");

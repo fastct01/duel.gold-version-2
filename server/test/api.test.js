@@ -24,6 +24,7 @@ test("public endpoints describe the platform without needing a session", async (
   const h = await boot();
   const cfg = (await raw(h, "GET", "/v1/config")).json;
   assert.equal(cfg.feeBps, 1000);
+  assert.equal(cfg.match.lobbyMaxPlayers, 10, "invite lobbies hold up to 10 players by default");
   assert.equal(cfg.chain, null, "no chain configured in this app");
   assert.match(cfg.notice, /Test network only/);
 

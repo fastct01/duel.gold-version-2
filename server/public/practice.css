@@ -1,51 +1,65 @@
-/* Practice vs a bot (views/practice.js). Builds on the .lb-card / .lb-btn / .lb-chip / .lb-find look from lobby.css. */
-.pr-card{gap:16px}
-.pr-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
-.pr-title{font-size:clamp(26px,4vw,34px)}
-.pr-back-ico{transform:scaleX(-1)}
-.pr-blurb{margin:0;font-size:15px;line-height:1.5;color:#c9c9cf;max-width:70ch}
-.pr-grid{display:grid;gap:16px;grid-template-columns:minmax(0,1fr)}
-@media(min-width:860px){.pr-grid{grid-template-columns:minmax(0,1.3fr) minmax(260px,1fr);align-items:start}}
-.pr-rules{padding:14px 16px;border-radius:16px;background:var(--lb-in,#0C0C0E);border:1px solid rgba(255,255,255,.06);box-shadow:inset 0 1px 2px rgba(0,0,0,.6)}
-.pr-rules h3{margin:0 0 8px;font-family:var(--f-display);font-weight:500;font-size:16px;color:#F4F4F5}
-.pr-rules ol{margin:0;padding-left:20px;display:grid;gap:6px;font-size:14px;line-height:1.45;color:#d6d6db}
-.pr-rules li::marker{color:var(--gold);font-weight:600}
-.pr-side{display:grid;gap:12px}
-.pr-levels{display:grid;gap:8px}
-.pr-levels-l{font-size:13px;font-weight:500;color:var(--fg)}
-.pr-level-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
-.pr-level-row .lb-chip{text-align:center;min-height:40px}
+/* Practice vs a bot (views/practice.js). Prefix: .pr-
+   Buttons, chips, labels, the back link and the focus look come from the kit at the top of /play/gamelobby.css (.gl-btn .gl-chip .gl-seg .gl-label .gl-back).
+   Three screens: ready (title, rules, one gold Start button in a plate), playing (a quiet HUD above the running game: no art behind the stage),
+   result (an editorial result with large serif scores, one gold Play again). Colours, type and spacing come from /play/tokens.css. */
+.pr-page{container:prp/inline-size;display:grid;gap:var(--sp-16);min-width:0}
+.pr-page>*{min-width:0}
+.pr-gone{display:grid;gap:var(--sp-24);justify-items:start;padding-top:var(--sp-32);border-top:1px solid var(--hair)}
 
-/* playing */
-.pr-playing{padding:16px;gap:12px}
-.pr-hud{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap}
-.pr-hud-l{display:grid;gap:1px;min-width:0;margin-right:auto}
-.pr-hud-l b{font-family:var(--f-display);font-weight:500;font-size:18px}
-.pr-status{font-size:13px;color:var(--gold-2)}
-.pr-quit{min-height:40px;padding:6px 14px;border-color:color-mix(in srgb,var(--rival) 45%,transparent);color:var(--rival)}
-.pr-race{display:grid;gap:6px}
-.pr-lane{display:grid;grid-template-columns:minmax(0,110px) 1fr auto;gap:10px;align-items:center;font-size:13px}
-.pr-lane>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
-.pr-lane.you>span{color:var(--gold-2)}.pr-lane.bot>span{color:var(--rival)}
-.pr-track{height:8px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden}
-.pr-track i{display:block;height:100%;width:0;border-radius:99px;transition:width .25s}
-.pr-lane.you .pr-track i{background:var(--gold-grad,var(--gold))}.pr-lane.bot .pr-track i{background:var(--rival)}
-.pr-lane b{min-width:3ch;text-align:right}
+.pr-title,.pr-outcome{margin:0;font-family:var(--font-display);font-weight:400;font-size:clamp(2.75rem,1rem + 8cqi,5.25rem);line-height:1.04;letter-spacing:-.02em;color:var(--ivory-100);text-wrap:balance;overflow-wrap:break-word}
+.pr-blurb{margin:0;max-width:34ch;font-size:var(--fs-20);font-weight:300;line-height:1.5;color:var(--ivory-100);text-wrap:balance}
+.pr-hint{margin:0;max-width:62ch;font-size:var(--fs-14);line-height:1.6;color:var(--stone-400);text-wrap:pretty}
+.pr-levels{display:grid;gap:var(--sp-12)}
+
+/* ---- ready: intro and rules on the left, the plate with the one primary action on the right */
+.pr-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--gl-gap)}
+.pr-intro{display:grid;gap:var(--sp-24);align-content:start;justify-items:start;padding-top:var(--sp-16)}
+.pr-intro .pr-title{margin-top:var(--sp-8)}
+.pr-side{display:grid;gap:var(--sp-24);align-content:start;padding:var(--sp-32) var(--sp-24);background:var(--ink-900);border:1px solid var(--hair);border-top-color:var(--gold-500);border-radius:var(--radius-2)}
+.pr-start{min-height:56px}
+.pr-rules{display:grid;gap:var(--sp-16);align-content:start;padding-top:var(--gl-gap);border-top:1px solid var(--hair)}
+@container prp (min-width:860px){
+  .pr-grid{grid-template-columns:minmax(0,1fr) 340px;grid-template-areas:"intro side" "rules side";column-gap:var(--sp-48);align-items:start}
+  .pr-intro{grid-area:intro}.pr-side{grid-area:side}.pr-rules{grid-area:rules}
+}
+
+/* ---- playing: HUD, race lanes, then the game itself */
+.pr-run{display:grid;gap:var(--sp-16);padding:var(--sp-16);background:var(--ink-900);border:1px solid var(--hair);border-radius:var(--radius-2)}
+@container prp (min-width:720px){.pr-run{padding:var(--sp-24);gap:var(--sp-24)}}
+.pr-hud{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:var(--sp-8) var(--sp-24)}
+.pr-hud-l{display:grid;gap:4px;min-width:0}
+.pr-hud-t{margin:0;font-family:var(--font-display);font-weight:400;font-size:var(--fs-28);line-height:1.1;letter-spacing:-.01em;color:var(--ivory-100);overflow-wrap:anywhere}
+.pr-hud-s{font:500 var(--fs-12)/1.4 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
+.pr-status{font-size:var(--fs-14);color:var(--gold-300)}
+.pr-quit{min-height:44px;padding:0 20px}
+.pr-quit:hover:not(:disabled){border-color:var(--danger);color:var(--danger)}
+.pr-race{display:grid;gap:var(--sp-12);padding:var(--sp-16) 0;border-block:1px solid var(--hair)}
+.pr-lane{display:grid;grid-template-columns:minmax(0,64px) minmax(0,1fr) auto;gap:var(--sp-16);align-items:center}
+.pr-lane>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:500 var(--fs-12)/1.4 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
+.pr-lane.you>span{color:var(--ivory-100)}
+.pr-track{height:4px;border-radius:1px;background:var(--ink-600);overflow:hidden}
+.pr-track i{display:block;height:100%;width:0;border-radius:1px;transition:width var(--dur-1) var(--ease)}
+.pr-lane.you .pr-track i{background:var(--gold-500)}
+.pr-lane.bot .pr-track i{background:var(--danger)}
+.pr-lane b{min-width:3ch;text-align:right;font-size:var(--fs-16);font-weight:500;color:var(--ivory-100)}
 .pr-stage{width:100%;min-height:240px}
+@media(max-width:420px){.pr-lane{grid-template-columns:minmax(0,48px) minmax(0,1fr) auto;gap:var(--sp-12)}}
+@media(max-width:520px){.pr-hud{grid-template-columns:minmax(0,1fr) auto}.pr-status{grid-column:1/-1;grid-row:2}}
 
-/* result */
-.pr-result{display:grid;gap:14px;justify-items:center;text-align:center;padding:10px 0}
-.pr-result h3{margin:0;font-family:var(--f-display);font-weight:600;letter-spacing:-.03em;font-size:clamp(30px,6vw,46px);line-height:1.05;color:#F4F4F5}
-.pr-result.win h3{color:var(--gold-2)}.pr-result.loss h3{color:#e9e9ec}
-.pr-score{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:12px;align-items:stretch;width:min(100%,460px)}
-.pr-score>div{display:grid;gap:2px;align-content:center;min-width:0;padding:12px;border-radius:16px;background:var(--lb-in,#0C0C0E);border:1px solid rgba(255,255,255,.06)}
-.pr-score span{font-size:12.5px;color:var(--muted)}
-.pr-score b{font-size:26px;font-weight:600}
-.pr-score .you b{color:var(--gold-2)}.pr-score .bot b{color:var(--rival)}
-.pr-vs{align-self:center;color:var(--muted);font-size:13px}
-.pr-actions{display:grid;gap:10px}
-@media(min-width:700px){.pr-actions{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);align-items:stretch}.pr-actions .lb-btn{justify-content:center}}
-.pr-done .pr-levels{max-width:360px}
-@media(max-width:420px){.pr-lane{grid-template-columns:minmax(0,72px) 1fr auto}.pr-score b{font-size:22px}}
-@media(max-width:520px){.pr-status{order:3;flex-basis:100%}}
-@media(prefers-reduced-motion:reduce){.pr-track i{transition:none}}
+/* ---- result: sparse, so more space; the outcome is the headline and the scores are large serif numerals */
+.pr-done{padding-block:var(--sp-16) var(--sp-32)}
+.pr-result{--oc:var(--gold-500);display:grid;gap:var(--sp-32);justify-items:start;max-width:820px;padding-bottom:var(--sp-32)}
+.pr-result.win{--oc:var(--ok)}.pr-result.loss{--oc:var(--danger)}
+.pr-result .gl-back{margin-bottom:calc(var(--sp-16) * -1)}
+.pr-kicker{display:flex;align-items:center;gap:14px;margin-bottom:calc(var(--sp-16) * -1)}
+.pr-kicker::before{content:"";flex:none;width:28px;height:1px;background:var(--oc)}
+.pr-score{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:min(100%,560px);border-block:1px solid var(--hair)}
+.pr-score>div{display:grid;gap:var(--sp-8);align-content:center;min-width:0;padding:var(--sp-24) var(--sp-16) var(--sp-24) 0}
+.pr-score>div+div{padding-left:var(--sp-24);border-left:1px solid var(--hair)}
+.pr-score .gl-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pr-score b{font-family:var(--font-display);font-variant-numeric:lining-nums;font-size:var(--fs-64);font-weight:400;line-height:1;letter-spacing:-.01em;color:var(--ivory-100);overflow-wrap:anywhere}
+.pr-result.win .pr-you b{color:var(--ok)}
+.pr-result.loss .pr-bot b{color:var(--danger)}
+.pr-done .pr-levels{width:min(100%,360px)}
+.pr-actions{display:flex;flex-wrap:wrap;gap:var(--sp-16)}
+@media(max-width:560px){.pr-actions{display:grid;width:100%}.pr-actions .gl-btn{width:100%}}

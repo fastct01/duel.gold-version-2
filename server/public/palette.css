@@ -1,0 +1,45 @@
+/* Palette experiment, loaded last (after playful.css). Two ideas on top of the gold system in tokens.css:
+   1. Lighter golds: fewer deep mustard tones, more champagne / honey light.
+   2. One surface: cards, boxes and stat tiles share the page colour and are drawn by their hairline only.
+      Inputs, chips and hover states stay a step raised so they still read as controls.
+   Switch with ?palette=gold | champagne | honey | sand | off (remembered in localStorage). No attribute = gold. */
+
+/* ---- gold (default): classic, rich metallic gold; lighter than the old mustard, fuller than champagne */
+:root:not([data-palette]),:root[data-palette=gold]{
+  --gold-100:#FCEEC2; --gold-300:#F7D46A; --gold-500:#E7B52C; --gold-600:#C9951C; --gold-800:#7A560C;
+  --gold-metal:linear-gradient(135deg,#FBE38C,#E7B52C 50%,#B07D14);
+}
+/* ---- champagne: soft, pale gold */
+:root[data-palette=champagne]{
+  --gold-100:#FBF4DF; --gold-300:#F4E1A6; --gold-500:#E9CB76; --gold-600:#D3B058; --gold-800:#8A6C26;
+  --gold-metal:linear-gradient(135deg,#F8EBC2,#E9CB76 50%,#C8A552);
+}
+/* ---- honey: warmer, still light */
+:root[data-palette=honey]{
+  --gold-100:#FCF1D6; --gold-300:#F7DB91; --gold-500:#EEC35C; --gold-600:#D8A83F; --gold-800:#86641A;
+  --gold-metal:linear-gradient(135deg,#FAE4A8,#EEC35C 50%,#C99634);
+}
+/* ---- sand: palest, almost cream */
+:root[data-palette=sand]{
+  --gold-100:#FBF7EC; --gold-300:#F3E7C6; --gold-500:#E5D19C; --gold-600:#CDB57C; --gold-800:#7A6740;
+  --gold-metal:linear-gradient(135deg,#FAF1DA,#E5D19C 50%,#BFA672);
+}
+
+/* shared by every palette except "off" */
+:root:not([data-palette=off]){
+  --gold:var(--gold-500);
+  --gold-2:var(--gold-300);
+  --gold-deep:var(--gold-600);
+  --gold-grad:var(--gold-500);
+  --gold-soft:color-mix(in srgb,var(--gold-500) 12%,transparent);
+  --hair-gold:color-mix(in srgb,var(--gold-500) 40%,transparent);
+  /* one surface: raised panels take the page colour */
+  --ink-900:var(--ink-950);
+  --panel:var(--ink-950);
+}
+:root:not([data-palette=off]) :is(.lb-page,.lb-lib,.lb-tour,.jn-page,.gl-page){--lb-bg:var(--ink-950)}
+/* playful.css hard-codes the old mustard in two glows; keep them in step with the palette */
+:root:not([data-palette=off]) :is(.dg-btn.primary,.lb-find,.gl-btn.primary,.mx-btn.primary):hover:not(:disabled){
+  box-shadow:0 12px 28px -12px color-mix(in srgb,var(--gold-500) 75%,transparent)}
+:root:not([data-palette=off]) :is(.lb-chip,.dg-chip,.gl-chip,.lb-cat)[aria-pressed=true]{
+  background-color:color-mix(in srgb,var(--gold-500) 14%,transparent)}

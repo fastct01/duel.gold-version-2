@@ -22,18 +22,21 @@ export function makeHelpers(S) {
   return { esc, eth, sym, now, left, short, game, ago, cap, avatar, icon, meter };
 }
 
-/* Deterministic avatar for an address or name: a 5×5 mirrored pixel mark on a tinted disc. Returns inline SVG. */
+/* Deterministic avatar for an address or name: a 5×5 mirrored pixel mark on a dark disc. Returns inline SVG. */
 export function avatar(seed, size = 40) {
   let h = 2166136261;
   for (const ch of String(seed || "?")) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }
-  const hue = h % 360, cells = [];
+  /* warm fallback palette (gold rules: no blue/purple hues). Presentation attributes, so the views' CSS
+     (.ava circle / .ava g in app.css, match.css) can still recolour avatars per role. */
+  const MARKS = ["#E2C675", "#F3E7C3", "#A39C8C", "#C9A227"];
+  const mark = MARKS[h % MARKS.length], cells = [];
   let bits = h;
   for (let y = 0; y < 5; y++) for (let x = 0; x < 3; x++) {
     if (bits & 1) { cells.push([x, y]); if (x < 2) cells.push([4 - x, y]); }
     bits = (bits >>> 1) || Math.imul(h, y + 7) >>> 0;
   }
   const rects = cells.map(([x, y]) => `<rect x="${7 + x * 5.2}" y="${7 + y * 5.2}" width="5.2" height="5.2"/>`).join("");
-  return `<svg class="ava" width="${size}" height="${size}" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="20" fill="hsl(${hue} 30% 16%)"/><g fill="hsl(${hue} 70% 62%)">${rects}</g></svg>`;
+  return `<svg class="ava" width="${size}" height="${size}" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="20" fill="#1F1C17"/><g fill="${mark}">${rects}</g></svg>`;
 }
 
 /* 24×24 stroke icons. icon("name", "extra-class") */

@@ -1,0 +1,88 @@
+/* Playful layer, on top of the gold system (tokens.css): friendlier type, softer shapes and lively motion.
+   Loaded last. Lifts and floats use the individual translate / rotate / scale properties so they compose with any
+   transform a view already uses for layout. Every animation is switched off by the reduced-motion rule in tokens.css. */
+
+/* ------------------------------------------------------------ type: Fraunces with its soft + wonky axes */
+:is(.t-display,.dg-h,.page-h h1,.landing-h,.lb-title,.lb-card-head h2,.lb-card-head h3,.lb-gname,.lb-sel-name,.lb-tile-name,.lb-open-t h2,
+    .lb-open-t h3,.lb-tour-h,.lb-howp-h,.jn-h,.gl-name,.gl-h2,.gl-goal-t,.mx-title,.mx-h2,.mx-verdict,.mx-name,.mx-big,.mx-cdnum,
+    .pr-title,.pr-outcome,.acct-card b,.logo,.lb-bal b,.mx-fig,.gl-stat-v,.mx-row dd,.lb-sn,.step-n,.lb-tour-n){
+  font-variation-settings:"SOFT" 100,"WONK" 1}
+:is(.page-h h1,.landing-h,.lb-title,.gl-name,.mx-title,.mx-verdict,.pr-title,.pr-outcome){font-weight:600;letter-spacing:-.025em}
+:is(.lb-gname,.lb-sel-name,.lb-card-head h2,.lb-card-head h3,.gl-h2,.mx-h2,.lb-tour-h,.jn-h){font-weight:550}
+
+/* ------------------------------------------------------------ shapes: pill controls, soft fields */
+:is(.dg-btn,.lb-btn,.lb-find,.gl-btn,.mx-btn,.lb-chip,.dg-chip,.gl-chip,.lb-cat,.lb-tnav,.gl-seg>*){border-radius:var(--radius-pill)}
+:is(input[type=text],input[type=number],input[type=search],select,textarea,.mono-box,.inp){border-radius:12px}
+
+/* ------------------------------------------------------------ press + hover: springy, small */
+:is(.dg-btn,.lb-btn,.lb-find,.gl-btn,.mx-btn,.lb-chip,.dg-chip,.gl-chip,.lb-cat,.lb-tnav,.lb-surprise,.lb-how,.lb-link-btn,.top-add,.top-join){
+  transition:translate var(--dur-0) var(--ease-spring),scale var(--dur-0) var(--ease-spring),background-color .25s var(--ease),
+    border-color .25s var(--ease),color .25s var(--ease),box-shadow .3s var(--ease)}
+:is(.dg-btn,.lb-btn,.lb-find,.gl-btn,.mx-btn,.lb-chip,.dg-chip,.gl-chip,.lb-cat,.top-add):hover:not(:disabled){translate:0 -2px}
+:is(.dg-btn,.lb-btn,.lb-find,.gl-btn,.mx-btn,.lb-chip,.dg-chip,.gl-chip,.lb-cat,.lb-tnav,.lb-surprise,.top-add,.top-join):active:not(:disabled){translate:0 0;scale:.95}
+/* the one gold primary per view glows warmly when you reach for it */
+:is(.dg-btn.primary,.lb-find,.gl-btn.primary,.mx-btn.primary):hover:not(:disabled){box-shadow:0 12px 28px -12px rgba(201,162,39,.75)}
+/* chosen chips get a soft gold fill, so the choice reads at a glance */
+:is(.lb-chip,.dg-chip,.gl-chip,.lb-cat)[aria-pressed=true]{background-color:rgba(201,162,39,.14)}
+.lb-surprise:hover{translate:0 -1px}
+.lb-surprise:hover::before{content:"";display:inline-block;width:6px;height:6px;margin-right:2px;border-radius:50%;background:var(--gold-300);animation:plHop .5s var(--ease-spring)}
+
+/* ------------------------------------------------------------ game picker tiles + Surprise me roulette */
+.lb-tile{border-radius:var(--radius-2);transition:translate var(--dur-0) var(--ease-spring),border-color .2s,background-color .2s}
+.lb-tile:hover{translate:0 -2px}
+.lb-tile .gart-svg{transition:rotate .4s var(--ease-spring),scale .4s var(--ease-spring),opacity .3s}
+.lb-tile:hover .gart-svg{rotate:-8deg;scale:1.12}
+.lb-tile.lb-shuffle{border-color:var(--gold-300);background-color:rgba(201,162,39,.18);scale:1.04}
+.lb-tile.lb-landed{animation:plLand .6s var(--ease-spring)}
+@keyframes plLand{0%{scale:.92}55%{scale:1.07}100%{scale:1}}
+
+/* ------------------------------------------------------------ game library cards: lift, accent edge, art that moves */
+.lb-gcard{transition:translate .35s var(--ease-spring),border-color .3s var(--ease),box-shadow .35s var(--ease)}
+.lb-gcard:hover,.lb-gcard:focus-within{translate:0 -6px;border-color:color-mix(in srgb,var(--ga,var(--gold-500)) 60%,transparent);
+  box-shadow:0 22px 44px -26px color-mix(in srgb,var(--ga,var(--gold-500)) 70%,transparent)}
+.lb-gcard .gart-svg{opacity:.62;filter:saturate(.95);transition:translate .5s var(--ease-spring),rotate .5s var(--ease-spring),scale .5s var(--ease-spring),opacity .3s}
+.lb-gcard:hover .gart-svg,.lb-gcard:focus-within .gart-svg{opacity:.9;translate:-6px 6px;rotate:-5deg;scale:1.1}
+
+/* ------------------------------------------------------------ game page: the hero art drifts gently */
+.gl-art .gart-svg{animation:plFloat 7s ease-in-out infinite alternate}
+@keyframes plFloat{from{translate:0 0;rotate:0deg}to{translate:0 -10px;rotate:-2deg}}
+
+/* ------------------------------------------------------------ page entrance (app.js adds .pg-enter when the page changes) */
+@keyframes plUp{from{opacity:0;translate:0 16px}to{opacity:1;translate:0 0}}
+#main.pg-enter>*>*{animation:plUp .55s var(--ease) both}
+#main.pg-enter>*>:nth-child(2){animation-delay:.07s}
+#main.pg-enter>*>:nth-child(3){animation-delay:.14s}
+#main.pg-enter>*>:nth-child(4){animation-delay:.21s}
+#main.pg-enter>*>:nth-child(n+5){animation-delay:.28s}
+/* library cards and picker tiles deal in one after another */
+#main.pg-enter :is(.lb-grid,.lb-tiles)>*{animation:plUp .5s var(--ease) both}
+#main.pg-enter :is(.lb-grid,.lb-tiles)>:nth-child(2){animation-delay:.04s}
+#main.pg-enter :is(.lb-grid,.lb-tiles)>:nth-child(3){animation-delay:.08s}
+#main.pg-enter :is(.lb-grid,.lb-tiles)>:nth-child(4){animation-delay:.12s}
+#main.pg-enter :is(.lb-grid,.lb-tiles)>:nth-child(5){animation-delay:.16s}
+#main.pg-enter :is(.lb-grid,.lb-tiles)>:nth-child(6){animation-delay:.2s}
+#main.pg-enter :is(.lb-grid,.lb-tiles)>:nth-child(7){animation-delay:.24s}
+#main.pg-enter :is(.lb-grid,.lb-tiles)>:nth-child(8){animation-delay:.28s}
+#main.pg-enter :is(.lb-grid,.lb-tiles)>:nth-child(n+9){animation-delay:.32s}
+
+/* ------------------------------------------------------------ small delights */
+@keyframes plHop{0%{translate:0 0}40%{translate:0 -5px}100%{translate:0 0}}
+.lb-steps li:hover .lb-sn{animation:plHop .45s var(--ease-spring)}
+.nav-b .ico{transition:rotate .35s var(--ease-spring),scale .35s var(--ease-spring)}
+.nav-b:hover .ico{rotate:-10deg;scale:1.15}
+.lb-pulse{animation-duration:1.4s}
+.toast{animation:plToast .5s var(--ease-spring) both}
+@keyframes plToast{from{opacity:0;translate:0 14px;scale:.96}to{opacity:1;translate:0 0;scale:1}}
+
+/* waiting room: the invite code pops in */
+.mx-code{display:inline-block;animation:plPop .7s var(--ease-spring) .15s both}
+@keyframes plPop{from{opacity:0;scale:.6;rotate:-4deg}to{opacity:1;scale:1;rotate:0deg}}
+
+/* result: the verdict bounces in; a win gets a burst of gold confetti (pieces added by views/celebrate.js) */
+.mx-verdict{animation:plPop .75s var(--ease-spring) both}
+.mx-result{position:relative}
+.pl-confetti{position:fixed;height:520px;overflow:hidden;pointer-events:none;z-index:60}
+.pl-confetti i{position:absolute;top:0;width:7px;height:11px;border-radius:2px;opacity:0;
+  animation:plFall var(--d,2.2s) cubic-bezier(.2,.6,.3,1) var(--dl,0s) 1 both}
+.pl-confetti i.dot{width:7px;height:7px;border-radius:50%}
+@keyframes plFall{0%{opacity:0;translate:0 0;rotate:0deg}8%{opacity:1}80%{opacity:1}100%{opacity:0;translate:var(--dx,0) 460px;rotate:var(--r,360deg)}}

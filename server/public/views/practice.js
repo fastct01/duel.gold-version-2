@@ -3,6 +3,7 @@
    State: S.practice = { game, level, phase: "ready" | "play" | "done", seed, bot, my, result, error } | null.
    app.js keeps the page from re-rendering while a practice game runs (see render) and calls stop() when you leave. */
 import { icon } from "../ui.js";
+import { cleanRules, nbu } from "./gamecopy.js";
 
 const LEVELS = [
   ["easy", "Easy", 0.35],
@@ -49,68 +50,77 @@ function runBot(g, seed, skill) {
 }
 
 /* ------------------------------------------------------------------ view */
+/* Three screens, one primary action each (solid gold): ready → Start practice, playing → none (Quit is quiet), result → Play again.
+   Styles: /play/practice.css (.pr-); buttons, chips, labels and the back link come from the kit at the top of /play/gamelobby.css (.gl-). */
 
 export function practiceHTML(ctx) {
   const { S, h } = ctx; const { esc } = h;
   const P = S.practice, g = h.game(P.game);
-  if (!g) return `<section class="lb-card pr-card"><p class="lb-muted">This game is not available.</p><div><button type="button" class="lb-btn" data-act="pr-back">${icon("arrow", "pr-back-ico")}Game library</button></div></section>`;
-  const head = (eyebrow) => `<header class="pr-head">
-      <div><p class="lb-eyebrow">${eyebrow}</p><h2 class="lb-title pr-title" id="prTitle">${esc(g.name)}</h2></div>
-      <button type="button" class="lb-btn" data-act="pr-back" id="prBack">${icon("arrow", "pr-back-ico")}Game library</button>
-    </header>`;
+  const back = `<button type="button" class="gl-back" data-act="pr-back" id="prBack">${icon("arrow")}<span>Game library</span></button>`;
+  if (!g) return `<div class="pr-page">${back}<section class="pr-gone"><p class="pr-blurb">This game is not available.</p></section></div>`;
 
   if (P.phase === "play") {
-    return `<section class="lb-card pr-card pr-playing" aria-labelledby="prTitle">
+    return `<div class="pr-page pr-playing"><section class="pr-run" aria-labelledby="prTitle">
       <div class="pr-hud">
-        <div class="pr-hud-l"><b id="prTitle">${esc(g.name)}</b><span class="lb-hint">vs ${BOT} · ${levelName(P.level)} · free practice</span></div>
+        <div class="pr-hud-l"><h1 class="pr-hud-t" id="prTitle">${esc(g.name)}</h1><span class="pr-hud-s">vs ${BOT} · ${levelName(P.level)} · free practice</span></div>
         <span class="pr-status dg-mono" id="prStatus" aria-live="off"></span>
-        <button type="button" class="lb-btn pr-quit" data-act="pr-quit" id="prQuit">Quit</button>
+        <button type="button" class="gl-btn quiet pr-quit" data-act="pr-quit" id="prQuit">Quit</button>
       </div>
       <div class="pr-race" aria-label="Live scores">
         <div class="pr-lane you"><span>You</span><div class="pr-track"><i id="prFillYou"></i></div><b class="dg-mono" id="prYou">0</b></div>
-        <div class="pr-lane bot"><span>${BOT}</span><div class="pr-track"><i id="prFillBot"></i></div><b class="dg-mono" id="prBot">0</b></div>
+        <div class="pr-lane bot"><span>Bot</span><div class="pr-track"><i id="prFillBot"></i></div><b class="dg-mono" id="prBot">0</b></div>
       </div>
       <div id="prStage" class="pr-stage"></div>
-    </section>`;
+    </section></div>`;
   }
 
   if (P.phase === "done") {
     const r = P.result || {};
+    const outcome = r.error ? "stopped" : r.outcome || "draw";
     const label = r.error ? "Practice stopped" : r.outcome === "win" ? "You beat the bot" : r.outcome === "loss" ? "The bot won" : "Draw";
     const fmt = (n) => (n == null ? "–" : esc(g.formatScore ? g.formatScore(n) : n));
-    return `<section class="lb-card pr-card pr-done" aria-labelledby="prRes">
-      ${head("Practice result · free, no stake, no rating")}
-      <div class="pr-result ${esc(r.outcome || "")}"><h3 id="prRes" data-test="practice-result">${label}</h3>
-        ${r.error ? `<p class="lb-muted">${esc(r.error)}</p>` : `<div class="pr-score"><div class="you"><span>You</span><b class="dg-mono">${fmt(r.my)}</b></div><span class="pr-vs">vs</span><div class="bot"><span>Bot · ${levelName(P.level)}</span><b class="dg-mono">${fmt(r.bot)}</b></div></div>
-        <p class="lb-hint">Same challenge for both of you (seed #${esc(P.seed)}). Scores in ${esc(g.scoreLabel || "points")}.</p>`}
+    const unit = !g.scoreLabel || /^pts?$/i.test(String(g.scoreLabel).trim()) ? "points" : g.scoreLabel;
+    return `<div class="pr-page pr-done"><section class="pr-result ${esc(outcome)}" aria-labelledby="prRes">
+      ${back}
+      <p class="gl-label pr-kicker">Practice result · ${esc(g.name)}</p>
+      <h1 class="pr-outcome" id="prRes" data-test="practice-result">${label}</h1>
+      ${r.error ? `<p class="pr-blurb">${esc(r.error)}</p>` : `<div class="pr-score">
+        <div class="pr-you"><span class="gl-label">You</span><b class="dg-mono">${fmt(r.my)}</b></div>
+        <div class="pr-bot"><span class="gl-label">Bot · ${levelName(P.level)}</span><b class="dg-mono">${fmt(r.bot)}</b></div>
       </div>
-      <div class="pr-actions">
-        <button type="button" class="lb-find pr-again" data-act="pr-start" id="prAgain"><span class="lb-find-t"><b>Play again</b><small>New challenge · ${levelName(P.level)} bot</small></span>${icon("arrow")}</button>
-        <button type="button" class="lb-btn gold" data-act="pr-lobby">Create a lobby with ${esc(g.name)}${icon("arrow")}</button>
-      </div>
+      <p class="pr-hint">Free practice: no stake, no rating. Same challenge for both of you (seed #${esc(P.seed)}). Scores in ${esc(unit)}.</p>`}
       ${levelChips(P.level)}
-    </section>`;
+      <div class="pr-actions">
+        <button type="button" class="gl-btn primary" data-act="pr-start" id="prAgain">Play again${icon("arrow")}</button>
+        <button type="button" class="gl-btn line" data-act="pr-lobby">Create a lobby with ${esc(g.name)}${icon("arrow")}</button>
+      </div>
+    </section></div>`;
   }
 
   /* ready */
-  return `<section class="lb-card pr-card" aria-labelledby="prTitle">
-    ${head("Practice · free, no stake, no rating")}
-    <p class="pr-blurb">${esc(g.blurb)}</p>
+  const rules = cleanRules(g.rules);
+  return `<div class="pr-page pr-ready">
+    ${back}
     <div class="pr-grid">
-      <div class="pr-rules"><h3>How to play</h3><ol>${(g.rules || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ol></div>
-      <div class="pr-side">
+      <header class="pr-intro">
+        <p class="gl-label gl-eyebrow">Practice · free, no stake, no rating</p>
+        <h1 class="pr-title" id="prTitle">${esc(g.name)}</h1>
+        <p class="pr-blurb">${esc(nbu(g.blurb))}</p>
+      </header>
+      <aside class="pr-side" aria-label="Start practice">
         ${levelChips(P.level)}
-        <p class="lb-hint">The bot plays the exact same challenge as you. Beat its score to win. Nothing is saved and no money moves.</p>
-        ${P.error ? `<p class="err" role="alert">${esc(P.error)}</p>` : ""}
-        <button type="button" class="lb-find" data-act="pr-start" id="prStart"><span class="lb-find-t"><b>Start practice</b><small>vs ${BOT} · ${levelName(P.level)}</small></span>${icon("arrow")}</button>
-      </div>
+        <p class="pr-hint">The bot plays the exact same challenge as you. Beat its score to win. Nothing is saved and no money moves.</p>
+        ${P.error ? `<p class="gl-err" role="alert">${esc(P.error)}</p>` : ""}
+        <button type="button" class="gl-btn primary block pr-start" data-act="pr-start" id="prStart">Start practice${icon("arrow")}</button>
+      </aside>
+      ${rules.length ? `<section class="pr-rules" aria-labelledby="prRulesH"><h2 class="gl-label" id="prRulesH">How to play</h2><ol class="gl-rules">${rules.map((x) => `<li>${esc(nbu(x))}</li>`).join("")}</ol></section>` : ""}
     </div>
-  </section>`;
+  </div>`;
 }
 
 function levelChips(level) {
-  return `<div class="pr-levels"><span class="pr-levels-l" id="prLevelL">Bot level</span><div class="pr-level-row" role="group" aria-labelledby="prLevelL">${LEVELS.map(([id, name]) =>
-    `<button type="button" class="lb-chip" data-act="pr-level" data-level="${id}" aria-pressed="${level === id}">${name}</button>`).join("")}</div></div>`;
+  return `<div class="pr-levels"><span class="gl-label" id="prLevelL">Bot level</span><div class="gl-seg" role="group" aria-labelledby="prLevelL">${LEVELS.map(([id, name]) =>
+    `<button type="button" class="gl-chip" data-act="pr-level" data-level="${id}" aria-pressed="${level === id}">${name}</button>`).join("")}</div></div>`;
 }
 
 /* ------------------------------------------------------------------ play */

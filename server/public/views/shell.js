@@ -35,8 +35,8 @@ export function topBar(ctx) {
   if (!S.me) return "";
   const b = S.me.balances, open = !!S.ui.menuOpen;
   const inv = S.invite && S.invite.lobby && S.invite.lobby.state === "open" ? S.invite : null;
-  const pending = S.view !== "lobby" ? "" : S.host
-    ? `<button class="top-add top-open" data-act="open-lobby" id="openLobby" title="Go to your open lobby" aria-label="Open your waiting room">${icon("clock")}<span>Open lobby</span></button>`
+  const pending = S.view !== "lobby" ? "" : S.lobby
+    ? `<button class="top-add top-open" data-act="open-lobby" id="openLobby" title="${S.lobby.role === "guest" ? "Go to the lobby you joined" : "Go to your open lobby"}" aria-label="Open your waiting room">${icon("clock")}<span>Open lobby</span></button>`
     : inv ? `<button class="top-add top-open" data-act="open-invite" id="openInvite" title="You have a pending invite" aria-label="Open the pending invite from ${esc(inv.lobby.host.name)}">${icon("users")}<span>Invite</span></button>` : "";
   /* Join: opens the "enter an invite code" page. Disabled while a queue / match prompt holds the screen, like the nav.
      During a game the bar only shows the balance (read-only) and the account menu: nothing else is reachable then. */
@@ -73,16 +73,25 @@ export function nav(ctx) {
   const locked = ["queue", "found", "orphan"].includes(S.view);
   const here = S.view === "lobby" ? (S.tab === "game" ? "games" : S.tab) : ""; // a game's own page lives under Games
   const lab = (l, s) => `<span class="l-full">${h.esc(l)}</span><span class="l-short" aria-hidden="true">${h.esc(s)}</span>`;
-  return NAV.map(([id, label, ico, short]) => locked
-    ? `<button class="nav-b" disabled title="Finish or leave the match first">${icon(ico)}${lab(label, short)}</button>`
-    : `<a class="nav-b" href="#${id}" data-go="${id}" ${here === id ? 'aria-current="page"' : ""} title="${h.esc(label)}" aria-label="${h.esc(label)}">${icon(ico)}${lab(label, short)}</a>`).join("");
+  /* Account is the one destination the phone bottom bar leaves out (five fit with readable labels): the avatar menu has it */
+  return NAV.map(([id, label, ico, short]) => { const more = id === "settings" ? " nav-more" : ""; return locked
+    ? `<button class="nav-b${more}" disabled title="Finish or leave the match first">${icon(ico)}${lab(label, short)}</button>`
+    : `<a class="nav-b${more}" href="#${id}" data-go="${id}" ${here === id ? 'aria-current="page"' : ""} title="${h.esc(label)}" aria-label="${h.esc(label)}">${icon(ico)}${lab(label, short)}</a>`; }).join("");
 }
 
 const STEPS = [
-  ["1", "Pick a game and a stake", "Free play, or a small test-ETH stake from your in-app balance. Both players put in the same amount."],
-  ["2", "Send the invite link to a friend", "No bots, no strangers. When your friend opens the link and joins, you both play the exact same seeded challenge at the same time."],
-  ["3", "Higher score takes the pot", "The winner gets the pot minus the fee, and the seed is revealed afterwards so anyone can replay and check it."],
+  ["01", "Pick a game and a stake", "Free play, or a small test-ETH stake from your in-app balance. Every player puts in the same amount."],
+  ["02", "Send the invite link to friends", "No bots, no strangers. Up to 10 players can join one lobby. When you start the match, everyone plays the exact same seeded challenge at the same time."],
+  ["03", "Highest score takes the pot", "The top score wins the pot minus the fee, and tied top scores split it. The seed is revealed afterwards so anyone can replay and check it."],
 ];
+
+/* wallet and ethers errors can be long and technical: show a short, honest line instead */
+const friendly = (m) => {
+  const t = String(m || "");
+  if (/reject|denied|cancel/i.test(t)) return "The wallet request was cancelled. Nothing was signed and no money moved.";
+  if (t.length > 160 || /payload=|code=|version=/.test(t)) return "Could not connect that wallet. You can try again, or continue with a burner wallet.";
+  return t;
+};
 
 export const views = {
   signin(ctx) {
@@ -94,35 +103,34 @@ export const views = {
     const open = l && l.state === "open";
     const stakeTxt = l ? (String(l.stake) === "0" ? "Free" : `${h.eth(l.stake)} ${h.sym()}`) : "";
     let banner = "";
-    if (inv && inv.loading) banner = `<div class="invite-banner" role="status"><span class="ib-ico" aria-hidden="true">${icon("link")}</span><div><b>Checking your invite…</b></div></div>`;
-    else if (open) banner = `<div class="invite-banner" id="inviteBanner" role="status"><span class="ib-ava">${avatar(l.host.name, 44)}</span><div><b>${esc(l.host.name)} invited you to ${esc(l.game.name)} · ${esc(stakeTxt)}</b><span>Sign in below to see the terms and join. Signing in moves no money.</span></div></div>`;
-    else if (inv) banner = `<div class="invite-banner bad" id="inviteBanner" role="status"><span class="ib-ico" aria-hidden="true">${icon("link")}</span><div><b>${l ? "This invite is no longer open" : "This invite link did not work"}</b><span>${l ? "The lobby was closed, expired or already taken." : "It may be mistyped or expired."} You can still sign in and play.</span></div></div>`;
+    if (inv && inv.loading) banner = `<div class="si-invite" role="status"><span class="si-ico" aria-hidden="true">${icon("link")}</span><div><b>Checking your invite…</b></div></div>`;
+    else if (open) banner = `<div class="si-invite" id="inviteBanner" role="status"><span class="si-ava">${avatar(l.host.name, 44)}</span><div><b>${esc(l.host.name)} invited you to ${esc(l.game.name)} · ${esc(stakeTxt)}</b><span>Sign in below to see the terms and join. Signing in moves no money.</span></div></div>`;
+    else if (inv) banner = `<div class="si-invite bad" id="inviteBanner" role="status"><span class="si-ico" aria-hidden="true">${icon("link")}</span><div><b>${l ? "This invite is no longer open" : "This invite link did not work"}</b><span>${l ? "The lobby was closed, expired or already taken." : "It may be mistyped or expired."} You can still sign in and play.</span></div></div>`;
+    /* one key word in solid gold; the second line is the quieter half of the headline */
+    const head = open
+      ? `<span class="l1">${esc(l.host.name)} challenged&nbsp;you.</span><span class="l2">Sign in to <span class="gold-t">accept</span>.</span>`
+      : `<span class="l1"><span class="nb">Out-play</span> a&nbsp;friend.</span><span class="l2">Winner takes the <span class="gold-t">pot</span>.</span>`;
     return `<div class="landing">
-      <section class="dg-box landing-hero" aria-labelledby="hSign">
-        <p class="eyebrow">${icon("users")}<span>${open ? "You have been invited" : "Real players. Same challenge. One winner."}</span></p>
-        <h1 class="landing-h" id="hSign">${open ? `${esc(l.host.name)} challenged you.<br><span class="gold-t">Sign in to accept.</span>` : `Out-play a friend.<br><span class="gold-t">Winner takes the pot.</span>`}</h1>
+      <section class="landing-hero" aria-labelledby="hSign">
+        <p class="eyebrow">${open ? "You have been invited" : "Real players. Same challenge. One winner."}</p>
+        <h1 class="landing-h${open ? " is-invite" : ""}" id="hSign">${head}</h1>
         ${banner}
-        <p class="lede">Duel.gold lets you challenge a friend to a short skill game with a private invite link. You both get the same seeded challenge, the higher score wins the pot minus ${esc(fee)}, and every result can be replayed and verified.</p>
+        <p class="lede">Duel.gold lets you challenge friends to a short skill game with a private invite link, with up to 10 players in one lobby. Everyone gets the same seeded challenge, the highest score wins the pot minus ${esc(fee)}, and every result can be replayed and verified.</p>
         <div class="landing-cta">
-          <button class="dg-btn primary xl" data-act="burner" id="signBurner">${icon("bolt")}<span>Continue with a burner wallet</span></button>
-          ${hasInjected ? `<button class="dg-btn xl ghost" data-act="injected" id="signInjected">${icon("wallet")}<span>Connect browser wallet</span></button>` : ""}
+          <button class="dg-btn primary xl" data-act="burner" id="signBurner"><span>Continue with a burner wallet</span></button>
+          ${hasInjected ? `<button class="dg-btn xl" data-act="injected" id="signInjected"><span>Connect browser wallet</span></button>` : ""}
         </div>
-        <div class="err" id="err" role="alert">${esc(S.error)}</div>
+        <div class="err" id="err" role="alert">${esc(friendly(S.error))}</div>
         <p class="dg-note">A burner wallet is a key created and kept in this browser, only used to sign you in. Signing in costs no gas and moves no money. Never send real funds to it, and clearing your browser data removes it.</p>
-        <div class="vs-art" aria-hidden="true">
-          <span class="vs-side">${avatar("duel-a", 56)}<i>You</i></span>
-          <span class="vs-mid"><b>VS</b><i>same seed</i></span>
-          <span class="vs-side rival">${avatar("duel-b", 56)}<i>Rival</i></span>
-        </div>
       </section>
 
       <aside class="landing-side">
-        <section class="dg-box dg-stack" aria-labelledby="hHow">
-          <h2 class="dg-h" id="hHow">How it works</h2>
+        <section aria-labelledby="hHow">
+          <h2 id="hHow">How it works</h2>
           <ol class="steps">${STEPS.map(([n, t, d]) => `<li><span class="step-n">${n}</span><div><b>${esc(t)}</b><p>${esc(d)}</p></div></li>`).join("")}</ol>
         </section>
-        <section class="dg-box testnote" aria-labelledby="hTest">
-          <h2 class="dg-h" id="hTest">${icon("shield")}<span>Test network only</span></h2>
+        <section class="testnote" aria-labelledby="hTest">
+          <h2 id="hTest">Test network only</h2>
           <p>Everything runs on ${esc(net)}. Test ETH has no real-world value, and nobody can buy or cash it out. You can set a daily loss limit at any time.</p>
         </section>
       </aside>
@@ -131,7 +139,7 @@ export const views = {
 };
 
 export const actions = {
-  "open-lobby": async (el, app) => { if (app.S.host) { app.S.view = "waiting"; app.render(true); window.scrollTo(0, 0); } },
+  "open-lobby": async (el, app) => { if (app.S.lobby) { app.S.view = "waiting"; app.render(true); window.scrollTo(0, 0); } },
   "open-invite": async (el, app) => { if (app.S.invite) { app.S.view = "invite"; app.S.error = ""; app.render(true); window.scrollTo(0, 0); } },
   "top-menu": async (el, app) => { appRef = app; setMenu(!app.S.ui.menuOpen); },
   "top-copy": async (el, app) => {

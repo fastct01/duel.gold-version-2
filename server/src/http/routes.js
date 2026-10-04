@@ -38,7 +38,7 @@ export function registerRoutes(r, app) {
     feeBps: cfg.economy.feeBps,
     stake: { min: toStr(cfg.economy.minStake), max: toStr(cfg.economy.maxStake), tiers: cfg.economy.stakeTiers.map(toStr) },
     withdrawal: { min: toStr(cfg.economy.minWithdrawal), max: toStr(cfg.economy.maxWithdrawal), dailyCap: toStr(cfg.economy.dailyWithdrawalCap) },
-    match: { acceptMs: cfg.match.acceptMs, countdownMs: cfg.match.countdownMs, queueTimeoutMs: cfg.match.queueTimeoutMs, lobbyTtlMs: cfg.match.lobbyTtlMs, publicQueue: cfg.match.publicQueue },
+    match: { acceptMs: cfg.match.acceptMs, countdownMs: cfg.match.countdownMs, queueTimeoutMs: cfg.match.queueTimeoutMs, lobbyTtlMs: cfg.match.lobbyTtlMs, lobbyMaxPlayers: cfg.match.lobbyMaxPlayers, publicQueue: cfg.match.publicQueue },
     websocket: "/v1/ws",
     notice: "Test network only. Funds have no real-world value.",
     ...(cfg.devFaucet ? { devFaucet: true } : {}),
@@ -131,10 +131,17 @@ export function registerRoutes(r, app) {
   r.post("/v1/queue", { auth: true }, ({ user, body }) => ({ status: 201, body: matches.join(user.id, body) }));
   r.delete("/v1/queue", { auth: true }, ({ user }) => matches.leave(user.id));
 
-  /* invite-only lobbies. GET is public (rate-limited per IP by the API limiter) and returns the public view only. */
+  /* invite-only lobbies (up to cfg.match.lobbyMaxPlayers). GET is public (rate-limited per IP by the API limiter) and returns the
+     public view only; every authenticated call answers with the caller's own member view.
+       join   → { lobby } (or { lobby, match } when this join filled the lobby and it auto-started)
+       leave  → { lobby }  guests only, stake refunded
+       start  → { match }  host only, needs at least 2 players
+       DELETE → { lobby }  host only, refunds every member */
   r.post("/v1/lobbies", { auth: true }, ({ user, body }) => ({ status: 201, body: { lobby: matches.createLobby(user.id, body) } }));
   r.get("/v1/lobbies/:code", {}, ({ params }) => ({ lobby: matches.getLobby(params.code) }));
-  r.post("/v1/lobbies/:code/join", { auth: true }, ({ user, params }) => ({ match: matches.joinLobby(user.id, params.code) }));
+  r.post("/v1/lobbies/:code/join", { auth: true }, ({ user, params }) => matches.joinLobby(user.id, params.code));
+  r.post("/v1/lobbies/:code/leave", { auth: true }, ({ user, params }) => ({ lobby: matches.leaveLobby(user.id, params.code) }));
+  r.post("/v1/lobbies/:code/start", { auth: true }, ({ user, params }) => ({ match: matches.startLobby(user.id, params.code) }));
   r.delete("/v1/lobbies/:code", { auth: true }, ({ user, params }) => ({ lobby: matches.closeLobby(user.id, params.code) }));
 
   r.post("/v1/matches/:id/ready", { auth: true }, ({ user, params }) => matches.ready(user.id, params.id, null));

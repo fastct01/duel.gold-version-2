@@ -149,7 +149,7 @@ export const MIGRATIONS = [
 
   CREATE TABLE match_players (
     match_id      INTEGER NOT NULL REFERENCES matches(id),
-    seat          INTEGER NOT NULL,                         -- 0 | 1
+    seat          INTEGER NOT NULL,                         -- 0..9, in join order (a lobby host is seat 0)
     user_id       INTEGER NOT NULL REFERENCES users(id),
     ticket_id     INTEGER,
     rating_before INTEGER NOT NULL,
@@ -190,5 +190,11 @@ export const MIGRATIONS = [
   `
   ALTER TABLE tickets ADD COLUMN lobby_code TEXT;
   CREATE UNIQUE INDEX tickets_lobby_code ON tickets(lobby_code) WHERE lobby_code IS NOT NULL;
+  `,
+  /* 3 — multi-player lobbies: a guest's ticket points at the host's lobby ticket (the host's own ticket keeps lobby_code).
+     Guest ticket states: queued (waiting in the lobby) | matched | cancelled | expired (lobby closed) | left (guest left). */
+  `
+  ALTER TABLE tickets ADD COLUMN lobby_ticket_id INTEGER;
+  CREATE INDEX tickets_lobby_ticket ON tickets(lobby_ticket_id) WHERE lobby_ticket_id IS NOT NULL;
   `,
 ];

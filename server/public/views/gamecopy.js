@@ -3,9 +3,9 @@
    Shape: { tagline, overview, goal, length, scoring: [..], controls: [..], tips: [..] }, all plain strings. */
 export const GAME_COPY = {
   sudoku: {
-    tagline: "One unique sudoku, same for both. Solve it clean and fast.",
-    overview: "A classic 9×9 sudoku with exactly one solution, built from the match seed so you and your opponent get the same grid. Every row, column and 3×3 box must hold 1 to 9. Good players solve steadily without guessing, because wrong numbers are costly and the clock pays for every second you save.",
-    goal: "Higher score wins: finish the grid fast and with few mistakes. Equal scores are a draw and both stakes are returned.",
+    tagline: "One unique sudoku, the same for everyone. Solve it clean and fast.",
+    overview: "A classic 9×9 sudoku with exactly one solution, built from the match seed so every player gets the same grid. Every row, column and 3×3 box must hold 1 to 9. Good players solve steadily without guessing, because wrong numbers are costly and the clock pays for every second you save.",
+    goal: "Higher score wins: finish the grid fast and with few mistakes. Tied top scores split the pot, and if everyone ties all stakes are returned.",
     length: "Up to 6 minutes",
     scoring: [
       "Solve the grid: 3,000 points, plus 5 for every second left on the clock.",
@@ -30,8 +30,8 @@ export const GAME_COPY = {
 
   mines: {
     tagline: "Same minefield, same safe start. Clear it by logic.",
-    overview: "A 12×12 minefield hiding 22 mines, with the same layout and the same free start for both players. Numbers tell you how many mines touch each square, and you open every safe square without stepping on a mine. The board is generated to be cleared by logic wherever it can be, so careful reading usually beats guessing.",
-    goal: "Higher score wins: a full clear, done quickly, is worth far more than a partial one. Equal scores are a draw and both stakes are returned.",
+    overview: "A 12×12 minefield hiding 22 mines, with the same layout and the same free start for every player. Numbers tell you how many mines touch each square, and you open every safe square without stepping on a mine. The board is generated to be cleared by logic wherever it can be, so careful reading usually beats guessing.",
+    goal: "Higher score wins: a full clear, done quickly, is worth far more than a partial one. Tied top scores split the pot, and if everyone ties all stakes are returned.",
     length: "Up to 3 minutes",
     scoring: [
       "Clear every safe square: 2,000 points, plus 10 for every second left.",
@@ -56,8 +56,8 @@ export const GAME_COPY = {
 
   queens: {
     tagline: "One crown per row, column and colour. Solve all you can.",
-    overview: "A logic puzzle on coloured grids: place one crown in every row, every column and every colour region, with no two crowns touching, not even diagonally. You solve as many grids as you can in 90 seconds, starting at 6×6 and moving up to 8×8. Both players get the same grids in the same order.",
-    goal: "Higher score wins: solve more grids, and solve your last one sooner. Equal scores are a draw and both stakes are returned.",
+    overview: "A logic puzzle on coloured grids: place one crown in every row, every column and every colour region, with no two crowns touching, not even diagonally. You solve as many grids as you can in 90 seconds, starting at 6×6 and moving up to 8×8. Every player gets the same grids in the same order.",
+    goal: "Higher score wins: solve more grids, and solve your last one sooner. Tied top scores split the pot, and if everyone ties all stakes are returned.",
     length: "90 seconds",
     scoring: [
       "Each solved grid scores 1,000 points.",
@@ -80,9 +80,9 @@ export const GAME_COPY = {
   },
 
   tiles2048: {
-    tagline: "Slide, merge, score. Same tile drops for both of you.",
-    overview: "The classic 2048 sliding puzzle on a 4×4 board, played against a 90-second clock. Every move slides all tiles one way, equal tiles merge into one, and a new 2 or 4 appears. New tiles come from the match seed, so the same moves give you and your opponent the same board.",
-    goal: "Higher score wins: merge as much as you can before time runs out. Equal scores are a draw and both stakes are returned.",
+    tagline: "Slide, merge, score. Same tile drops for everyone.",
+    overview: "The classic 2048 sliding puzzle on a 4×4 board, played against a 90-second clock. Every move slides all tiles one way, equal tiles merge into one, and a new 2 or 4 appears. New tiles come from the match seed, so the same moves give every player the same board.",
+    goal: "Higher score wins: merge as much as you can before time runs out. Tied top scores split the pot, and if everyone ties all stakes are returned.",
     length: "90 seconds",
     scoring: [
       "Every merge adds the value of the new tile to your score, so two 8s merging score 16.",
@@ -104,8 +104,8 @@ export const GAME_COPY = {
 
   memory: {
     tagline: "Watch the squares light up, then repeat the order.",
-    overview: "A sequence memory game: squares light up in order and you tap them back in the same order. Every level adds one more step, and after level 8 the grid grows from 3×3 to 4×4. Both players get the same sequence, so the longest clean run wins.",
-    goal: "Higher score wins: go as far as you can and tap quickly once you are sure. Equal scores are a draw and both stakes are returned.",
+    overview: "A sequence memory game: squares light up in order and you tap them back in the same order. Every level adds one more step, and after level 8 the grid grows from 3×3 to 4×4. Every player gets the same sequence, so the longest clean run wins.",
+    goal: "Higher score wins: go as far as you can and tap quickly once you are sure. Tied top scores split the pot, and if everyone ties all stakes are returned.",
     length: "Up to 4 minutes",
     scoring: [
       "You score 100 points for each step of the longest sequence you repeated correctly.",
@@ -129,8 +129,8 @@ export const GAME_COPY = {
 
   base: {
     tagline: "Build a defence, then hold off 8 seeded zombie waves.",
-    overview: "A tower defence game on a 12×9 map: you get 60 seconds and 300 gold to build walls, towers, traps and gold mines, then 8 waves of zombies walk the shortest route to your base. The map, the waves and the spawn points come from the seed, so your opponent faces exactly the same attack. Good players use walls to lengthen the route and pick towers that counter each zombie type.",
-    goal: "Higher score wins: survive all 8 waves with as much base health and as many kills as you can. Equal scores are a draw and both stakes are returned.",
+    overview: "A tower defence game on a 12×9 map: you get 60 seconds and 300 gold to build walls, towers, traps and gold mines, then 8 waves of zombies walk the shortest route to your base. The map, the waves and the spawn points come from the seed, so every other player faces exactly the same attack. Good players use walls to lengthen the route and pick towers that counter each zombie type.",
+    goal: "Higher score wins: survive all 8 waves with as much base health and as many kills as you can. Tied top scores split the pot, and if everyone ties all stakes are returned.",
     length: "About 3 to 4 minutes: 60 s to build, then 8 waves",
     scoring: [
       "1,000 points for each wave your base survives.",
@@ -159,8 +159,8 @@ export const GAME_COPY = {
 
   city: {
     tagline: "Same plot, same budget. Build the best city in 90 s.",
-    overview: "A city planning puzzle on a 7×7 plot with $10,000 to spend on homes, shops, factories, utilities and services. The plot, with its water and rock tiles, comes from the seed, so you and your opponent plan on the same ground. Good players balance homes with jobs, power and water, and keep pollution away from where people live.",
-    goal: "Higher city score wins, to one decimal place. Equal scores are a draw and both stakes are returned.",
+    overview: "A city planning puzzle on a 7×7 plot with $10,000 to spend on homes, shops, factories, utilities and services. The plot, with its water and rock tiles, comes from the seed, so every player plans on the same ground. Good players balance homes with jobs, power and water, and keep pollution away from where people live.",
+    goal: "Higher city score wins, to one decimal place. Tied top scores split the pot, and if everyone ties all stakes are returned.",
     length: "Up to 90 seconds",
     scoring: [
       "City score = People + Money + Growth, worked out from your finished layout.",
@@ -189,8 +189,8 @@ export const GAME_COPY = {
 
   restaurant: {
     tagline: "Same $10,000, same 100 customers. Run the best day.",
-    overview: "A restaurant management game: you have $10,000 and 60 seconds to choose a kitchen, tables, chefs, waiters, a menu of 3 to 5 dishes, a price level and a marketing spend. Then a day from 11:00 to 23:00 plays out with 100 customer groups from the seed, the same groups your opponent serves. Good players read the forecast and fit the menu, prices and staff to who is coming and when.",
-    goal: "Higher score wins: make the most profit while keeping customers happy. Equal scores are a draw and both stakes are returned.",
+    overview: "A restaurant management game: you have $10,000 and 60 seconds to choose a kitchen, tables, chefs, waiters, a menu of 3 to 5 dishes, a price level and a marketing spend. Then a day from 11:00 to 23:00 plays out with 100 customer groups from the seed, the same groups every other player serves. Good players read the forecast and fit the menu, prices and staff to who is coming and when.",
+    goal: "Higher score wins: make the most profit while keeping customers happy. Tied top scores split the pot, and if everyone ties all stakes are returned.",
     length: "About 1 minute: 60 s to plan, then the day plays out",
     scoring: [
       "Score = 5,000 + profit + reputation bonus, never below 0.",
@@ -215,8 +215,8 @@ export const GAME_COPY = {
 
   reaction: {
     tagline: "Wait for gold, then tap. Jump early and the round is lost.",
-    overview: "A pure reaction test over 5 rounds: you arm each round, wait for the pad to turn gold, then tap as fast as you can. The wait before gold is set by the seed, so both players get the same delays. Consistent fast reactions with no fouls win.",
-    goal: "Higher total over 5 rounds wins. Equal scores are a draw and both stakes are returned.",
+    overview: "A pure reaction test over 5 rounds: you arm each round, wait for the pad to turn gold, then tap as fast as you can. The wait before gold is set by the seed, so every player gets the same delays. Consistent fast reactions with no fouls win.",
+    goal: "Higher total over 5 rounds wins. Tied top scores split the pot, and if everyone ties all stakes are returned.",
     length: "5 rounds, about 30 seconds",
     scoring: [
       "Each round scores 1,000 minus your reaction time in milliseconds, so 250 ms scores 750.",
@@ -238,11 +238,11 @@ export const GAME_COPY = {
 
   aim: {
     tagline: "Targets pop up and shrink. Hit them fast, do not miss.",
-    overview: "A 30-second aim test: targets appear, shrink, and vanish after 1.1 seconds. Both players get the same targets in the same places at the same times. Targets get smaller and come faster as the clock runs down.",
-    goal: "Higher score wins: hit as many targets as you can, as early as you can. Equal scores are a draw and both stakes are returned.",
+    overview: "A 30-second aim test: targets appear, shrink, and vanish after 1.1 seconds. Every player gets the same targets in the same places at the same times. Targets get smaller and come faster as the clock runs down.",
+    goal: "Higher score wins: hit as many targets as you can, as early as you can. Tied top scores split the pot, and if everyone ties all stakes are returned.",
     length: "30 seconds",
     scoring: [
-      "A hit scores 100 plus a speed bonus of up to 100 that falls to nothing over the target's 1.1-second life.",
+      "A hit scores 100 plus a speed bonus of up to 100 that falls to nothing over the target’s 1.1-second life.",
       "A click or tap that hits no target costs 25 points.",
       "Your score never drops below 0.",
     ],
@@ -260,8 +260,8 @@ export const GAME_COPY = {
 
   rush: {
     tagline: "Quick-fire sums. Pick the right answer, keep the streak.",
-    overview: "A 40-second mental arithmetic race where each sum has four possible answers. Problems start with addition and subtraction, then bring in multiplication and division and grow larger. Both players get the same problems in the same order.",
-    goal: "Higher score wins: answer fast and keep your streak going. Equal scores are a draw and both stakes are returned.",
+    overview: "A 40-second mental arithmetic race where each sum has four possible answers. Problems start with addition and subtraction, then bring in multiplication and division and grow larger. Every player gets the same problems in the same order.",
+    goal: "Higher score wins: answer fast and keep your streak going. Tied top scores split the pot, and if everyone ties all stakes are returned.",
     length: "40 seconds",
     scoring: [
       "A correct answer scores 100, plus 10 for each earlier answer in your current streak, up to +50.",
@@ -282,8 +282,8 @@ export const GAME_COPY = {
 
   darts: {
     tagline: "Nine darts. Steady the sight, release on target.",
-    overview: "A precision game with nine darts on a standard board. Your sight wobbles along a path set by the seed, the same path your opponent gets, and holding steadies it for a moment before your arm starts to shake. Good players aim for the treble 20 and release as the sight passes over it.",
-    goal: "Higher total from nine darts wins. Equal scores are a draw and both stakes are returned.",
+    overview: "A precision game with nine darts on a standard board. Your sight wobbles along a path set by the seed, the same path every other player gets, and holding steadies it for a moment before your arm starts to shake. Good players aim for the treble 20 and release as the sight passes over it.",
+    goal: "Higher total from nine darts wins. Tied top scores split the pot, and if everyone ties all stakes are returned.",
     length: "9 darts, up to 10 seconds each",
     scoring: [
       "Each dart scores its segment number, doubled in the outer ring and tripled in the inner ring.",
@@ -305,8 +305,8 @@ export const GAME_COPY = {
 
   trivia: {
     tagline: "Ten questions. Right and fast beats right and slow.",
-    overview: "A general knowledge quiz of 10 multiple-choice questions on geography, science, history, nature, sport, arts and language, maths and general topics. Both players get the same questions with the answers in the same order. Knowing the answer matters most, but speed decides close games.",
-    goal: "Higher score wins: answer correctly and quickly. Equal scores are a draw and both stakes are returned.",
+    overview: "A general knowledge quiz of 10 multiple-choice questions on geography, science, history, nature, sport, arts and language, maths and general topics. Every player gets the same questions with the answers in the same order. Knowing the answer matters most, but speed decides close games.",
+    goal: "Higher score wins: answer correctly and quickly. Tied top scores split the pot, and if everyone ties all stakes are returned.",
     length: "10 questions, 12 seconds each",
     scoring: [
       "A correct answer scores 100 plus a speed bonus of up to 50, based on how much of the 12 seconds is left.",
@@ -326,8 +326,8 @@ export const GAME_COPY = {
 
   groups: {
     tagline: "Sixteen words, four hidden groups. Find them all.",
-    overview: "A word puzzle with 16 words that form four groups of four. You select four words you think share a link and submit them, and both players get the same puzzle. The trickiest group is usually wordplay, such as words that go with the same word or hide another word inside.",
-    goal: "Higher score wins: find more groups, the harder ones especially, with few mistakes. Equal scores are a draw and both stakes are returned.",
+    overview: "A word puzzle with 16 words that form four groups of four. You select four words you think share a link and submit them, and every player gets the same puzzle. The trickiest group is usually wordplay, such as words that go with the same word or hide another word inside.",
+    goal: "Higher score wins: find more groups, the harder ones especially, with few mistakes. Tied top scores split the pot, and if everyone ties all stakes are returned.",
     length: "Up to 3 minutes",
     scoring: [
       "Groups are worth 200, 250, 300 and 350 points, from the easiest (yellow) to the trickiest (purple).",
@@ -351,3 +351,13 @@ export const GAME_COPY = {
 };
 
 export const copyFor = (id) => GAME_COPY[id] || null;
+
+/* ---- small text helpers shared by the game page (gamelobby.js) and the practice screens (practice.js) ---- */
+/* a non-breaking space between a number and its unit: "30 s" never splits across lines */
+export const nbu = (t) => String(t || "").replace(/(\d) (?=(?:s|ms|min)\b)/g, "$1 ");
+export const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : "");
+/* online matches and practice both play the full game: drop Duel Mix asides like "(Duel Mix: 6×6, 45 s)" or "(3 in Duel Mix)" */
+const noMix = (s) => String(s || "").replace(/\s*\([^)]*\bmix\b[^)]*\)/gi, "").trim();
+const mixOnly = (s) => /^\s*(?:in\s+)?(?:duel\s+)?mix\b/i.test(String(s || ""));
+export const cleanRules = (rules) => (Array.isArray(rules) ? rules : []).filter((r) => r && !mixOnly(r)).map(noMix).filter(Boolean);
+export { noMix };
