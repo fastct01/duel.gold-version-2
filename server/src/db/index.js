@@ -21,15 +21,25 @@ export class Db {
     const cur = this.raw.prepare("PRAGMA user_version").get().user_version;
     if (cur > MIGRATIONS.length) throw new Error(`database schema v${cur} is newer than this server (v${MIGRATIONS.length})`);
     for (let v = cur; v < MIGRATIONS.length; v++) {
+      /* a step that rebuilds a table other tables reference runs with foreign keys off (they cannot be switched inside a
+         transaction), and must leave no dangling reference: foreign_key_check runs before the commit */
+      const fkOff = typeof MIGRATIONS[v] === "function" && MIGRATIONS[v].foreignKeysOff;
+      if (fkOff) this.raw.exec("PRAGMA foreign_keys = OFF");
       this.raw.exec("BEGIN IMMEDIATE");
       try {
         if (typeof MIGRATIONS[v] === "function") MIGRATIONS[v](this.raw);
         else this.raw.exec(MIGRATIONS[v]);
+        if (fkOff) {
+          const broken = this.raw.prepare("PRAGMA foreign_key_check").all();
+          if (broken.length) throw new Error(`migration ${v + 1} left ${broken.length} broken foreign key reference(s)`);
+        }
         this.raw.exec(`PRAGMA user_version = ${v + 1}`);
         this.raw.exec("COMMIT");
       } catch (e) {
         this.raw.exec("ROLLBACK");
         throw e;
+      } finally {
+        if (fkOff) this.raw.exec("PRAGMA foreign_keys = ON");
       }
     }
   }

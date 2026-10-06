@@ -111,15 +111,10 @@ const TX_PAGE = 15;
 /* backend status → what the player sees. Deposits (server/src/wallet/deposits.js): credited | pending (below the minimum); "confirming" is this page's own
    view of a deposit sent from the wallet that the server has not recorded yet. Withdrawals (withdrawals.js): queued | signed | broadcast | confirmed | failed. */
 const TX_STATUS = {
-  confirming: ["draw", "Confirming"], below: ["draw", "Below minimum"], credited: ["win", "Credited"],
+  confirming: ["draw", "Confirming"], below: ["draw", "Below minimum"], credited: ["win", "Successful"],
   queued: ["draw", "Queued"], signed: ["draw", "Processing"], broadcast: ["draw", "Sent"], confirmed: ["win", "Confirmed"], failed: ["loss", "Failed · refunded"],
 };
 const WD_ACTIVE = new Set(["queued", "signed", "broadcast"]);
-const DIR_ICON = {
-  deposit: '<path d="M12 5v13M6.5 12.5 12 18l5.5-5.5"/>',
-  withdrawal: '<path d="M12 19V6M6.5 11.5 12 6l5.5 5.5"/>',
-};
-const dirIcon = (kind) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${DIR_ICON[kind]}</svg>`;
 
 function dayLabel(t, nowMs) {
   const d = new Date(t), n = new Date(nowMs), y = new Date(nowMs);
@@ -175,7 +170,6 @@ function txRow(S, h, tx) {
     : `<span class="sub">Not on-chain yet</span>`;
   const feeLine = !dep && tx.fee > 0n ? `<span class="sub dg-mono">+ ${eth(tx.fee, 9)} fee</span>` : "";
   return `<li class="tx ${dep ? "tx-dep" : "tx-wd"}" data-kind="${tx.kind}" data-status="${esc(tx.state)}">
-    <span class="tx-ico">${dirIcon(tx.kind)}</span>
     <div class="tx-main"><b class="tx-kind"${!dep && tx.to ? ` title="To ${esc(tx.to)}"` : ""}>${dep ? "Deposit" : "Withdrawal"}</b><time class="sub" datetime="${tx.t ? new Date(tx.t).toISOString() : ""}" title="${esc(when(tx.t))}">${esc(relTime(tx.t, nowMs))}</time></div>
     <div class="tx-meta"><span class="rpill ${tone}">${esc(label)}</span>${ref}</div>
     <div class="tx-amt"><b class="dg-mono ${amtCls}">${amtTxt}&nbsp;${esc(sym())}</b>${feeLine}</div>
@@ -219,6 +213,13 @@ function txSection(S, h) {
 function header(title, text) {
   return `<header class="page-h"><h1>${title}</h1><p>${text}</p></header>`;
 }
+
+/* an email account has no wallet yet: withdrawals need one, linked once by a signature (POST /v1/me/wallet/link, app.js linkWallet) */
+const linkWalletHTML = () => `<div class="sec-b link-wallet">
+  <p class="dg-note">Withdrawals can only go to a wallet you own. Link one to this account: your wallet signs a message, which costs no gas and moves no money. You can link one wallet, and it can then sign in to this account too.</p>
+  ${window.ethereum ? `<button type="button" class="dg-btn" data-act="link-wallet" id="linkWallet"><span>Link a wallet</span></button>`
+    : `<a class="dg-btn" href="https://metamask.io/download/" target="_blank" rel="noopener"><span>Install a wallet to link it</span></a>`}
+</div>`;
 
 /* one figure of a ledger band: small uppercase label, a large serif numeral, a quiet unit. Pass id for a number the tests read. */
 const stat = (label, value, unit, { id = "", cls: c = "", live = false, extra = "" } = {}) =>
@@ -342,13 +343,13 @@ export const views = {
 
     <section class="sec" aria-labelledby="hWd">
       <div class="sec-h"><h2 class="dg-h" id="hWd">Withdraw</h2><p>${real ? `Send ${esc(sym())} back to your own wallet on ${esc(chain)}. The network fee is charged on top of the amount.` : `Send test ${esc(sym())} back to your own wallet.`}</p></div>
-      <form data-form="withdraw" class="sec-b form-stack" autocomplete="off">
+      ${me.hasWallet === false ? linkWalletHTML() : `<form data-form="withdraw" class="sec-b form-stack" autocomplete="off">
         <div class="field"><label for="wdAmt">Amount (${esc(sym())})</label>
           <div class="inline-form"><input id="wdAmt" type="text" inputmode="decimal" placeholder="${lim ? esc(eth(lim.min)) : "0.01"}" value="${esc(pend || "")}"${pend ? " readonly" : ""} aria-describedby="wdHint wdErr"><button class="dg-btn" type="button" data-act="wd-max" id="wdMax"${pend ? " disabled" : ""}>Max</button><button class="dg-btn" type="submit" id="wdBtn"${pend ? " disabled" : ""}>Withdraw</button></div></div>
         <div class="err" id="wdErr" role="alert"></div>
         <div id="wdConfirmSlot">${pend ? wdConfirmHTML(ctx, pend) : ""}</div>
         <p class="dg-note" id="wdHint">${lim ? `Minimum ${eth(lim.min)}&nbsp;${esc(sym())}, up to ${eth(lim.max)} per withdrawal and ${eth(lim.dailyCap)} per day. ` : ""}${fee != null ? `Network fee: <b class="dg-mono">${eth(fee, 9)}&nbsp;${esc(sym())}</b>, charged on top of the amount. ` : real ? "A network fee is charged on top of every withdrawal. " : ""}Payouts go only to the wallet you signed in with: <span class="dg-mono" title="${esc(w.withdrawTo)}">${esc(short(w.withdrawTo))}</span>.</p>
-      </form>
+      </form>`}
     </section>
 
     ${txSection(S, h)}` : `<section class="sec"><div class="sec-h"><h2 class="dg-h">Wallet</h2></div><div class="sec-b"><p class="dg-note">The wallet is not enabled on this server.</p></div></section>`}`;
@@ -407,7 +408,7 @@ export const views = {
     <section class="sec" aria-labelledby="hAcct">
       <div class="sec-h"><h2 class="dg-h" id="hAcct">Your account</h2></div>
       <div class="sec-b">
-        <div class="acct-card"><span class="acct-ava">${avatar(me.address, 56)}</span><div><b>${esc(me.displayName)}</b><span class="dg-mono sub" title="${esc(me.address)}">${esc(h.short(me.address))}</span></div></div>
+        <div class="acct-card"><span class="acct-ava">${avatar(me.address || me.email, 56)}</span><div><b>${esc(me.displayName)}</b><span class="dg-mono sub" title="${esc(me.address || me.email || "")}">${esc(me.address ? h.short(me.address) : me.email || "")}</span></div></div>
         <form class="form-stack" data-name-form autocomplete="off">
           <div class="field"><label for="nameIn">Display name</label>
             <div class="inline-form"><input id="nameIn" type="text" maxlength="20" value="${esc(me.displayName)}" aria-describedby="nameHint nameErr"><button class="dg-btn" type="submit" id="nameBtn">Save</button></div></div>
@@ -496,7 +497,7 @@ async function sendFromWallet(app) {
     let accounts = await eth.request({ method: "eth_accounts" });
     if (!accounts || !accounts.length) accounts = await eth.request({ method: "eth_requestAccounts" });
     const from = accounts && accounts[0];
-    if (!from || from.toLowerCase() !== String(S.me.address).toLowerCase()) {
+    if (S.me.address && (!from || from.toLowerCase() !== String(S.me.address).toLowerCase())) { // an email account without a wallet may deposit from any wallet
       throw new Soft(`Your wallet has ${from ? h.short(from) : "no account"} selected. Switch it to ${h.short(S.me.address)}, the account you signed in with, and try again.`);
     }
     busy("Confirm in your wallet…");

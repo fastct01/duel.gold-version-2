@@ -215,4 +215,33 @@ export const MIGRATIONS = [
   `
   ALTER TABLE withdrawals ADD COLUMN fee TEXT NOT NULL DEFAULT '0';
   `,
+  /* 7 — email accounts. An account can sign in with an email and a password instead of a wallet, so users.address becomes
+     optional: it is the wallet linked to the account (set at wallet sign-in, or linked later by signature) and withdrawals
+     need it. SQLite cannot drop NOT NULL in place, so the table is rebuilt with every column it has (older files carry extra
+     ones) and every row, keeping ids. email is stored lowercase; password_hash is "scrypt$N$r$p$salt$hash" (base64url).
+     email_tokens holds one-time links (verify the address, reset the password); only the token's sha256 is stored. */
+  Object.assign((raw) => {
+    const cols = raw.prepare("PRAGMA table_info(users)").all();
+    const def = (c) => {
+      if (c.name === "id") return "id INTEGER PRIMARY KEY AUTOINCREMENT";
+      if (c.name === "address") return "address TEXT UNIQUE";
+      return `${c.name} ${c.type || ""}${c.notnull ? " NOT NULL" : ""}${c.dflt_value != null ? ` DEFAULT ${c.dflt_value}` : ""}`;
+    };
+    const names = cols.map((c) => c.name).join(", ");
+    raw.exec(`
+      CREATE TABLE users_new (${cols.map(def).join(", ")},
+        email TEXT UNIQUE, email_verified_at INTEGER, password_hash TEXT);
+      INSERT INTO users_new (${names}) SELECT ${names} FROM users;
+      DROP TABLE users;
+      ALTER TABLE users_new RENAME TO users;
+      CREATE TABLE email_tokens (
+        token_hash TEXT PRIMARY KEY,
+        user_id    INTEGER NOT NULL REFERENCES users(id),
+        kind       TEXT    NOT NULL,                          -- 'verify' | 'reset'
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL
+      );
+      CREATE INDEX email_tokens_user ON email_tokens(user_id, kind);
+    `);
+  }, { foreignKeysOff: true }),
 ];

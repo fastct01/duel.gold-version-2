@@ -1001,7 +1001,7 @@ test("mainnet mode (GET /v1/config and /v1/wallet overridden in the browser): re
   const pills = (sel) => a.$$eval(`#txList ${sel} .rpill`, (ps) => ps.map((p) => p.innerText.trim().toLowerCase()));
   const kinds = () => a.$$eval("#txList .tx", (rows) => rows.map((r) => `${r.dataset.kind}:${r.dataset.status}`));
   assert.deepEqual(await kinds(), ["deposit:confirming", "deposit:below", "withdrawal:broadcast", "withdrawal:signed", "withdrawal:queued", "deposit:credited", "withdrawal:confirmed", "withdrawal:failed"], "newest first");
-  assert.deepEqual(await pills(""), ["confirming · 0 / 12", "below minimum", "sent", "processing", "queued", "credited", "confirmed", "failed · refunded"], "one pill per backend status");
+  assert.deepEqual(await pills(""), ["confirming · 0 / 12", "below minimum", "sent", "processing", "queued", "successful", "confirmed", "failed · refunded"], "one pill per backend status");
   const byState = async (st) => (await text(a, `#txList .tx[data-status="${st}"]`)).replace(/\s+/g, " ");
   assert.match(await byState("queued"), /Withdrawal.*Queued.*−0\.1\sETH.*\+ 0\.0003 fee/i, "a queued withdrawal: negative amount, fee under it");
   assert.match(await byState("signed"), /Processing/i);
@@ -1009,7 +1009,7 @@ test("mainnet mode (GET /v1/config and /v1/wallet overridden in the browser): re
   assert.match(await byState("confirmed"), /Confirmed/i);
   assert.match(await byState("failed"), /Failed · refunded.*Refunded to your balance, network fee included\. Reason: reverted on-chain/i);
   assert.match(await byState("below"), /Below minimum.*\+0\.001\sETH.*Below the minimum deposit of 0\.005\sETH, so it is not credited yet/i);
-  assert.match(await byState("credited"), /Deposit.*Credited.*\+0\.05\sETH/i);
+  assert.match(await byState("credited"), /Deposit.*Successful.*\+0\.05\sETH/i);
   assert.equal(await a.locator('#txList .tx[data-status="credited"] .dg-good').count(), 1, "a credited deposit is in the ok colour");
   assert.equal(await a.locator('#txList .tx[data-status="below"] .dg-good').count(), 0, "one that is not credited is not");
   assert.match(await text(a, "#txSummary"), /1 deposit confirming · 1 deposit below the minimum · 3 withdrawals processing/);
@@ -1150,7 +1150,7 @@ test("wallet on the local chain: preset and custom deposit amounts through the f
   assert.equal((await kinds()).length, 3);
   const row = async (sel) => (await text(a, sel)).replace(/\s+/g, " ");
   assert.match(await row("#txList .tx-wd"), /Withdrawal.*Confirmed.*−0\.25\sETH/i, "a withdrawal: negative, with its status");
-  assert.match(await row('#txList .tx-dep'), /Deposit.*Credited.*\+0\.(25|5)\sETH/i, "a deposit: positive, with its status");
+  assert.match(await row('#txList .tx-dep'), /Deposit.*Successful.*\+0\.(25|5)\sETH/i, "a deposit: positive, with its status");
   assert.equal(await a.locator("#txList .tx-dep .dg-good").count(), 2, "credited deposits are in the ok colour");
   assert.match(await text(a, "#txList .tx-dayh"), /Today/i, "grouped by day");
   assert.match(await text(a, "#txList .tx time"), /just now|\d+ s ago|\d+ min ago/);

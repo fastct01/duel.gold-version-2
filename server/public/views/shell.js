@@ -56,8 +56,8 @@ export function topBar(ctx) {
       <button class="top-avatar" id="acctBtn" data-act="top-menu" aria-haspopup="true" aria-expanded="${open}" aria-controls="acctMenu" aria-label="Account menu for ${esc(S.me.displayName)}">${avatar(S.me.address, 38)}</button>
       <div class="acct-menu" id="acctMenu" ${open ? "" : "hidden"}>
         <div class="acct-id">
-          <span class="acct-ava">${avatar(S.me.address, 44)}</span>
-          <div><b>${esc(S.me.displayName)}</b><span class="dg-mono" title="${esc(S.me.address)}">${esc(short(S.me.address))}</span></div>
+          <span class="acct-ava">${avatar(S.me.address || S.me.email, 44)}</span>
+          <div><b>${esc(S.me.displayName)}</b><span class="dg-mono" title="${esc(S.me.address || S.me.email || "")}">${esc(S.me.address ? short(S.me.address) : S.me.email || "")}</span></div>
         </div>
         <button class="acct-item" data-act="top-copy">${icon("copy")}<span>Copy address</span></button>
         <a class="acct-item" href="#settings" data-go="settings">${icon("shield")}<span>Account</span></a>
@@ -95,6 +95,30 @@ const friendly = (m) => {
   return t;
 };
 
+/* the email account form on the sign-in page (app.js emailSubmit): sign in / create account, forgot password, set a new password
+   (from a ?reset= link), and the "check your inbox" note after a link was sent */
+function emailForm(S, esc, primary) {
+  const m = S.ui.emailMode || "signin";
+  if (m === "sent" || m === "sent-reset") {
+    const to = `<b>${esc(S.ui.emailTo || "your inbox")}</b>`;
+    return `<div class="em em-sent" id="emailAuth" role="status"><b class="em-h">Check your inbox</b>
+      <p>${m === "sent" ? `We sent a link to ${to}. Open it to confirm your email and sign in.` : `If ${to} has an account, we sent it a link to choose a new password.`} It can take a minute; look in spam too.</p>
+      <button type="button" class="dg-link" data-act="email-mode" data-v="signin">Back to sign in</button></div>`;
+  }
+  const reset = m === "reset", forgot = m === "forgot", signup = m === "signup", newPw = reset || signup;
+  const kind = reset ? "email-reset" : forgot ? "email-forgot" : signup ? "email-signup" : "email-signin";
+  const label = reset ? "Set new password" : forgot ? "Send reset link" : signup ? "Create account" : "Sign in";
+  return `<form class="em" id="emailAuth" data-form="${kind}" novalidate>
+    ${reset || forgot ? `<p class="em-h">${reset ? "Choose a new password" : "Reset your password"}</p>`
+      : `<div class="em-seg" role="group" aria-label="Email account"><button type="button" class="dg-chip" data-act="email-mode" data-v="signin" aria-pressed="${!signup}">Sign in</button><button type="button" class="dg-chip" data-act="email-mode" data-v="signup" aria-pressed="${signup}">Create account</button></div>`}
+    ${reset ? "" : `<div class="field"><label for="emEmail">Email</label><input id="emEmail" type="email" autocomplete="email" inputmode="email" required></div>`}
+    ${forgot ? "" : `<div class="field"><label for="emPw">${newPw ? "New password" : "Password"}</label><input id="emPw" type="password" autocomplete="${newPw ? "new-password" : "current-password"}" minlength="10" required${newPw ? ' aria-describedby="emPwHint"' : ""}>${newPw ? `<span class="dg-note" id="emPwHint">At least 10 characters.</span>` : ""}</div>`}
+    <div class="em-row"><button type="submit" class="dg-btn${primary ? " primary" : ""}" id="emSubmit"><span>${label}</span></button>
+      ${forgot || reset ? `<button type="button" class="dg-link" data-act="email-mode" data-v="signin">Back to sign in</button>` : signup ? "" : `<button type="button" class="dg-link" data-act="email-mode" data-v="forgot" id="emForgot">Forgot password?</button>`}</div>
+    <div class="err" id="emErr" role="alert"></div>
+  </form>`;
+}
+
 export const views = {
   signin(ctx) {
     const { S, h } = ctx; const { esc } = h;
@@ -112,10 +136,14 @@ export const views = {
     const head = open
       ? `<span class="l1">${esc(l.host.name)} challenged&nbsp;you.</span><span class="l2">Sign in to <span class="gold-t">accept</span>.</span>`
       : `<span class="l1"><span class="nb">Out-play</span> a&nbsp;friend.</span><span class="l2">Winner takes the <span class="gold-t">pot</span>.</span>`;
-    /* sign-in is only with a wallet the player controls: withdrawals are paid to that address */
+    /* sign in with a wallet the player controls, or (when the server has email on) with an email account, which links a
+       wallet before withdrawing. One solid gold action: the wallet when the browser has one, otherwise email. */
+    const emailOn = !!(S.cfg && S.cfg.auth && S.cfg.auth.email), mode = S.ui.emailMode || "signin";
+    const walletPrimary = hasInjected && mode !== "reset";
     const injectedBtn = hasInjected
-      ? `<button class="dg-btn primary xl" data-act="injected" id="signInjected"><span>Connect wallet</span></button>`
-      : `<a class="dg-btn primary xl" id="getWallet" href="https://metamask.io/download/" target="_blank" rel="noopener"><span>Install a wallet to sign in</span></a>`;
+      ? `<button class="dg-btn${walletPrimary ? " primary" : ""} xl" data-act="injected" id="signInjected"><span>Connect wallet</span></button>`
+      : `<a class="dg-btn${emailOn ? "" : " primary"} xl" id="getWallet" href="https://metamask.io/download/" target="_blank" rel="noopener"><span>Install a wallet to sign in</span></a>`;
+    const emailBlock = emailOn ? `<p class="em-or"><span>${hasInjected ? "or use email" : "or sign in with email"}</span></p>${emailForm(S, esc, !walletPrimary)}` : "";
     return `<div class="landing">
       <section class="landing-hero" aria-labelledby="hSign">
         <h1 class="landing-h${open ? " is-invite" : ""}" id="hSign">${head}</h1>
@@ -124,8 +152,9 @@ export const views = {
         <div class="landing-cta">
           ${injectedBtn}
         </div>
+        ${emailBlock}
         <div class="err" id="err" role="alert">${esc(friendly(S.error))}</div>
-        <p class="dg-note">Sign in with a browser wallet you control, such as MetaMask. Signing in costs no gas and moves no money, and withdrawals are paid only to the wallet you sign in with.${hasInjected ? "" : " No wallet was found in this browser: install one, then reload this page."}</p>
+        <p class="dg-note">${emailOn ? "Sign in with a browser wallet you control, such as MetaMask, or with your email. Wallet sign-in costs no gas and moves no money. Withdrawals are paid only to your own wallet: the one you sign in with, or the one an email account links before its first withdrawal." : "Sign in with a browser wallet you control, such as MetaMask. Signing in costs no gas and moves no money, and withdrawals are paid only to the wallet you sign in with."}${hasInjected ? "" : emailOn ? "" : " No wallet was found in this browser: install one, then reload this page."}</p>
       </section>
 
       <figure class="landing-art" aria-hidden="true"></figure>

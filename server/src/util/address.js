@@ -8,5 +8,6 @@ export function normalizeAddress(input, field = "address") {
   return getAddress(input).toLowerCase();
 }
 
-export const checksum = (lower) => getAddress(lower);
-export const shortAddress = (lower) => `${lower.slice(0, 6)}…${lower.slice(-4)}`;
+/* both take null: an email account has no wallet until one is linked */
+export const checksum = (lower) => (lower ? getAddress(lower) : null);
+export const shortAddress = (lower) => (lower ? `${lower.slice(0, 6)}…${lower.slice(-4)}` : null);

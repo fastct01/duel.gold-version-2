@@ -214,12 +214,9 @@ body.age-open{overflow:hidden}
 .tx-day{display:grid;min-width:0}
 .tx-dayh{margin:0;padding:0 0 var(--sp-12);border-bottom:1px solid var(--hair-gold);font:600 12px/1.4 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
 .tx-list{list-style:none;margin:0;padding:0}
-.tx{display:grid;grid-template-columns:36px minmax(0,1fr) 152px 172px 120px;grid-template-areas:"ico main pill ref amt" ". note note note note";gap:0 12px;align-items:center;padding:var(--sp-12) 0;border-top:1px solid var(--hair)}
+.tx{display:grid;grid-template-columns:minmax(0,1fr) 152px 172px 120px;grid-template-areas:"main pill ref amt" "note note note note";gap:0 12px;align-items:center;padding:var(--sp-12) 0;border-top:1px solid var(--hair)}
 .tx:first-child{border-top:0}
-.tx-ico{grid-area:ico;display:grid;place-items:center;width:36px;height:36px;border:1px solid var(--hair-strong);border-radius:var(--radius-1);color:var(--stone-400)}
-.tx-ico .ico{width:18px;height:18px}
-.tx-dep .tx-ico{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,transparent)}
-.tx-main{grid-area:main;display:grid;gap:1px;min-width:0}
+.tx-dep .tx-main{grid-area:main;display:grid;gap:1px;min-width:0}
 .tx-kind{font-weight:500;font-size:15px;line-height:1.3}
 .tx-main .sub{font-size:13px;white-space:nowrap}
 .tx-meta{display:contents} /* wide: the pill and the hash are columns of the row; narrow (below): they form the second line */
@@ -238,7 +235,7 @@ body.age-open{overflow:hidden}
 .tx-note{grid-area:note;margin:0 0 var(--sp-4);font-size:13px;line-height:1.5;color:var(--stone-400);max-width:62ch}
 .tx-empty{margin:0;padding:var(--sp-24) 0 0;border-top:1px solid var(--hair);max-width:62ch}
 @container (max-width:640px){
-  .tx{grid-template-columns:36px minmax(0,1fr) auto;grid-template-areas:"ico main amt" "meta meta meta" "note note note";gap:0 12px;padding:var(--sp-16) 0 var(--sp-8)}
+  .tx{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"main amt" "meta meta" "note note";gap:0 12px;padding:var(--sp-16) 0 var(--sp-8)}
   .tx-meta{grid-area:meta;display:flex;align-items:center;justify-content:space-between;gap:4px 16px;min-width:0}
   .tx-meta .tx-ref .tx-btn:last-child{margin-right:-13px}
   .tx-note{margin-bottom:var(--sp-8)}

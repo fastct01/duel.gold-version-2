@@ -8,6 +8,8 @@ import { Hub } from "./hub.js";
 import { Users } from "./users.js";
 import { Responsible } from "./responsible.js";
 import { Auth } from "./auth.js";
+import { Mailer } from "./mail.js";
+import { EmailAuth } from "./emailAuth.js";
 import { WalletService } from "./wallet/index.js";
 import { loadCatalog } from "./games/catalog.js";
 import { MatchService } from "./matches/service.js";
@@ -31,10 +33,13 @@ export async function createApp(config, { now = () => Date.now() } = {}) {
     log.warn("ADMIN_TOKEN is not set on a real-money deployment: /v1/admin/* (ledger audit, solvency, flagged scores) is disabled. Set it, and watch the logs for INSOLVENT.");
   }
   const auth = new Auth({ db, users, config, chainId: () => (wallet.enabled ? wallet.chain.chainId : 0), now });
+  const mailer = new Mailer({ cfg: config, log });
+  const emailAuth = new EmailAuth({ db, users, auth, mailer, config, now, baseUrl: () => config.mail.publicUrl || app.url });
+  if (config.production && !config.mail.enabled) log.warn("email sign-in is off: set RESEND_API_KEY and MAIL_FROM to turn it on");
   const catalog = loadCatalog({ gamesDir: config.gamesDir, log });
   const matches = new MatchService({ db, ledger, users, responsible, catalog, cfg: config, log, hub, now });
 
-  const app = { config, cfg: config, log, db, ledger, hub, users, responsible, wallet, auth, catalog, matches };
+  const app = { config, cfg: config, log, db, ledger, hub, users, responsible, wallet, auth, mailer, emailAuth, catalog, matches };
   const router = new Router({ cfg: config, log, auth, now });
   registerRoutes(router, app);
   attachStatic(router, config);
