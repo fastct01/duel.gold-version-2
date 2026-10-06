@@ -88,7 +88,7 @@ function pickedStake() {
 }
 
 /* What every view and action receives. Views are pure: (ctx) => html. Actions: async (el, app) => void. */
-const inviteUrl = (code) => `${location.origin}/play/?join=${encodeURIComponent(code)}`;
+const inviteUrl = (code) => `${location.origin}/?join=${encodeURIComponent(code)}`;
 const ctx = { S, h, pickedStake, inviteUrl };
 const app = {
   S, h, ctx, store, toast, http, render, go, act, createLobby, joinLobby, inviteUrl, askAge,

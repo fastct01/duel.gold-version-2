@@ -128,6 +128,8 @@ export const views = {
         <p class="dg-note">Sign in with a browser wallet you control, such as MetaMask. Signing in costs no gas and moves no money, and withdrawals are paid only to the wallet you sign in with.${hasInjected ? "" : " No wallet was found in this browser: install one, then reload this page."}</p>
       </section>
 
+      <figure class="landing-art" aria-hidden="true"></figure>
+
       <aside class="landing-side">
         <section aria-labelledby="hHow">
           <h2 id="hHow">How it works</h2>
@@ -156,5 +158,18 @@ export const actions = {
   "top-faucet": (el, app) => app.act("faucet", el),
 };
 
+/* the sign-in background: gold ribbons drawn live by /play/ribbons.js (three.js, loaded on the first visit). Without WebGL the
+   page is simply dark. */
+let ribbons = null, ribbonsLoad = null;
+function showRibbons() {
+  if (document.body.dataset.view !== "signin") return;
+  if (ribbons) { try { ribbons.attach(); } catch { /* the page works without it */ } return; }
+  ribbonsLoad ||= import("/play/ribbons.js").then((m) => { ribbons = m; }, () => { ribbons = { attach: () => false, detach() {} }; });
+  ribbonsLoad.then(showRibbons);
+}
+
 /* grab the app handle early so Escape / outside-click handling works even before the first menu click */
-export function mount(view, app) { appRef = app; }
+export function mount(view, app) {
+  appRef = app;
+  if (view === "signin") showRibbons(); else if (ribbons) ribbons.detach();
+}

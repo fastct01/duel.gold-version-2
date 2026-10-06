@@ -4,12 +4,12 @@
 <script>(function(){var l=document.querySelector('link[rel="icon"]');if(l&&document.head&&l.parentNode!==document.head)document.head.appendChild(l);})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..700;1,6..96,400..700&family=Manrope:wght@400..700&family=DM+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400..700&family=DM+Mono:wght@400;500&display=swap">
 <style>/* core/base.css */
 /* Duel.gold design system: the one source of tokens and shared components.
    Loaded by the client (/play), the game packs (/game) and the standalone artifact shell, so every surface draws from here.
    Rules: gold is an accent (about 10% of a screen), ink is the ground, corners are 2-4px, depth comes from hairlines and
-   edges rather than blur or glow, motion is ease-out at 180-500ms. Fonts are loaded by each HTML page (Bodoni Moda, Manrope,
+   edges rather than blur or glow, motion is ease-out at 180-500ms. Fonts are loaded by each HTML page (Rothek, Manrope,
    DM Mono). Games: use these tokens and the dg-* classes; namespace your own classes as .g-<gameid>-*. Legacy names
    (--panel, --fg, --f-body, ...) stay as aliases so older rules keep working. */
 
@@ -44,8 +44,8 @@
   --hair-gold:color-mix(in srgb,var(--gold-500) 40%,transparent);
   --field-line:color-mix(in srgb,var(--stone-400) 45%,var(--ink-600)); /* control outlines: 3.3:1; the plain hairline is for dividers only */
 
-  /* ---- type: Display = the super family (Bodoni Moda). Text = a quiet grotesk (Manrope). Data = a mono (DM Mono). */
-  --font-display:"Bodoni Moda","Didot","Bodoni 72",Georgia,"Times New Roman",serif;
+  /* ---- type: Display = Rothek, a grotesque for headings, titles and big numbers. Text = Manrope. Data = DM Mono. */
+  --font-display:"Rothek","Manrope","Helvetica Neue",Arial,sans-serif; /* Rothek (Groteskly Yours, licensed, self-hosted: /play/fonts/rothek.css); Manrope until its files are in place */
   --font-body:"Manrope","Helvetica Neue",Arial,sans-serif;
   --font-data:"DM Mono",ui-monospace,Menlo,Consolas,monospace;
   --fs-12:12px; --fs-14:14px; --fs-16:16px; --fs-20:20px;

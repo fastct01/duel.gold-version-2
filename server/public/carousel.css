@@ -1,5 +1,5 @@
 /* The lobby's game picker: a 3D "coverflow" carousel (views/lobby.js: pickerHTML / cardTpl). Everything here is scoped under .cv-.
-   Colours and fonts come from base.css: warm ink, gold hairlines, Bodoni Moda for the titles, Manrope for the labels.
+   Colours and fonts come from base.css: warm ink, gold hairlines, Rothek for the titles, Manrope for the labels.
    Layout in one line: the stage (.cv) holds a backdrop (.cv-bg), the card track (.cv-track), the two double-chevron buttons (.cv-skip),
    and a dock (.cv-dock) with the position counter, the arc track and the small arrows.
    Each card carries three numbers set from JS: --o its place from the centre (-3..3), --a its distance (0..3), --sg its side (-1, 0, 1).
@@ -70,10 +70,11 @@
 .cv-hit:focus-visible{outline:1px solid var(--gold-500);outline-offset:-7px}
 
 /* top bar: the index "[ 03 ]" on the left, the name and a circled + (How to play) on the right */
-.cv-top{position:relative;display:flex;align-items:center;gap:12px;min-height:48px;padding:0 6px 0 16px;border-bottom:1px solid var(--hair)}
+.cv-top{position:relative;display:flex;align-items:center;gap:12px;min-height:48px;padding:0 50px 0 16px;border-bottom:1px solid var(--hair)}
 .cv-idx{flex:none;font-family:var(--font-body);font-size:11px;font-weight:500;line-height:1;letter-spacing:.24em;color:var(--stone-400)}
 .cv-name{min-width:0;margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-body);font-size:11px;font-weight:500;line-height:1;letter-spacing:.16em;text-transform:uppercase;color:var(--ivory-100)}
-.cv-plus{position:relative;z-index:2;flex:none;width:44px;height:44px;margin:0;padding:0;display:grid;place-items:center;border:0;border-radius:50%;background:none;color:var(--gold-500);cursor:pointer}
+/* pinned to the header's corner (not pushed by the name), with the same gap above, below and to the right of its ring */
+.cv-plus{position:absolute;right:2px;top:50%;translate:0 -50%;z-index:2;flex:none;width:44px;height:44px;margin:0;padding:0;display:grid;place-items:center;border:0;border-radius:50%;background:none;color:var(--gold-500);cursor:pointer}
 .cv-plus::before{content:"";position:absolute;inset:9px;border-radius:50%;border:1px solid var(--hair-gold);transition:border-color var(--dur-1) var(--ease),background-color var(--dur-1) var(--ease)}
 .cv-plus .ico{position:relative;width:14px;height:14px;stroke-width:1.6;transition:rotate var(--dur-1) var(--ease)}
 .cv-plus:hover::before{border-color:var(--gold-500);background:var(--gold-soft)}
@@ -81,7 +82,7 @@
 .cv-plus:focus-visible{outline-offset:-3px}
 
 /* the picture: the game's art in one warm gold tone (gameart.css .gart-card), with two hairline rings behind it echoing the orbits */
-.cv-art{position:relative;min-height:0;overflow:hidden;background-image:var(--engrave)}
+.cv-art{position:relative;min-height:0;overflow:hidden}
 .cv-art::before,.cv-art::after{content:"";position:absolute;left:50%;top:52%;aspect-ratio:1;border-radius:50%;border:1px solid var(--hair);transform:translate(-50%,-50%);opacity:.7}
 .cv-art::before{width:74%}
 .cv-art::after{width:112%;opacity:.45}
@@ -96,10 +97,12 @@
 .cv-acts{position:relative;z-index:2;display:flex;align-items:center;gap:8px;min-width:0}
 .cv-ctl{transition:opacity var(--dur-1) var(--ease) .1s,visibility var(--dur-1) var(--ease) .1s}
 .cv-card:not([data-c]) .cv-ctl{opacity:0;visibility:hidden}
-.cv-play{flex:0 1 auto;min-width:0;margin-right:auto;display:inline-flex;align-items:center;gap:10px;min-height:44px;padding:6px 6px 6px 16px;border:1px solid var(--gold-600);border-radius:var(--radius-1);
+.cv-play{flex:0 1 auto;min-width:0;margin-right:auto;display:inline-flex;align-items:center;gap:10px;min-height:44px;padding:5px 7px 5px 16px;border:1px solid var(--gold-600);border-radius:var(--radius-1);
   background:transparent;color:var(--ivory-100);font-family:var(--font-body);font-size:11px;font-weight:600;line-height:1;letter-spacing:.16em;text-transform:uppercase;white-space:nowrap;cursor:pointer;
   transition:background-color var(--dur-1) var(--ease),border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
-.cv-play i{flex:none;width:32px;height:32px;display:grid;place-items:center;border-radius:50%;background:var(--gold-500);color:var(--ink-950)}
+/* the label gives way on a narrow card, so the arrow keeps its inset and never touches the border */
+.cv-play>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.cv-play i{flex:none;width:30px;height:30px;display:grid;place-items:center;border-radius:50%;background:var(--gold-500);color:var(--ink-950)}
 .cv-play .ico{width:15px;height:15px;stroke-width:1.7}
 .cv-play:hover{background:var(--gold-soft);border-color:var(--gold-500);color:var(--gold-300)}
 .cv-rb{position:relative;flex:none;width:44px;height:44px;padding:0;display:grid;place-items:center;border-radius:50%;background:transparent;border:1px solid var(--hair-strong);color:var(--ivory-100);cursor:pointer;
@@ -149,3 +152,12 @@
   .cv-scroll:hover{color:var(--gold-300)}
 }
 .cv-cats,.cv-skip,.cv-step,.cv-play,.cv-rb,.cv-plus,.cv-scroll{touch-action:manipulation}
+
+/* the main menu (lobby) sits on pure black: page, top bar and sidebar, with no grain; the cards keep their own raised surface */
+html:has(body[data-view=lobby]),body[data-view=lobby]{--menu-black:#000;background:var(--menu-black)}
+body[data-view=lobby] #top,body[data-view=lobby] #nav{background:var(--menu-black)}
+body[data-view=lobby]::before{display:none}
+
+/* the title and tagline sit centred under the picture */
+.cv-tb{text-align:center;justify-items:center}
+.cv-title{justify-items:center}

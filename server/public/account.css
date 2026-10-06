@@ -32,13 +32,7 @@ form[data-name-form]:has(.err:not(:empty)) #nameHint{display:none}
 .dep-acts{display:flex;flex-wrap:wrap;gap:12px}
 #wdHint .dg-mono{white-space:nowrap}
 
-/* ---- wallet rows */
-.sec-b .list .row:first-child{padding-top:0}
-.sec-b .list .row:last-child{padding-bottom:0}
-.wd-row{align-items:center}
-.wd-main{display:grid;gap:2px;min-width:0}
-.wd-main b{font-weight:500;font-size:18px;letter-spacing:-.005em}
-.wd-side{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+/* (wallet deposit and transactions styles: the end of this file) */
 
 /* ---- history: an editorial table, uppercase heads, hairline rows, tabular numerals */
 .hist-wrap{container-type:inline-size;display:grid;min-width:0}
@@ -136,7 +130,6 @@ form[data-name-form]:has(.err:not(:empty)) #nameHint{display:none}
   .ledger-3 .dg-stat:first-child .stat-v{flex-direction:row;align-items:baseline;gap:12px}
   .ledger-3 .dg-stat:first-child b{font-size:52px}
   .dep-acts .dg-btn{flex:1 1 100%}
-  .wd-main b{font-size:17px}
 }
 /* the history row stacks by the list's own width (the sidebar rail eats into it at tablet widths) */
 @container (max-width:660px){
@@ -188,3 +181,79 @@ body.age-open{overflow:hidden}
 .age-acts{display:flex;flex-wrap:wrap;gap:12px}
 @media(max-width:480px){.age-acts .dg-btn{flex:1 1 100%}.wd-acts .dg-btn{flex:1 1 100%}}
 @media(prefers-reduced-motion:reduce){.meter-bar i{transition:none}.age-gate{animation:none}}
+
+/* history summary strip: each number is sized by its own cell (cqi), so "12–3–1" or "+0.0045" never crosses a divider at any width */
+.ledger-4 .dg-stat,.ledger-hist .dg-stat{container-type:inline-size}
+.ledger-4 .dg-stat .stat-v b,.ledger-hist .dg-stat .stat-v b{font-size:min(52px,20cqi);white-space:nowrap}
+/* the strip already ends on a hairline: no second, shorter rule above the empty state */
+.ledger + .acc-empty{border-top:0;padding-top:var(--sp-24)}
+.ledger-4 .stat-v,.ledger-hist .stat-v{flex-direction:column;align-items:flex-start;gap:6px}
+
+/* ---- wallet: deposit (amount picker, primary action, what happens next, the manual address) */
+.dep-amts .dg-chip{min-width:72px}
+.dep-custom{display:grid;gap:8px;max-width:360px}
+.dep-custom-in{display:flex;align-items:center;gap:12px}
+.dep-custom-in input{flex:1 1 auto;min-width:0;font-family:var(--font-data);font-variant-numeric:tabular-nums}
+.dep-custom .dg-note,.dep-custom .err,#depMinNote{margin:0}
+.dep-custom .err:empty{display:none}
+.dep-custom:has(.err:not(:empty)) input{border-color:var(--danger)}
+.dep-go{min-width:min(100%,260px)}
+.dep-sub-h{margin:0;font:600 12px/1.4 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
+.dep-next,.dep-manual{display:grid;gap:var(--sp-16);align-content:start;min-width:0}
+.dep-manual{padding-top:var(--sp-24);border-top:1px solid var(--hair)}
+.dep-sent{display:grid;gap:12px;padding:var(--sp-24);border:1px solid var(--hair-gold);border-radius:var(--radius-1);background:var(--ink-900)}
+.dep-sent-h{display:flex;align-items:center;gap:10px;font:500 12px/1.4 var(--font-body);letter-spacing:.16em;text-transform:uppercase;color:var(--gold-500)}
+.dep-sent-h .ico{width:18px;height:18px;flex:none;stroke-width:1.6}
+.dep-sent-t{margin:0;font-size:15px;line-height:1.5;overflow-wrap:anywhere}
+.dep-sent .dg-note{margin:0}
+.dep-sent .meter-bar i{background:var(--gold-500)}
+.dep-sent .tx-ref{justify-self:start;margin-left:-4px}
+
+/* ---- wallet: transactions. One list of deposits and withdrawals, grouped by day; each row stacks into two lines when its container is narrow. */
+.tx-wrap{container-type:inline-size;display:grid;gap:var(--sp-32);min-width:0}
+.tx-day{display:grid;min-width:0}
+.tx-dayh{margin:0;padding:0 0 var(--sp-12);border-bottom:1px solid var(--hair-gold);font:600 12px/1.4 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
+.tx-list{list-style:none;margin:0;padding:0}
+.tx{display:grid;grid-template-columns:36px minmax(0,1fr) 152px 172px 120px;grid-template-areas:"ico main pill ref amt" ". note note note note";gap:0 12px;align-items:center;padding:var(--sp-12) 0;border-top:1px solid var(--hair)}
+.tx:first-child{border-top:0}
+.tx-ico{grid-area:ico;display:grid;place-items:center;width:36px;height:36px;border:1px solid var(--hair-strong);border-radius:var(--radius-1);color:var(--stone-400)}
+.tx-ico .ico{width:18px;height:18px}
+.tx-dep .tx-ico{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,transparent)}
+.tx-main{grid-area:main;display:grid;gap:1px;min-width:0}
+.tx-kind{font-weight:500;font-size:15px;line-height:1.3}
+.tx-main .sub{font-size:13px;white-space:nowrap}
+.tx-meta{display:contents} /* wide: the pill and the hash are columns of the row; narrow (below): they form the second line */
+.tx-meta>.rpill{grid-area:pill;justify-self:start}
+.tx-meta>.tx-ref,.tx-meta>.sub{grid-area:ref}
+.tx-ref{display:inline-flex;align-items:center;min-width:0}
+.tx-hash{font-size:13px;color:var(--stone-400);white-space:nowrap;margin-right:2px}
+.tx-btn{display:inline-grid;place-items:center;flex:none;width:44px;height:44px;padding:0;border:0;border-radius:var(--radius-1);background:none;color:var(--stone-400);cursor:pointer;text-decoration:none;transition:color var(--dur-1) var(--ease)}
+.tx-btn:hover{color:var(--gold-300)}
+.tx-btn:focus-visible{outline-offset:-4px}
+.tx-btn .ico{width:18px;height:18px;stroke-width:1.6}
+.tx-amt{grid-area:amt;display:grid;justify-items:end;gap:1px;text-align:right;min-width:0}
+.tx-amt b{font-weight:500;font-size:17px;line-height:1.3;white-space:nowrap}
+.tx-amt .sub{font-size:12px;white-space:nowrap}
+.tx-void{text-decoration:line-through;text-decoration-thickness:1px}
+.tx-note{grid-area:note;margin:0 0 var(--sp-4);font-size:13px;line-height:1.5;color:var(--stone-400);max-width:62ch}
+.tx-empty{margin:0;padding:var(--sp-24) 0 0;border-top:1px solid var(--hair);max-width:62ch}
+@container (max-width:640px){
+  .tx{grid-template-columns:36px minmax(0,1fr) auto;grid-template-areas:"ico main amt" "meta meta meta" "note note note";gap:0 12px;padding:var(--sp-16) 0 var(--sp-8)}
+  .tx-meta{grid-area:meta;display:flex;align-items:center;justify-content:space-between;gap:4px 16px;min-width:0}
+  .tx-meta .tx-ref .tx-btn:last-child{margin-right:-13px}
+  .tx-note{margin-bottom:var(--sp-8)}
+}
+@container (max-width:340px){.tx-meta{flex-wrap:wrap}}
+@media(max-width:640px){.dep-go{width:100%}}
+@media(prefers-reduced-motion:reduce){.tx-btn{transition:none}}
+
+/* ---- history summary band: an engraved strip, display numerals, a tally of the list and a balance scale for the net.
+   The numerals move to the display face on every ledger: DM Mono's slashed zero reads as "Ø" at this size. */
+.ledger .dg-stat b{font-family:var(--font-display);font-weight:500;font-variant-numeric:lining-nums tabular-nums}
+.ledger-hist{background-image:linear-gradient(180deg,color-mix(in srgb,var(--gold-500) 5%,transparent),transparent 70%),var(--engrave)}
+/* inset from the band's edges (beats the flush-left first figure of the plain ledger) */
+.ledger.ledger-hist .dg-stat.dg-stat{padding-inline:var(--sp-32)}
+.ledger-hist .stat-l{font:600 12px/1.4 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
+.ledger-hist .unit{font:500 11px/1.4 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
+
+@media(max-width:720px){.ledger.ledger-hist .dg-stat.dg-stat{padding-inline:var(--sp-16)}}

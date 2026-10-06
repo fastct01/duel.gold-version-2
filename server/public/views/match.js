@@ -51,6 +51,22 @@ const chips = (p) => `${p.host ? '<span class="lb-chip-s">Host</span>' : ""}${p.
 const rosterRows = (l) => lobbyPlayers(l).map((p) => `<li class="mx-pr${p.you ? " you" : ""}">${ava(p.avatar || p.name, 32, p.you ? "you" : "")}<span class="mx-pname">${esc(p.name)}</span><span class="mx-ptags">${chips(p)}</span></li>`).join("");
 /* ten thin segments, one per seat: gold = taken (decorative, the count beside it carries the meaning) */
 const seatPips = (n, max) => Array.from({ length: max }, (_, i) => `<i${i < n ? ' class="on"' : ""}></i>`).join("");
+/* the table: one round seat per place in the lobby. Taken seats show the player's avatar (gold ring; the host's is solid gold),
+   open seats are dashed and numbered. Decorative: the list below and the status line carry the meaning. */
+const seatTable = (l) => {
+  const ps = lobbyPlayers(l), max = maxOf(l);
+  return Array.from({ length: max }, (_, i) => {
+    const p = ps[i];
+    return p
+      ? `<span class="mx-seat on${p.host ? " host" : ""}${p.you ? " you" : ""}" title="${esc(p.name)}">${avatar(p.avatar || p.name, 34)}</span>`
+      : `<span class="mx-seat open">${i + 1}</span>`;
+  }).join("");
+};
+const seatStatus = (n, min, max) => {
+  const open = Math.max(0, max - n);
+  const tail = n >= max ? "the lobby is full" : n < min ? `${min - n} more needed to start` : "ready to start";
+  return `${n} joined · ${open} open seat${open === 1 ? "" : "s"} · ${tail}`;
+};
 const startLabel = (n, min, busy) => (busy ? "Starting…" : n >= min ? `Start match · ${n} players` : "Start match");
 const startHint = (n, min, max) => (n < min ? "Waiting for at least one more player" : n >= max ? "The lobby is full. Starting…" : `Press Start match when everyone is in. It also starts by itself at ${max} players.`);
 
@@ -120,6 +136,8 @@ function playersBlock(ctx, l) {
   return `<section class="mx-a-players mx-players" id="lobbyPlayers" data-role="${host ? "host" : "guest"}" aria-labelledby="plH">
       <h2 class="mx-k mx-plh" id="plH">Players <span class="mx-plc" id="plCount">${n} / ${max}</span></h2>
       <div class="mx-seats" id="plSeats" style="--cap:${max}" aria-hidden="true">${seatPips(n, max)}</div>
+      <div class="mx-table" id="plTable" aria-hidden="true">${seatTable(l)}</div>
+      <p class="mx-fine mx-seatstat" id="plStatus" aria-live="polite">${esc(seatStatus(n, minOf(l), max))}</p>
       <ol class="mx-pl" id="plList" aria-label="Players in this lobby">${rosterRows(l)}</ol>
       <p class="mx-fine mx-potline" id="plPot">${potLine(h, l)}</p>
       ${start}
@@ -132,6 +150,8 @@ function publicPlayers(l) {
   return `<section class="mx-a-players mx-players" id="lobbyPlayers" data-role="public" aria-labelledby="plH">
       <h2 class="mx-k mx-plh" id="plH">Players <span class="mx-plc" id="plCount">${n} / ${max}</span></h2>
       <div class="mx-seats" id="plSeats" style="--cap:${max}" aria-hidden="true">${seatPips(n, max)}</div>
+      <div class="mx-table" id="plTable" aria-hidden="true">${seatTable(l)}</div>
+      <p class="mx-fine mx-seatstat" id="plStatus" aria-live="polite">${esc(seatStatus(n, minOf(l), max))}</p>
       <ol class="mx-pl" id="plList" aria-label="Players in this lobby">${rosterRows(l)}</ol>
     </section>`;
 }
@@ -232,6 +252,8 @@ export function patchLobby(ctx) {
   const text = (id, v) => { const el = $(id); if (el && el.textContent !== v) el.textContent = v; };
   text("plCount", `${n} / ${max}`);
   html("plSeats", seatPips(n, max));
+  html("plTable", seatTable(l));
+  text("plStatus", seatStatus(n, min, max));
   html("plList", rosterRows(l));
   html("plPot", potLine(h, l));
   html("lobbyTerms", terms(h, l, h.game(l.game.id)));
@@ -256,6 +278,8 @@ export function patchInvite(ctx) {
   const html = (id, v) => { const el = document.getElementById(id); if (el && el._html !== v) { el._html = v; el.innerHTML = v; } };
   const pc = document.getElementById("plCount"); if (pc) pc.textContent = `${n} / ${max}`;
   html("plSeats", seatPips(n, max));
+  html("plTable", seatTable(l));
+  const st = document.getElementById("plStatus"), sv = seatStatus(n, minOf(l), max); if (st && st.textContent !== sv) st.textContent = sv;
   html("plList", rosterRows(l));
   html("lobbyTerms", terms(ctx.h, l, ctx.h.game(l.game.id)));
   return true;

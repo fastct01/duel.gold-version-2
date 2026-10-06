@@ -291,7 +291,13 @@
 .lb-tour-h{margin:0;font-family:var(--font-display);font-weight:400;font-size:clamp(var(--fs-28),2.6vw,var(--fs-40));line-height:1.08;letter-spacing:-.015em;color:var(--ivory-100);white-space:nowrap}
 .lb-tour-meta{margin:0;font-size:var(--fs-12);font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
 .lb-tour-p{margin:var(--sp-4) 0 0;max-width:56ch;font-size:var(--fs-16);line-height:1.65;color:var(--lb-text2);text-wrap:pretty}
-.lb-soon{grid-column:2;justify-self:start;margin-top:var(--sp-8);padding:4px 10px;border:1px solid var(--hair-strong);border-radius:var(--radius-1);font-size:11px;font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400);white-space:nowrap}
+/* status tags: gold hairline, gold text, a faint gold wash. "Upcoming" (the page) carries the one pulse; "Coming soon" (each format) a clock */
+.lb-status,.lb-soon{display:inline-flex;align-items:center;gap:8px;justify-self:start;margin:0;padding:5px 12px;border:1px solid var(--hair-gold);border-radius:var(--radius-1);
+  background:var(--gold-soft);font-family:var(--font-body);font-size:11px;font-weight:600;line-height:1.3;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--gold-300);white-space:nowrap}
+.lb-status i{width:7px;height:7px;flex:none;background:var(--gold-500);animation:lbSoonPulse 2.4s var(--ease) infinite}
+@keyframes lbSoonPulse{0%,100%{opacity:1}50%{opacity:.25}}
+.lb-soon{grid-column:2;margin-top:var(--sp-8)}
+.lb-soon .ico{width:14px;height:14px;flex:none;stroke-width:1.6;color:var(--gold-500)}
 .lb-tour-cta{display:grid;gap:var(--sp-16);justify-items:start;align-content:start}
 .lb-tour-cta .lb-muted{color:var(--lb-text2)}
 @media(min-width:960px){
@@ -349,3 +355,23 @@
 
 /* the lobby's find button: the same chamfered gold primary as base.css .dg-btn.primary */
 .lb-find{clip-path:polygon(var(--cut) 0,100% 0,100% calc(100% - var(--cut)),calc(100% - var(--cut)) 100%,0 100%,0 var(--cut))}
+
+/* the main lobby (the card carousel) is true black: carousel.css paints signed-in pages black (--menu-black); here the ground token
+   follows on this page too, so the transparent lobby cards and recessed panels match, and the grain is off so nothing lifts the black */
+body[data-view=lobby][data-tab=lobby]{--ink-950:#000}
+body[data-view=lobby][data-tab=lobby]::before{opacity:0}
+
+/* the open lobby is live: a white light laps its border without stopping (one lap per --live-lap). It reuses the click light's
+   comet and @property --ab-a from borders.css; a click still plays its own quick lap, then this one carries on. */
+.lb-open.is-live{--live-lap:3.6s}
+.lb-open.is-live::after{content:"";position:absolute;inset:-2px;z-index:2;pointer-events:none;border:2px solid transparent;filter:var(--ab-glow);
+  border-image:conic-gradient(from var(--ab-a),transparent 0deg 230deg,rgba(255,255,255,.3) 300deg,var(--ivory-50) 340deg,#fff 356deg,transparent 360deg) 1;
+  animation:abLap var(--live-lap) linear infinite;animation-delay:var(--live-off,0ms)}
+@media(prefers-reduced-motion:reduce){.lb-open.is-live::after{animation:none;border-image:none;border-color:rgba(255,255,255,.35);filter:none}}
+
+/* About under the description: a quiet toggle (+ / −, like How to play) that opens the overview, goal, length and Try out */
+.lb-about-btn{justify-self:start;align-self:start;width:auto;margin-top:var(--sp-12)}
+.lb-about{display:grid;gap:var(--sp-12);margin-top:var(--sp-4);padding-top:var(--sp-16);border-top:1px solid var(--hair);max-width:62ch}
+.lb-about-p{margin:0;font-size:var(--fs-16,16px);line-height:1.6;color:var(--stone-400)}
+.lb-about-p b{color:var(--ivory-100);font-weight:500}
+.lb-about-act{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-12) var(--sp-16);margin-top:var(--sp-4)}

@@ -1,0 +1,62 @@
+/* Click glow: each click on a card sends one lap of white light, with a soft white glow, around its border, then it is gone.
+   borders.js adds .ab-run on click (and restarts it on every click) and removes it when the lap ends; nothing is drawn while idle.
+   The light is a pseudo-element whose border alone is painted (border-image: a rotating conic gradient), so the drop-shadow
+   glows around the moving light and nothing else. ::after carries it (::before is the gold corner bracket); the carousel card uses
+   ::before, because its ::after dims the stack. (The gold-style rules ban glows; this one was asked for.) */
+@property --ab-a{syntax:"<angle>";inherits:false;initial-value:0deg}
+@keyframes abLap{from{--ab-a:0deg}to{--ab-a:360deg}}
+@keyframes abFade{0%{opacity:0}8%{opacity:1}85%{opacity:1}100%{opacity:0}}
+
+:root{
+  --ab-lap:1.2s;   /* one lap per click */
+  --ab-glow:drop-shadow(0 0 2px #fff) drop-shadow(0 0 7px rgba(255,255,255,.85)) drop-shadow(0 0 16px rgba(255,248,230,.55));
+}
+
+/* the cards that answer a click (keep in step with CARDS in borders.js) */
+:is(.dg-box,.dg-stat,.lb-card,.lb-gcard,.gl-invite,.mx-panel,.mx-readyblock,.mx-short,.mx-confirm,.invite-banner,
+    .pr-side,.pr-run,.age-card,.wd-confirm,.dep-sent,.si-invite){position:relative}
+
+.ab-run:is(.dg-box,.dg-stat,.lb-card,.lb-gcard,.gl-invite,.mx-panel,.mx-readyblock,.mx-short,.mx-confirm,.invite-banner,
+    .pr-side,.pr-run,.age-card,.wd-confirm,.dep-sent,.si-invite)::after,
+.ab-run.gl-hero::after,.ab-run.cv-card[data-c]::before{
+  content:"";position:absolute;inset:-2px;z-index:2;pointer-events:none; /* -2px: on the liquid-metal rim below */
+  /* a comet of white light: dark for most of the lap, a faint tail, a pure white head, then a clean cut. Written here, not as a :root
+     variable, because a variable resolves var(--ab-a) where it is defined, which would freeze the light at 0deg. */
+  border:2px solid transparent;filter:var(--ab-glow);
+  border-image:conic-gradient(from var(--ab-a),transparent 0deg 230deg,rgba(255,255,255,.3) 300deg,var(--ivory-50) 340deg,#fff 356deg,transparent 360deg) 1;
+  animation:abLap var(--ab-lap) linear 1 both,abFade var(--ab-lap) linear 1 both}
+/* these two clip their overflow, so the light runs just inside the border and glows inward */
+.ab-run.gl-hero::after,.ab-run.cv-card[data-c]::before{inset:0}
+.ab-run.cv-card[data-c]::before{z-index:4}
+/* reduced motion: borders.js never adds .ab-run, so no lap runs */
+
+/* ------------------------------------------------------------------ liquid metal
+   The look of the LiquidMetalButton (21st.dev, built on the @paper-design/shaders LiquidMetal WebGL shader), redone in CSS because a
+   WebGL context per card would hit the browser's limit of about 16 per page: a 2px chrome rim whose highlights flow back and forth like
+   liquid, around a dark metal surface with a soft top sheen. Warm chrome (silver-white highlights, gold mid-tones) to sit with the gold
+   brand; for pure silver chrome swap --lm-metal for --lm-silver. The rim is painted with the card's own background layers (padding-box
+   fill over a border-box gradient), so ::before (the corner bracket) and ::after (the click glow) stay free.
+   !important on border-color and background: hover, selected and accent rules elsewhere would otherwise repaint the rim away. */
+:root{
+  --lm-metal:linear-gradient(115deg,#2c2a25 0%,#f6f2e8 7%,#9a927f 13%,#1f1d19 21%,#d9c48c 29%,#fffaf0 34%,#a8925e 41%,#24221e 50%,
+    #e4ded1 58%,#ffffff 63%,#857e6e 70%,#221f1b 79%,#ecdcae 87%,#fbf6ea 92%,#2c2a25 100%);
+  --lm-silver:linear-gradient(115deg,#2a2b2e 0%,#f3f5f8 7%,#8e9298 13%,#1d1e21 21%,#c9ccd2 29%,#ffffff 34%,#9a9ea6 41%,#222326 50%,
+    #dcdfe4 58%,#ffffff 63%,#7c8087 70%,#1f2023 79%,#e3e6ea 87%,#f7f8fa 92%,#2a2b2e 100%);
+  --lm-fill:linear-gradient(180deg,color-mix(in srgb,var(--ivory-100) 6%,#141310) 0%,#0b0a09 46%,#060605 100%);
+  --lm-flow:11s;
+}
+@keyframes lmFlow{from{background-position:0 0,0% 40%}to{background-position:0 0,100% 60%}}
+
+:is(.dg-box,.dg-stat,.lb-card,.lb-gcard,.gl-hero,.gl-invite,.mx-panel,.mx-readyblock,.mx-short,.mx-confirm,.invite-banner,
+    .pr-side,.pr-run,.age-card,.wd-confirm,.dep-sent,.si-invite,.cv-card){
+  border:2px solid transparent;border-color:transparent!important;
+  background:var(--lm-fill) padding-box,var(--lm-metal) border-box!important;
+  background-size:100% 100%,320% 320%!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 12px 26px -16px rgba(0,0,0,.95);
+  animation:lmFlow var(--lm-flow) ease-in-out infinite alternate}
+/* neighbours flow out of step, so the page reads as liquid, not as one sliding stripe */
+:is(.lb-card,.lb-gcard,.dg-stat,.dg-box,.mx-panel,.cv-card):nth-child(2n){animation-delay:-4s}
+:is(.lb-card,.lb-gcard,.dg-stat,.dg-box,.mx-panel,.cv-card):nth-child(3n){animation-delay:-7s}
+/* ledger figures are an open editorial band, not cards: no metal fill, keep their hairline dividers (account.css) */
+.ledger .dg-stat{background:none!important;box-shadow:none;animation:none}
+.ledger .dg-stat+.dg-stat{border-left-color:var(--hair)!important}

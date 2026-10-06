@@ -352,3 +352,41 @@ body[data-view=signin] #main{max-width:1280px;margin-left:auto;margin-right:auto
   .net-tag{min-height:16px;padding:0 5px;gap:5px;font-size:10px;letter-spacing:.12em}
 }
 @media(max-width:400px){.top-net{left:max(16px,env(safe-area-inset-left,0px))}}
+
+/* ---------------------------------------------------------------- sign-in: the gold ribbons
+   Editorial split: headline and Connect wallet on the left, open space on the right where the ribbon background (ribbons.js)
+   shows at full strength; "How it works" moves to a three-column row underneath. */
+.landing{grid-template-columns:minmax(0,6fr) minmax(0,5fr);grid-template-areas:"hero art" "side side";align-items:center;position:relative}
+.landing{overflow-x:clip}
+.landing-hero{grid-area:hero;position:relative;z-index:1}
+/* an empty column that keeps the right of the hero open for the ribbons */
+.landing-art{grid-area:art;margin:0;align-self:stretch;min-height:clamp(420px,58vh,640px);pointer-events:none}
+/* the ribbon background: on <body> under #main, down to the "How it works" row. The mask keeps it faint behind the text column
+   (left) and fades it out at its foot, so body text stays on near-plain ink. */
+/* height: 100svh until ribbons.js sets it */
+.bg-ribbons{position:absolute;top:0;left:0;z-index:0;display:block;width:100%;height:100svh;pointer-events:none;
+  -webkit-mask-image:linear-gradient(90deg,rgba(0,0,0,.05) 0%,rgba(0,0,0,.07) 54%,#000 76%),linear-gradient(180deg,#000 45%,transparent 88%);
+  -webkit-mask-composite:source-in;mask-image:linear-gradient(90deg,rgba(0,0,0,.05) 0%,rgba(0,0,0,.07) 54%,#000 76%),linear-gradient(180deg,#000 45%,transparent 88%);
+  mask-composite:intersect;animation:ribbonsIn .9s var(--ease) both}
+.bg-ribbons[hidden]{display:none}
+body[data-view=signin] #main{position:relative;z-index:1}
+@keyframes ribbonsIn{from{opacity:0}}
+.landing-side{grid-area:side;margin-top:0;padding-left:0;border-left:0;border-top:1px solid var(--hair);padding-top:var(--sp-48);
+  grid-template-columns:minmax(0,3fr) minmax(0,1fr);gap:var(--sp-48) clamp(32px,5vw,72px)}
+.landing-side .steps{grid-template-columns:repeat(3,minmax(0,1fr));gap:0 var(--sp-32)}
+.landing-side .steps li{grid-template-columns:1fr;gap:var(--sp-8);align-items:start;align-content:start;padding:var(--sp-24) 0 0}
+.landing-side .testnote{border-left:1px solid var(--hair);padding-left:clamp(24px,3vw,40px)}
+@media(max-width:1099px){
+  .landing-side{grid-template-columns:1fr}
+  .landing-side .testnote{border-left:0;padding-left:0}
+}
+@media(max-width:899px){
+  .landing{grid-template-columns:1fr;grid-template-areas:"art" "hero" "side"}
+  /* an open band above the headline where the ribbons show; below it they fade to a trace behind the text */
+  .landing-art{min-height:0;height:clamp(200px,52vw,380px);margin:calc(-1 * clamp(28px,6vw,48px)) 0 calc(-1 * var(--sp-32))}
+  .bg-ribbons{-webkit-mask-image:linear-gradient(180deg,#000 0,#000 calc(var(--top-h) + clamp(90px,24vw,180px)),rgba(0,0,0,.1) calc(var(--top-h) + clamp(190px,48vw,350px)),transparent 100%);
+    mask-image:linear-gradient(180deg,#000 0,#000 calc(var(--top-h) + clamp(90px,24vw,180px)),rgba(0,0,0,.1) calc(var(--top-h) + clamp(190px,48vw,350px)),transparent 100%)}
+  .landing-side .steps{grid-template-columns:1fr}
+  .landing-side .steps li{grid-template-columns:44px minmax(0,1fr);gap:var(--sp-16);align-items:baseline;padding:var(--sp-24) 0}
+}
+@media(prefers-reduced-motion:reduce){.bg-ribbons{animation:none}}
