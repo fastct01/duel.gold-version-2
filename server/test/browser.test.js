@@ -38,17 +38,29 @@ after(async () => {
   if (stack) await stack.stop();
 });
 
-/* a minimal EIP-1193 browser wallet (stands in for MetaMask): one key per browser context, signs with the page's own ethers */
+/* a minimal EIP-1193 browser wallet (stands in for MetaMask): one key per browser context, signs with the page's own ethers.
+   window.__wallet records every request and lets a test steer it: .chainId (the network the wallet is on), .account (another selected account),
+   .reject (the player closes the popup: code 4001), .unknownChain (the wallet has never heard of the chain: code 4902). */
 function mockWallet(pk) {
   let w;
   const wallet = () => (w ||= new window.ethers.Wallet(pk));
+  const st = (window.__wallet = { chainId: "0x7a69", account: null, reject: false, unknownChain: false, calls: [] });
   window.ethereum = {
     async request({ method, params = [] }) {
+      st.calls.push({ method, params });
       switch (method) {
-        case "eth_requestAccounts": case "eth_accounts": return [wallet().address];
-        case "eth_chainId": return "0x7a69";
-        case "net_version": return "31337";
+        case "eth_requestAccounts": case "eth_accounts": return [st.account || wallet().address];
+        case "eth_chainId": return st.chainId;
+        case "net_version": return String(parseInt(st.chainId, 16));
         case "personal_sign": return wallet().signMessage(window.ethers.getBytes(params[0]));
+        case "wallet_switchEthereumChain":
+          if (st.unknownChain) throw Object.assign(new Error("Unrecognized chain ID."), { code: 4902 });
+          st.chainId = params[0].chainId;
+          return null;
+        case "eth_sendTransaction":
+          if (st.reject) throw Object.assign(new Error("User rejected the request."), { code: 4001 });
+          return "0x" + "cd".repeat(32); // a fake hash: nothing is broadcast
+        case "eth_getTransactionReceipt": return null;
         default: throw Object.assign(new Error(`unsupported method ${method}`), { code: 4200 });
       }
     },
@@ -110,7 +122,7 @@ async function hostLobby(page, { stakeWei = "1000000000000000" } = {}) {
   await passAge(page, "#inviteLink");
   await page.waitForSelector("#inviteLink", { timeout: 15000 });
   const link = await page.inputValue("#inviteLink");
-  assert.match(link, /\/play\/\?join=[A-Z2-9]{8}$/, "invite link has a join code");
+  assert.match(link, /^https?:\/\/[^/]+\/\?join=[A-Z2-9]{8}$/, "invite link is the site root with a join code");
   return link;
 }
 async function openInvite(page, link) {
@@ -317,7 +329,7 @@ test("two browsers: sign in, fund on-chain, play each other, win, withdraw on-ch
     assert.match(await text(a, "#wdConfirmBox"), /You receive/i);
     await a.click("#wdConfirmBtn");
   }
-  await until(async () => (await a.locator('[aria-label="Recent withdrawals"]').innerText()).toLowerCase().includes("confirmed"), "withdrawal confirmed", 20000);
+  await until(async () => (await a.locator("#txList .tx-wd").allInnerTexts()).join(" ").toLowerCase().includes("confirmed"), "withdrawal confirmed", 20000);
   assert.equal(await stack.provider.getBalance(addr), parseEther("0.5"), "the winnings arrived on-chain");
   await until(async () => (await text(a, "#balAvail")) === "0.5008", "balance after withdrawal");
   await shot(a, "08-wallet-after-1280");
@@ -796,7 +808,9 @@ test("invite-only: no queue, no matchmaking and no player search anywhere in the
 });
 
 test("mainnet mode (GET /v1/config and /v1/wallet overridden in the browser): real-money wording, network badge, deposit and withdraw copy, no faucet", { skip: !CHROME && "no Chromium available" }, async () => {
-  const MIN = "5000000000000000", FEE = "300000000000000", ADDR_EXPLORER = "https://etherscan.io";
+  let MIN = "5000000000000000";
+  const ago = (days, hour) => { const d = new Date(); d.setDate(d.getDate() - days); d.setHours(hour, 0, 0, 0); return d.getTime(); }; // that many days back at that hour (so day groups do not depend on the time of day)
+  const FEE = "300000000000000", ADDR_EXPLORER = "https://etherscan.io", H = (c) => "0x" + c.repeat(32);
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   await ctx.addInitScript(mockWallet, Wallet.createRandom().privateKey);
   const a = await ctx.newPage();
@@ -804,7 +818,7 @@ test("mainnet mode (GET /v1/config and /v1/wallet overridden in the browser): re
   a.on("pageerror", (e) => a.errors.push("pageerror: " + e.message));
   a.on("console", (m) => { if (m.type() === "error" && !/fonts\.g|ERR_FAILED|favicon/.test(m.text() + (m.location().url || ""))) a.errors.push("console: " + m.text()); });
   await a.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
-  const chain = (c) => ({ ...c, name: "Ethereum Mainnet", explorer: ADDR_EXPLORER, confirmations: 12, network: "mainnet", realMoney: true });
+  const chain = (c) => ({ ...c, id: 1, name: "Ethereum Mainnet", explorer: ADDR_EXPLORER, confirmations: 12, network: "mainnet", realMoney: true }); // id 1: the wallet starts on the local chain, so a deposit has to switch it
   await a.route("**/v1/config", async (route) => {
     const res = await route.fetch(), j = await res.json();
     delete j.devFaucet;
@@ -817,7 +831,21 @@ test("mainnet mode (GET /v1/config and /v1/wallet overridden in the browser): re
   });
   await a.route("**/v1/wallet/deposits", async (route) => {
     const res = await route.fetch(), j = await res.json();
-    await route.fulfill({ response: res, json: { ...j, deposits: [{ txHash: "0x" + "ab".repeat(32), amount: "1000000000000000", blockNumber: 7, status: "pending", credited: false, creditedAt: null, detectedAt: Date.now() - 60000, explorerUrl: `${ADDR_EXPLORER}/tx/0x${"ab".repeat(32)}` }] } });
+    await route.fulfill({ response: res, json: { ...j, deposits: [
+      { txHash: H("ab"), amount: "1000000000000000", blockNumber: 7, status: "pending", credited: false, creditedAt: null, detectedAt: Date.now() - 10000, explorerUrl: `${ADDR_EXPLORER}/tx/${H("ab")}` },
+      { txHash: H("ef"), amount: "50000000000000000", blockNumber: 5, status: "credited", credited: true, creditedAt: ago(1, 12), detectedAt: ago(1, 12), explorerUrl: `${ADDR_EXPLORER}/tx/${H("ef")}` },
+    ] } });
+  });
+  /* one withdrawal in each state the server can report (queued, signed, broadcast, confirmed, failed) */
+  const WD = (id, status, over = {}) => ({ id, amount: "100000000000000000", fee: FEE, total: "100300000000000000", to: "0x" + "12".repeat(20), status, txHash: null, blockNumber: null, error: null, createdAt: Date.now() - id * 20000, updatedAt: Date.now(), explorerUrl: null, ...over });
+  await a.route("**/v1/wallet/withdrawals", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    const res = await route.fetch(), j = await res.json();
+    await route.fulfill({ response: res, json: { ...j, withdrawals: [
+      WD(5, "queued"), WD(4, "signed", { txHash: H("a1") }), WD(3, "broadcast", { txHash: H("b2"), explorerUrl: `${ADDR_EXPLORER}/tx/${H("b2")}` }),
+      WD(2, "confirmed", { txHash: H("c3"), blockNumber: 9, explorerUrl: `${ADDR_EXPLORER}/tx/${H("c3")}`, createdAt: ago(1, 11) }),
+      WD(1, "failed", { txHash: H("d4"), error: "reverted on-chain", createdAt: ago(3, 12) }),
+    ] } });
   });
   await a.goto(`${stack.url}/play/?test=1`);
 
@@ -881,9 +909,140 @@ test("mainnet mode (GET /v1/config and /v1/wallet overridden in the browser): re
   assert.ok(await a.locator("#copyAddr").isVisible(), "a copy button for the deposit address");
   assert.equal(await a.getAttribute("#addrExplorer", "href"), `${ADDR_EXPLORER}/address/${addr.trim()}`, "an explorer link for the deposit address");
   assert.match(await text(a, "#depNotes"), /Minimum deposit: 0\.005\sETH/);
-  assert.match(await text(a, "#depNotes"), /after 12 confirmations/);
+  assert.match(await text(a, "#depNotes"), /after 12 confirmations, about 2–3 minutes on Ethereum Mainnet/, "the wait is told roughly: 12 blocks of 12 s");
   assert.match(await text(a, "#depPending"), /0\.001\sETH.*below the minimum deposit.*0\.004\sETH more/s, "a deposit below the minimum shows what is missing");
-  assert.match(await text(a, '[aria-label="Recent deposits"]'), /Below the minimum deposit of 0\.005\sETH[\s\S]*pending/i);
+  assert.equal(await a.locator("#faucetBtn, #qrCode").count(), 0);
+
+  // the amount picker: mainnet presets, a custom amount, one primary action labelled with the amount
+  const presets = () => a.$$eval(".dep-amts .dg-chip", (cs) => cs.map((c) => ({ t: c.innerText.trim(), on: c.getAttribute("aria-pressed") === "true", off: c.disabled })));
+  assert.deepEqual((await presets()).map((c) => c.t), ["0.01", "0.025", "0.05", "0.1", "0.25", "Custom"]);
+  assert.deepEqual((await presets()).filter((c) => c.on).map((c) => c.t), ["0.05"], "0.05 is picked at first");
+  assert.match(await text(a, "#depositBtn"), /^Deposit 0\.05\sETH$/i, "the button names the amount");
+  await a.click('.dep-amts [data-v="0.25"]');
+  assert.match(await text(a, "#depositBtn"), /Deposit 0\.25\sETH/i);
+  await a.click('.dep-amts [data-v="custom"]');
+  assert.ok(await a.locator("#depCustom").isVisible(), "Custom shows an amount field");
+  assert.ok(await a.locator("#depositBtn").isDisabled(), "no deposit until the amount is valid");
+  const typeAmt = async (v) => { await a.fill("#depCustom", v); };
+  const depErr = () => text(a, "#depErr");
+  await typeAmt("0.001");
+  assert.match(await depErr(), /The minimum deposit is 0\.005\sETH\./, "below the minimum");
+  assert.ok(await a.locator("#depositBtn").isDisabled());
+  await typeAmt("0.1234567890123456789");
+  assert.match(await depErr(), /at most 18 decimal places/, "too many decimals");
+  await typeAmt("abc");
+  assert.match(await depErr(), /Enter a number/);
+  await typeAmt("0");
+  assert.match(await depErr(), /above 0/);
+  await typeAmt("11");
+  assert.match(await depErr(), /most you can deposit here at once is 10\sETH/, "above 10 ETH");
+  await typeAmt("0.3");
+  assert.equal(await depErr(), "");
+  assert.match(await text(a, "#depositBtn"), /Deposit 0\.3\sETH/i);
+  assert.ok(await a.locator("#depositBtn").isEnabled());
+  assert.equal(await a.getAttribute("#depCustom", "aria-invalid"), "false");
+  await a.click('.dep-amts [data-v="0.05"]');
+
+  // a minimum above some presets disables them, and says why; the pick moves to one that is allowed
+  MIN = "30000000000000000";
+  await a.click('#nav [data-go="lobby"]');
+  await a.click('#nav [data-go="wallet"]');
+  await until(async () => (await presets()).find((c) => c.t === "0.01").off, "presets below the new minimum are disabled");
+  assert.deepEqual((await presets()).filter((c) => c.off).map((c) => c.t), ["0.01", "0.025"]);
+  assert.match(await text(a, "#depMinNote"), /below the minimum deposit of 0\.03\sETH are not available/);
+  assert.deepEqual((await presets()).filter((c) => c.on).map((c) => c.t), ["0.05"]);
+  MIN = "5000000000000000";
+  await a.click('#nav [data-go="lobby"]');
+  await a.click('#nav [data-go="wallet"]');
+  await until(async () => !(await presets()).some((c) => c.off), "presets are back once the minimum is lower");
+
+  // deposit from the browser wallet. The wallet starts on another chain and has another account selected: nothing is sent until both are right.
+  const calls = (m) => a.evaluate((x) => window.__wallet.calls.filter((c) => c.method === x), m);
+  const reset = () => a.evaluate(() => { window.__wallet.calls = []; });
+  await a.evaluate(() => { window.__wallet.reject = true; });
+  await reset();
+  await a.click("#depositBtn");
+  await until(async () => /Nothing was sent/.test(await text(a, "#depMsg")), "a closed wallet popup is met calmly");
+  assert.equal((await calls("eth_sendTransaction")).length, 1, "the wallet was asked once");
+  assert.equal(await a.locator("#depSent").count(), 0, "no pending deposit after a rejection");
+  assert.equal(await a.locator("#depMsg.warn").count(), 0, "a rejection is not an error");
+  await a.evaluate(() => { window.__wallet.reject = false; window.__wallet.chainId = "0x7a69"; window.__wallet.unknownChain = true; });
+  await reset();
+  await a.click("#depositBtn");
+  await until(async () => /does not know Ethereum Mainnet/.test(await text(a, "#depMsg")), "an unknown chain (4902) is explained");
+  assert.equal((await calls("eth_sendTransaction")).length, 0, "nothing is sent on an unknown chain");
+  await a.evaluate(() => { window.__wallet.unknownChain = false; window.__wallet.account = "0x" + "11".repeat(20); });
+  await reset();
+  await a.click("#depositBtn");
+  await until(async () => /Switch it to .*the account you signed in with/.test(await text(a, "#depMsg")), "the wrong account is named");
+  assert.equal((await calls("eth_sendTransaction")).length, 0, "nothing is sent from another account");
+  assert.equal((await calls("wallet_switchEthereumChain")).length, 1);
+  await a.evaluate(() => { window.__wallet.account = null; window.__wallet.chainId = "0x7a69"; });
+  await reset();
+  await a.click('.dep-amts [data-v="0.05"]');
+  await a.click("#depositBtn");
+  await a.waitForSelector("#depSent");
+  const me = await a.evaluate(() => window.__duel.client.address);
+  const sw = await calls("wallet_switchEthereumChain"), sendTx = await calls("eth_sendTransaction");
+  assert.deepEqual(sw.map((c) => c.params[0].chainId), ["0x1"], "the wallet is switched to the deposit chain (id 1)");
+  assert.equal(sendTx.length, 1);
+  const tx = sendTx[0].params[0];
+  assert.equal(tx.to.toLowerCase(), addr.trim().toLowerCase(), "sent to the player's own deposit address");
+  assert.equal(tx.from.toLowerCase(), me.toLowerCase(), "from the signed-in account");
+  assert.equal(tx.value, "0x" + parseEther("0.05").toString(16), "the value is the picked amount in wei, as hex");
+  assert.match(await text(a, "#depSent"), /0\.05\sETH.*Waiting for 12 confirmations, about 2–3 minutes/s, "a pending deposit card");
+  assert.equal(await a.getAttribute("#depSentLink", "href"), `${ADDR_EXPLORER}/tx/${H("cd")}`, "with an explorer link to the transaction");
+  assert.match(await text(a, "#depSent"), /0xcdcd…cdcd/);
+  await until(async () => /1 deposit confirming/.test(await text(a, "#txSummary")), "the summary counts it");
+  assert.match(await text(a, '#txList .tx[data-status="confirming"]'), /Deposit[\s\S]*Confirming · 0 \/ 12[\s\S]*\+0\.05\sETH/i, "and so does the list");
+  await shot(a, "35-mainnet-wallet-deposit-1280");
+
+  // transactions: every backend status has its own pill, grouped by day, newest first; the filters narrow the list
+  const pills = (sel) => a.$$eval(`#txList ${sel} .rpill`, (ps) => ps.map((p) => p.innerText.trim().toLowerCase()));
+  const kinds = () => a.$$eval("#txList .tx", (rows) => rows.map((r) => `${r.dataset.kind}:${r.dataset.status}`));
+  assert.deepEqual(await kinds(), ["deposit:confirming", "deposit:below", "withdrawal:broadcast", "withdrawal:signed", "withdrawal:queued", "deposit:credited", "withdrawal:confirmed", "withdrawal:failed"], "newest first");
+  assert.deepEqual(await pills(""), ["confirming · 0 / 12", "below minimum", "sent", "processing", "queued", "successful", "confirmed", "failed · refunded"], "one pill per backend status");
+  const byState = async (st) => (await text(a, `#txList .tx[data-status="${st}"]`)).replace(/\s+/g, " ");
+  assert.match(await byState("queued"), /Withdrawal.*Queued.*−0\.1\sETH.*\+ 0\.0003 fee/i, "a queued withdrawal: negative amount, fee under it");
+  assert.match(await byState("signed"), /Processing/i);
+  assert.match(await byState("broadcast"), /Sent.*Waiting for 12 confirmations/i);
+  assert.match(await byState("confirmed"), /Confirmed/i);
+  assert.match(await byState("failed"), /Failed · refunded.*Refunded to your balance, network fee included\. Reason: reverted on-chain/i);
+  assert.match(await byState("below"), /Below minimum.*\+0\.001\sETH.*Below the minimum deposit of 0\.005\sETH, so it is not credited yet/i);
+  assert.match(await byState("credited"), /Deposit.*Successful.*\+0\.05\sETH/i);
+  assert.equal(await a.locator('#txList .tx[data-status="credited"] .dg-good').count(), 1, "a credited deposit is in the ok colour");
+  assert.equal(await a.locator('#txList .tx[data-status="below"] .dg-good').count(), 0, "one that is not credited is not");
+  assert.match(await text(a, "#txSummary"), /1 deposit confirming · 1 deposit below the minimum · 3 withdrawals processing/);
+  const days = await a.$$eval("#txList .tx-dayh", (hs) => hs.map((x) => x.textContent.trim()));
+  assert.equal(days.length, 3, "grouped by day");
+  assert.deepEqual(days.slice(0, 2), ["Today", "Yesterday"]);
+  assert.match(await a.getAttribute('#txList .tx[data-status="credited"] time', "title"), /\d/, "the absolute time is in the title");
+  assert.match(await text(a, '#txList .tx[data-status="credited"] time'), /\d+ [hd] ago/, "and the time shown is relative");
+  assert.equal(await a.getAttribute('#txList .tx[data-status="confirmed"] a.tx-btn', "href"), `${ADDR_EXPLORER}/tx/${H("c3")}`);
+  assert.equal(await a.locator('#txList .tx[data-status="queued"] .tx-btn').count(), 0, "a queued withdrawal has no transaction yet");
+  const press = (k) => a.$$eval(".tx-filter .dg-chip", (cs) => cs.map((c) => `${c.innerText.trim()}:${c.getAttribute("aria-pressed")}`));
+  assert.deepEqual(await press(), ["All:true", "Deposits:false", "Withdrawals:false"]);
+  await a.click('.tx-filter [data-v="deposit"]');
+  assert.deepEqual((await kinds()).map((k) => k.split(":")[0]).filter((v, i, all) => all.indexOf(v) === i), ["deposit"]);
+  assert.equal((await kinds()).length, 3);
+  assert.deepEqual(await press(), ["All:false", "Deposits:true", "Withdrawals:false"]);
+  await a.click('.tx-filter [data-v="withdrawal"]');
+  assert.equal((await kinds()).length, 5);
+  assert.ok((await kinds()).every((k) => k.startsWith("withdrawal:")));
+  await a.click('.tx-filter [data-v="all"]');
+  assert.equal((await kinds()).length, 8);
+  // the manual way stays, quieter
+  assert.equal(await a.locator("#copyAddr.ghost").count(), 1);
+  await shot(a, "36-mainnet-wallet-transactions-1280");
+  for (const w of [320, 360, 390, 768, 1024, 1440]) {
+    await a.setViewportSize({ width: w, height: 900 });
+    assert.ok(await noOverflow(a), `the mainnet wallet fits ${w}px`);
+  }
+  await a.setViewportSize({ width: 390, height: 900 });
+  const small = await a.$$eval(".dep-amts .dg-chip, .tx-filter .dg-chip, .tx-btn, #depositBtn, #copyAddr", (els) => els.filter((e) => e.getBoundingClientRect().height < 43.5 || e.getBoundingClientRect().width < 43.5).map((e) => e.className + " " + e.textContent.trim().slice(0, 12)));
+  assert.deepEqual(small, [], "touch targets are at least 44px");
+  await shot(a, "37-mainnet-wallet-transactions-390");
+  await a.setViewportSize({ width: 1280, height: 900 });
   assert.match(await text(a, "#wlLimits"), /Play within your limits/);
   assert.match(await text(a, "main"), /real ETH: deposits and withdrawals are on-chain/);
   assert.equal(await a.locator("#faucetBtn").count(), 0);
@@ -930,4 +1089,93 @@ test("mainnet mode (GET /v1/config and /v1/wallet overridden in the browser): re
   await until(async () => (await a.getAttribute("#ageStatus", "data-confirmed")) === "yes", "the account page shows the confirmation");
   assert.deepEqual(a.errors, [], "no console or page errors");
   await ctx.close();
+});
+
+test("wallet on the local chain: preset and custom deposit amounts through the faucet, then one Transactions list with filters", { skip: !CHROME && "no Chromium available" }, async (t) => {
+  const a = await open(t);
+  await a.click("#signInjected");
+  await a.click('[data-go="wallet"]');
+  await a.waitForSelector("#faucetBtn");
+  const presets = () => a.$$eval(".dep-amts .dg-chip", (cs) => cs.map((c) => ({ t: c.innerText.trim(), on: c.getAttribute("aria-pressed") === "true", off: c.disabled })));
+  const btn = async () => (await text(a, "#faucetBtn")).replace(/\s+/g, " ");
+  const kinds = () => a.$$eval("#txList .tx", (rows) => rows.map((r) => `${r.dataset.kind}:${r.dataset.status}`));
+
+  // empty states, one per filter
+  assert.match(await text(a, "#txList"), /No transactions yet/);
+  await a.click('.tx-filter [data-v="deposit"]');
+  assert.match(await text(a, "#txList"), /No deposits yet/);
+  await a.click('.tx-filter [data-v="withdrawal"]');
+  assert.match(await text(a, "#txList"), /No withdrawals yet/);
+  await a.click('.tx-filter [data-v="all"]');
+  assert.equal(await a.locator("#txSummary").count(), 0, "nothing pending: no summary line");
+
+  // the faucet presets, and the faucet is still driven by #faucetBtn / data-act="faucet"
+  assert.deepEqual((await presets()).map((c) => c.t), ["0.1", "0.5", "1", "Custom"]);
+  assert.deepEqual((await presets()).filter((c) => c.on).map((c) => c.t), ["1"], "1 is picked at first (the faucet's maximum)");
+  assert.equal(await a.getAttribute("#faucetBtn", "data-act"), "faucet");
+  assert.match(await btn(), /^Deposit 1 ETH$/i);
+  assert.equal(await a.locator("#depositBtn").count(), 0, "the wallet button is for real networks");
+  await a.click('.dep-amts [data-v="0.5"]');
+  assert.match(await btn(), /^Deposit 0\.5 ETH$/i);
+  assert.equal(await a.getAttribute("#faucetBtn", "data-eth"), "0.5");
+  await a.click("#faucetBtn");
+  await until(async () => (await text(a, "#balAvail")) === "0.5", "the 0.5 preset is credited");
+  await until(async () => !/Depositing/i.test(await btn()), "the button is ready again");
+
+  // a custom amount: checked while typing, capped at the faucet's 1 ETH
+  await a.click('.dep-amts [data-v="custom"]');
+  assert.ok(await a.locator("#faucetBtn").isDisabled(), "no amount yet");
+  const err = () => text(a, "#depErr");
+  await a.fill("#depCustom", "2");
+  assert.match(await err(), /faucet sends at most 1 ETH/);
+  assert.ok(await a.locator("#faucetBtn").isDisabled());
+  await a.fill("#depCustom", "0.1234567890123456789");
+  assert.match(await err(), /at most 18 decimal places/);
+  await a.fill("#depCustom", "-1");
+  assert.match(await err(), /Enter a number/);
+  await a.fill("#depCustom", "0.25");
+  assert.equal(await err(), "");
+  assert.match(await btn(), /^Deposit 0\.25 ETH$/i);
+  await a.press("#depCustom", "Enter"); // Enter in the field deposits too
+  await until(async () => (await text(a, "#balAvail")) === "0.75", "the custom 0.25 is credited");
+  await until(async () => !/Depositing/i.test(await btn()), "the button is ready again");
+  assert.equal(await a.inputValue("#depCustom"), "0.25", "the typed amount stays");
+
+  // withdraw 0.25: one Transactions list shows both directions
+  await a.fill("#wdAmt", "0.25");
+  await a.click("#wdBtn");
+  if (await a.waitForSelector("#wdConfirmBtn", { timeout: 1500 }).then(() => true, () => false)) await a.click("#wdConfirmBtn");
+  await until(async () => (await a.locator('#txList .tx-wd[data-status="confirmed"]').count()) === 1, "the withdrawal is confirmed", 20000);
+  await until(async () => (await kinds()).filter((k) => k === "deposit:credited").length === 2, "both deposits are listed as credited");
+  assert.equal((await kinds()).length, 3);
+  const row = async (sel) => (await text(a, sel)).replace(/\s+/g, " ");
+  assert.match(await row("#txList .tx-wd"), /Withdrawal.*Confirmed.*−0\.25\sETH/i, "a withdrawal: negative, with its status");
+  assert.match(await row('#txList .tx-dep'), /Deposit.*Successful.*\+0\.(25|5)\sETH/i, "a deposit: positive, with its status");
+  assert.equal(await a.locator("#txList .tx-dep .dg-good").count(), 2, "credited deposits are in the ok colour");
+  assert.match(await text(a, "#txList .tx-dayh"), /Today/i, "grouped by day");
+  assert.match(await text(a, "#txList .tx time"), /just now|\d+ s ago|\d+ min ago/);
+  assert.ok((await a.getAttribute("#txList .tx time", "title")).length > 5, "the absolute time is in the title");
+  assert.equal(await a.locator("#txList .tx .tx-hash").count(), 3, "each row carries a short transaction hash");
+  assert.equal(await a.locator('#txList .tx-btn[data-act="copy-tx"]').count(), 3);
+  assert.equal(await a.locator('#txSummary').count(), 0);
+  const press = () => a.$$eval(".tx-filter .dg-chip", (cs) => cs.map((c) => `${c.innerText.trim()}:${c.getAttribute("aria-pressed")}`));
+  assert.deepEqual(await press(), ["All:true", "Deposits:false", "Withdrawals:false"]);
+  await a.click('.tx-filter [data-v="deposit"]');
+  assert.deepEqual(await kinds(), ["deposit:credited", "deposit:credited"], "Deposits shows only deposits");
+  assert.deepEqual(await press(), ["All:false", "Deposits:true", "Withdrawals:false"]);
+  await a.click('.tx-filter [data-v="withdrawal"]');
+  assert.deepEqual(await kinds(), ["withdrawal:confirmed"], "Withdrawals shows only withdrawals");
+  await a.click('.tx-filter [data-v="all"]');
+  assert.equal((await kinds()).length, 3);
+
+  // layout: no sideways scroll, big enough touch targets, at the widths the client supports
+  for (const w of [320, 360, 390, 768, 1024, 1440]) {
+    await a.setViewportSize({ width: w, height: 900 });
+    assert.ok(await noOverflow(a), `the wallet fits ${w}px`);
+  }
+  await a.setViewportSize({ width: 360, height: 900 });
+  const small = await a.$$eval(".dep-amts .dg-chip, .tx-filter .dg-chip, .tx-btn, #faucetBtn", (els) => els.filter((e) => e.getBoundingClientRect().height < 43.5 || e.getBoundingClientRect().width < 43.5).map((e) => e.className));
+  assert.deepEqual(small, [], "touch targets are at least 44px");
+  await a.setViewportSize({ width: 1280, height: 900 });
+  assert.deepEqual(a.errors, [], "no console or page errors");
 });

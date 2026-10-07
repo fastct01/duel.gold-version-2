@@ -6,6 +6,8 @@
 import { icon } from "../ui.js";
 import { practiceHTML } from "./practice.js";
 import { art, artBg } from "../gameart.js";
+import { copyFor } from "./gamecopy.js";
+const LIVE_LAP_MS = 3600; // one lap of the open-lobby border light (keep in step with --live-lap in lobby.css)
 
 export const FAV_KEY = "dg.favs";
 
@@ -172,7 +174,7 @@ function selectedHTML(ctx) {
   const line = `<div class="lb-sel-line"><p class="lb-eyebrow lb-sel-kind">${esc(kind)}</p><h2 class="lb-sel-name">${esc(g.name)}</h2><span class="lb-sel-meta">${r ? `Your rating <b class="dg-mono">${r.rating}</b>` : "Unrated"}</span></div>`;
   const toggle = `<button type="button" class="lb-how" id="lbHowBtn" data-act="lb-how" aria-expanded="${open}" aria-controls="lbHowPanel">${open ? "Show less" : "How to play"}</button>`;
   if (!open) return `<div class="lb-sel">
-    <div class="lb-sel-l">${line}<p class="lb-sel-blurb">${esc(nbUnits(g.blurb))}</p></div>
+    <div class="lb-sel-l">${line}<p class="lb-sel-blurb">${esc(nbUnits(g.blurb))}</p>${aboutHTML(ctx, g)}</div>
     <div class="lb-sel-r">
       <div class="lb-meters">${h.meter("Skill", g.skill, "skill")}${h.meter("Luck", g.luck, "luck")}</div>
       ${toggle}
@@ -194,6 +196,24 @@ function selectedHTML(ctx) {
       </div>
     </div>
   </div>`;
+}
+
+/* About: under the description, a quiet toggle that opens the game's overview, goal and length, with Try out (practice vs a bot) */
+function aboutHTML(ctx, g) {
+  const { S, h } = ctx; const { esc } = h;
+  const open = !!S.ui.lbAbout, c = copyFor(g.id) || {};
+  const btn = `<button type="button" class="lb-how lb-about-btn" id="lbAboutBtn" data-act="lb-about" aria-expanded="${open}" aria-controls="lbAboutPanel">About</button>`;
+  if (!open) return btn;
+  const length = c.length || (g.duration && nbUnits(g.duration.replace(/\s*\(.*\)/, "")));
+  return `${btn}<div class="lb-about" id="lbAboutPanel">
+      ${c.overview ? `<p class="lb-about-p">${esc(nbUnits(c.overview))}</p>` : ""}
+      ${c.goal ? `<p class="lb-about-p"><b>Goal.</b> ${esc(nbUnits(c.goal))}</p>` : ""}
+      ${length ? `<p class="lb-hint">Length: ${esc(nbUnits(length))}</p>` : ""}
+      <div class="lb-about-act">
+        <button type="button" class="lb-btn gold" data-act="try-game" data-game="${esc(g.id)}" id="aboutTryBtn">Try out</button>
+        <span class="lb-hint">Practice against a bot. Free, no stake, no rating.</span>
+      </div>
+    </div>`;
 }
 
 export function stakeChips(ctx) {
@@ -270,7 +290,8 @@ export function openLobbyCard(ctx) {
   const stake = String(L.stake) === "0" ? "Free play" : `${h.eth(L.stake)} ${esc(h.sym())} stake`;
   const n = Array.isArray(L.players) && L.players.length ? L.players.length : Number(L.playerCount) || 1, max = Number(L.maxPlayers) || 10;
   const who = guest ? `Waiting for ${esc(L.host && L.host.name)} to start` : n > 1 ? "Waiting for you to start, or for more players" : "Waiting for friends to join";
-  return `<section class="lb-card lb-open" aria-labelledby="lbOpen">
+  /* the live light laps the border for as long as the lobby is open; its phase comes from the clock, so a redraw continues the lap */
+  return `<section class="lb-card lb-open is-live" style="--live-off:-${Date.now() % LIVE_LAP_MS}ms" aria-labelledby="lbOpen">
     <div class="lb-open-in">
       <span class="lb-pulse" aria-hidden="true"></span>
       <div class="lb-open-t"><p class="lb-eyebrow">${guest ? "You are in a lobby" : "Your open lobby"}</p>
@@ -418,11 +439,11 @@ export const views = {
     const fmt = (n, name, meta, text) => `<li class="lb-tour-item">
       <span class="lb-tour-n" aria-hidden="true">${n}</span>
       <div class="lb-tour-b"><h2 class="lb-tour-h">${name}</h2><p class="lb-tour-meta">${meta}</p><p class="lb-tour-p">${text}</p></div>
-      <span class="lb-soon">Coming soon</span>
+      <span class="lb-soon">${icon("clock")}<span>Coming soon</span></span>
     </li>`;
     return `<div class="lb-tour">
       <header class="lb-tour-head" aria-labelledby="lbTour">
-        <p class="lb-eyebrow">Upcoming</p>
+        <p class="lb-status"><i aria-hidden="true"></i>Upcoming</p>
         <h1 class="lb-title lb-title-xl" id="lbTour">Tournaments</h1>
         <p class="lb-lede">Tournaments for groups of friends are on the way. One person sets it up, shares a single invite link, and everyone who joins plays the same seeded rounds until one winner is left.</p>
       </header>
@@ -527,6 +548,14 @@ export const actions = {
     /* asked from a card: the panel lives below the stage, so bring it into view when it opens (closing leaves focus on the button) */
     if (S.ui.lbHow && b) { b.focus({ preventScroll: true }); (document.querySelector("#lbSetup") || box).scrollIntoView({ block: "start", behavior: reducedMotion() ? "auto" : "smooth" }); }
   },
+  "lb-about"(el, app) {
+    const { S, ctx } = app;
+    S.ui.lbAbout = !S.ui.lbAbout;
+    const box = document.querySelector("#lbSelected");
+    if (!box) return app.render(true);
+    box.innerHTML = selectedHTML(ctx);
+    const b = document.querySelector("#lbAboutBtn"); if (b) b.focus();
+  },
   "lb-pick"(el, app) { select(app, el.dataset.game); },
   "lb-step"(el, app) { step(app, Number(el.dataset.dir) || 1); },
   /* Play this game (on the centre card) / Scroll to discover: on to the stake. Focus lands on the chosen stake so the keyboard goes
@@ -597,7 +626,7 @@ export const actions = {
   },
 };
 
-/* the code, from a typed code or a pasted invite link (…/play/?join=CODE) */
+/* the code, from a typed code or a pasted invite link (…/?join=CODE; older links …/play/?join=CODE work too) */
 export function codeFrom(text) {
   const t = String(text || "").trim();
   const m = t.match(/[?&]join=([A-Za-z0-9]+)/);
@@ -612,7 +641,7 @@ function joinByCode(app) {
     if (inp) { inp.setAttribute("aria-invalid", "true"); inp.focus(); }
     return;
   }
-  location.assign(`/play/?join=${encodeURIComponent(code)}`);
+  location.assign(`/?join=${encodeURIComponent(code)}`);
 }
 
 /* module-level listener: Enter in the code field joins */
@@ -663,10 +692,32 @@ document.addEventListener("wheel", (e) => {
 
 /* ------------------------------------------------------------------ hooks */
 
+/* Card art is drawn toward the right of its 168×140 frame. Centre each picture on what is actually drawn: measure the drawing
+   once per game and shift the viewBox (same size, so the scale never changes and nothing is cropped). A picture whose subject is
+   not the whole drawing marks it with data-centre (the dartboard, not board plus dart), and that shape is centred instead. */
+const artCentre = new Map();
+function centreCardArt() {
+  for (const svg of document.querySelectorAll(".cv-art svg.gart-svg")) {
+    const id = svg.closest(".cv-card") && svg.closest(".cv-card").dataset.game;
+    if (!id) continue;
+    let vb = artCentre.get(id);
+    if (!vb) {
+      try {
+        const b = (svg.querySelector("[data-centre]") || svg).getBBox(), base = svg.viewBox.baseVal;
+        if (!b.width || !b.height || !base || !base.width) continue;
+        vb = `${(b.x + b.width / 2 - base.width / 2).toFixed(2)} ${(b.y + b.height / 2 - base.height / 2).toFixed(2)} ${base.width} ${base.height}`;
+        artCentre.set(id, vb);
+      } catch { continue; }
+    }
+    if (svg.getAttribute("viewBox") !== vb) svg.setAttribute("viewBox", vb);
+  }
+}
+
 export function mount(name, app) {
   const { S } = app;
   if (name !== "lobby") { S.ui.lbOrder = null; return; } // leaving the page: the carousel sorts again (favourites first) next time
   appRef = app;
+  centreCardArt();
   /* a new category: its cards fade in (opacity only, the transforms stay the carousel's) */
   if (S.ui.lbSwap) {
     S.ui.lbSwap = false;

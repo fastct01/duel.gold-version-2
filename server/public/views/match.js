@@ -51,6 +51,22 @@ const chips = (p) => `${p.host ? '<span class="lb-chip-s">Host</span>' : ""}${p.
 const rosterRows = (l) => lobbyPlayers(l).map((p) => `<li class="mx-pr${p.you ? " you" : ""}">${ava(p.avatar || p.name, 32, p.you ? "you" : "")}<span class="mx-pname">${esc(p.name)}</span><span class="mx-ptags">${chips(p)}</span></li>`).join("");
 /* ten thin segments, one per seat: gold = taken (decorative, the count beside it carries the meaning) */
 const seatPips = (n, max) => Array.from({ length: max }, (_, i) => `<i${i < n ? ' class="on"' : ""}></i>`).join("");
+/* the table: one round seat per place in the lobby. Taken seats show the player's avatar (gold ring; the host's is solid gold),
+   open seats are dashed and numbered. Decorative: the list below and the status line carry the meaning. */
+const seatTable = (l) => {
+  const ps = lobbyPlayers(l), max = maxOf(l);
+  return Array.from({ length: max }, (_, i) => {
+    const p = ps[i];
+    return p
+      ? `<span class="mx-seat on${p.host ? " host" : ""}${p.you ? " you" : ""}" title="${esc(p.name)}">${avatar(p.avatar || p.name, 34)}</span>`
+      : `<span class="mx-seat open">${i + 1}</span>`;
+  }).join("");
+};
+const seatStatus = (n, min, max) => {
+  const open = Math.max(0, max - n);
+  const tail = n >= max ? "the lobby is full" : n < min ? `${min - n} more needed to start` : "ready to start";
+  return `${n} joined · ${open} open seat${open === 1 ? "" : "s"} · ${tail}`;
+};
 const startLabel = (n, min, busy) => (busy ? "Starting…" : n >= min ? `Start match · ${n} players` : "Start match");
 const startHint = (n, min, max) => (n < min ? "Waiting for at least one more player" : n >= max ? "The lobby is full. Starting…" : `Press Start match when everyone is in. It also starts by itself at ${max} players.`);
 
@@ -120,6 +136,8 @@ function playersBlock(ctx, l) {
   return `<section class="mx-a-players mx-players" id="lobbyPlayers" data-role="${host ? "host" : "guest"}" aria-labelledby="plH">
       <h2 class="mx-k mx-plh" id="plH">Players <span class="mx-plc" id="plCount">${n} / ${max}</span></h2>
       <div class="mx-seats" id="plSeats" style="--cap:${max}" aria-hidden="true">${seatPips(n, max)}</div>
+      <div class="mx-table" id="plTable" aria-hidden="true">${seatTable(l)}</div>
+      <p class="mx-fine mx-seatstat" id="plStatus" aria-live="polite">${esc(seatStatus(n, minOf(l), max))}</p>
       <ol class="mx-pl" id="plList" aria-label="Players in this lobby">${rosterRows(l)}</ol>
       <p class="mx-fine mx-potline" id="plPot">${potLine(h, l)}</p>
       ${start}
@@ -132,6 +150,8 @@ function publicPlayers(l) {
   return `<section class="mx-a-players mx-players" id="lobbyPlayers" data-role="public" aria-labelledby="plH">
       <h2 class="mx-k mx-plh" id="plH">Players <span class="mx-plc" id="plCount">${n} / ${max}</span></h2>
       <div class="mx-seats" id="plSeats" style="--cap:${max}" aria-hidden="true">${seatPips(n, max)}</div>
+      <div class="mx-table" id="plTable" aria-hidden="true">${seatTable(l)}</div>
+      <p class="mx-fine mx-seatstat" id="plStatus" aria-live="polite">${esc(seatStatus(n, minOf(l), max))}</p>
       <ol class="mx-pl" id="plList" aria-label="Players in this lobby">${rosterRows(l)}</ol>
     </section>`;
 }
@@ -178,6 +198,7 @@ function hostRoom(ctx, l) {
           <div id="lobbyTerms">${terms(h, l, g)}</div>
           ${g && g.blurb ? `<p class="mx-lede">${esc(g.blurb)}</p>` : ""}
           <p class="mx-fine">${free ? "Free play. Ratings still count. Cancelling closes the lobby for everyone." : h.real() ? `Every player stakes the same amount. Cancelling the lobby returns every stake. ${esc(h.moneyNote())}` : "Every player stakes the same amount, held until the match is decided. Cancelling the lobby returns every stake. Test ETH only, no real money."}</p>
+          ${g ? `<a class="dg-link mx-about" href="#game/${esc(g.id)}" data-go="game" data-arg="${esc(g.id)}">About ${esc(g.name)}${icon("arrow")}</a>` : ""}
         </aside>
       </div>
       ${rulesSection(g, h, "While you wait")}
@@ -214,6 +235,7 @@ function guestRoom(ctx, l) {
           <div id="lobbyTerms">${terms(h, l, g)}</div>
           ${g && g.blurb ? `<p class="mx-lede">${esc(g.blurb)}</p>` : ""}
           <p class="mx-fine">${free ? "Free play. Ratings still count." : h.real() ? `Leaving before it starts returns your stake in full. ${esc(h.moneyNote())}` : "Your stake is held until the match is decided. Leaving before it starts returns it in full. Test ETH only, no real money."}</p>
+          ${g ? `<a class="dg-link mx-about" href="#game/${esc(g.id)}" data-go="game" data-arg="${esc(g.id)}">About ${esc(g.name)}${icon("arrow")}</a>` : ""}
         </aside>
       </div>
       ${rulesSection(g, h, "While you wait")}
@@ -232,6 +254,8 @@ export function patchLobby(ctx) {
   const text = (id, v) => { const el = $(id); if (el && el.textContent !== v) el.textContent = v; };
   text("plCount", `${n} / ${max}`);
   html("plSeats", seatPips(n, max));
+  html("plTable", seatTable(l));
+  text("plStatus", seatStatus(n, min, max));
   html("plList", rosterRows(l));
   html("plPot", potLine(h, l));
   html("lobbyTerms", terms(h, l, h.game(l.game.id)));
@@ -256,6 +280,8 @@ export function patchInvite(ctx) {
   const html = (id, v) => { const el = document.getElementById(id); if (el && el._html !== v) { el._html = v; el.innerHTML = v; } };
   const pc = document.getElementById("plCount"); if (pc) pc.textContent = `${n} / ${max}`;
   html("plSeats", seatPips(n, max));
+  html("plTable", seatTable(l));
+  const st = document.getElementById("plStatus"), sv = seatStatus(n, minOf(l), max); if (st && st.textContent !== sv) st.textContent = sv;
   html("plList", rosterRows(l));
   html("lobbyTerms", terms(ctx.h, l, ctx.h.game(l.game.id)));
   return true;
@@ -306,6 +332,7 @@ export const views = {
           <h2 class="mx-h2">${esc(l.game.name)}</h2>
           <div id="lobbyTerms">${terms(h, l, g)}</div>
           ${free ? "" : `<p class="mx-fine">${esc(h.moneyNote())} Your stake is taken when you press Join, and you can leave before the match starts for a full refund. If everyone ties, all stakes are returned.</p>${S.me && S.me.responsible && S.me.responsible.adultConfirmed === false ? `<p class="mx-fine">You will be asked to confirm that you are 18 or older before you join.</p>` : ""}`}
+          ${g ? `<a class="dg-link mx-about" href="#game/${esc(g.id)}" data-go="game" data-arg="${esc(g.id)}">About ${esc(g.name)}${icon("arrow")}</a>` : ""}
         </aside>
         <div class="mx-a-act">
           ${full ? `<div class="mx-short" role="status" id="fullNote"><p><b>This lobby is full</b><span class="mx-k">All ${max} seats are taken. Ask ${esc(l.host.name)} for a new link.</span></p></div>` : ""}
@@ -394,6 +421,7 @@ export const views = {
           <p class="mx-eyebrow">The terms</p>
           ${terms(h, m, g, { duration: false })}
           ${free ? "" : `<p class="mx-fine">${esc(h.moneyNote())} If everyone ties, all stakes are returned.</p>`}
+          ${g ? `<a class="dg-link mx-about" href="#game/${esc(g.id)}" data-go="game" data-arg="${esc(g.id)}">About ${esc(g.name)}${icon("arrow")}</a>` : ""}
         </aside>
         ${rulesSection(g, h, "Rules", "mx-a-rules stack")}
       </div>

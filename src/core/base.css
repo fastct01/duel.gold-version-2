@@ -1,7 +1,7 @@
 /* Duel.gold design system: the one source of tokens and shared components.
    Loaded by the client (/play), the game packs (/game) and the standalone artifact shell, so every surface draws from here.
    Rules: gold is an accent (about 10% of a screen), ink is the ground, corners are 2-4px, depth comes from hairlines and
-   edges rather than blur or glow, motion is ease-out at 180-500ms. Fonts are loaded by each HTML page (Bodoni Moda, Manrope,
+   edges rather than blur or glow, motion is ease-out at 180-500ms. Fonts are loaded by each HTML page (Rothek, Manrope,
    DM Mono). Games: use these tokens and the dg-* classes; namespace your own classes as .g-<gameid>-*. Legacy names
    (--panel, --fg, --f-body, ...) stay as aliases so older rules keep working. */
 
@@ -26,7 +26,7 @@
 
   /* ---- colour rhyme: gold = you, ivory = ally, terracotta = rival, sage = win */
   --ok:#9DB07A;        /* sage: win, ready, online. 8.4:1 on ink-950 */
-  --danger:#D27C63;    /* terracotta: rival, loss, errors. 6.4:1 on ink-950 */
+  --danger:#E2644B;    /* red: rival, loss, errors. More saturated/red than the old #D27C63. 5.8:1 on ink-950, 5.0:1 on ink-800 */
   --rival:var(--danger);
   --ally:var(--ivory-100);
 
@@ -36,8 +36,8 @@
   --hair-gold:color-mix(in srgb,var(--gold-500) 40%,transparent);
   --field-line:color-mix(in srgb,var(--stone-400) 45%,var(--ink-600)); /* control outlines: 3.3:1; the plain hairline is for dividers only */
 
-  /* ---- type: Display = the super family (Bodoni Moda). Text = a quiet grotesk (Manrope). Data = a mono (DM Mono). */
-  --font-display:"Bodoni Moda","Didot","Bodoni 72",Georgia,"Times New Roman",serif;
+  /* ---- type: Display = Rothek, a grotesque for headings, titles and big numbers. Text = Manrope. Data = DM Mono. */
+  --font-display:"Rothek","Manrope","Helvetica Neue",Arial,sans-serif; /* Rothek (Groteskly Yours, licensed, self-hosted: /play/fonts/rothek.css); Manrope until its files are in place */
   --font-body:"Manrope","Helvetica Neue",Arial,sans-serif;
   --font-data:"DM Mono",ui-monospace,Menlo,Consolas,monospace;
   --fs-12:12px; --fs-14:14px; --fs-16:16px; --fs-20:20px;
@@ -155,8 +155,8 @@ button{font:inherit;color:inherit;cursor:pointer}
 .dg-btn.primary:focus-visible,.mx-btn.primary:focus-visible,.gl-btn.primary:focus-visible,.lb-btn.primary:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--ivory-100)}
 .dg-btn.ghost,.gl-btn.quiet,.mx-btn.quiet{border-color:var(--field-line);color:var(--stone-400)}
 .dg-btn.ghost:hover:not(:disabled),.gl-btn.quiet:hover:not(:disabled),.mx-btn.quiet:hover:not(:disabled){border-color:var(--gold-500);color:var(--gold-300)}
-.dg-btn.danger,.mx-btn.danger,.lb-cancel{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 65%,transparent)}
-.dg-btn.danger:hover:not(:disabled),.mx-btn.danger:hover:not(:disabled),.lb-cancel:hover:not(:disabled){background:color-mix(in srgb,var(--danger) 10%,transparent);border-color:var(--danger);color:var(--danger)}
+.dg-btn.danger,.mx-btn.danger,.gl-btn.danger,.lb-cancel{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 65%,transparent)}
+.dg-btn.danger:hover:not(:disabled),.mx-btn.danger:hover:not(:disabled),.gl-btn.danger:hover:not(:disabled),.lb-cancel:hover:not(:disabled){background:color-mix(in srgb,var(--danger) 10%,transparent);border-color:var(--danger);color:var(--danger)}
 .dg-btn.sm,.mx-btn.sm{min-height:44px;padding:8px 18px;font-size:11px}
 .dg-btn.xl,.mx-btn.lg,.gl-btn.lg{min-height:56px;padding:14px 40px;font-size:13px}
 .lb-cancel{width:100%}
@@ -181,7 +181,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 /* ------------------------------------------------------------------ fields */
 .field{display:grid;gap:var(--sp-8);min-width:0}
 .field label,.label{font:600 12px/1.4 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
-input[type=text],input[type=number],input[type=search],select,textarea{width:100%;min-height:48px;background:var(--ink-800);color:var(--ivory-100);
+input[type=text],input[type=number],input[type=search],input[type=email],input[type=password],select,textarea{width:100%;min-height:48px;background:var(--ink-800);color:var(--ivory-100);
   border:1px solid var(--field-line);border-radius:var(--radius-1);padding:10px 14px;font:inherit;box-shadow:var(--shadow-pressed);transition:border-color var(--dur-1) var(--ease)}
 input:focus-visible,select:focus-visible,textarea:focus-visible{border-color:var(--gold-500);outline:1px solid var(--gold-500);outline-offset:2px}
 

@@ -55,7 +55,9 @@ export class Auth {
     return { nonce, message, expiresAt };
   }
 
-  login({ address: addressInput, nonce, signature, ip = null }) {
+  /* Check a signed sign-in message and consume its nonce: returns the lowercase address that signed it. Used by wallet sign-in
+     and by linking a wallet to an email account. */
+  checkSignature({ address: addressInput, nonce, signature }) {
     const address = normalizeAddress(addressInput);
     if (typeof nonce !== "string" || !/^[0-9a-f]{32}$/.test(nonce)) throw bad("BAD_NONCE", "Missing or malformed nonce.");
     if (typeof signature !== "string" || !/^0x[0-9a-fA-F]{130}$/.test(signature)) throw bad("BAD_SIGNATURE", "Signature must be a 65-byte hex string.");
@@ -71,11 +73,14 @@ export class Auth {
     catch { throw new AppError("BAD_SIGNATURE", "Signature could not be verified.", 401); }
     // a wrong signature does not consume the nonce, so nobody can burn another wallet's pending sign-in
     if (signer !== address) throw new AppError("BAD_SIGNATURE", "Signature does not match the address.", 401);
+    this.db.run("DELETE FROM auth_nonces WHERE nonce = ?", nonce); // single use
+    return address;
+  }
 
+  /* a new session for a user: a random bearer token (only its sha256 is stored), at most MAX_SESSIONS_PER_USER kept */
+  openSession(user, ip = null) {
+    if (user.banned) throw forbidden("ACCOUNT_BANNED", "This account is suspended.");
     return this.db.tx(() => {
-      this.db.run("DELETE FROM auth_nonces WHERE nonce = ?", nonce); // single use
-      const { user, created } = this.users.getOrCreate(address);
-      if (user.banned) throw forbidden("ACCOUNT_BANNED", "This account is suspended.");
       const token = "dg_" + crypto.randomBytes(32).toString("base64url");
       const expiresAt = this.now() + this.cfg.auth.sessionTtlMs;
       this.db.run("INSERT INTO sessions (token_hash, user_id, created_at, expires_at, ip) VALUES (?, ?, ?, ?, ?)", sha256(token), user.id, this.now(), expiresAt, ip);
@@ -83,7 +88,18 @@ export class Auth {
         `DELETE FROM sessions WHERE user_id = ? AND token_hash NOT IN
            (SELECT token_hash FROM sessions WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?)`,
         user.id, user.id, MAX_SESSIONS_PER_USER);
-      return { token, expiresAt, user, created };
+      return { token, expiresAt };
+    });
+  }
+
+  /* every session of a user ends (password reset, security change) */
+  endSessions(userId) { this.db.run("DELETE FROM sessions WHERE user_id = ?", userId); }
+
+  login({ address, nonce, signature, ip = null }) {
+    return this.db.tx(() => {
+      const signer = this.checkSignature({ address, nonce, signature });
+      const { user, created } = this.users.getOrCreate(signer);
+      return { ...this.openSession(user, ip), user, created };
     });
   }
 

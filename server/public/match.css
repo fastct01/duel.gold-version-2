@@ -315,3 +315,20 @@ body[data-view=play] #main{max-width:min(1280px,100%);padding-top:calc(var(--top
 .invite-banner.bad{border-color:var(--hair);border-left-color:var(--stone-400)}
 .invite-banner.bad .ib-ico{border-color:var(--hair);color:var(--stone-400)}
 .top-open{animation:none}
+
+/* the seat table under the seat bar: taken seats show the player, open seats are dashed and numbered */
+.mx-table{display:flex;flex-wrap:wrap;gap:var(--sp-8);margin:var(--sp-16) 0 var(--sp-4)}
+.mx-seat{flex:none;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;line-height:0;font-size:11px;font-weight:500;letter-spacing:.06em;
+  font-variant-numeric:lining-nums tabular-nums;color:var(--stone-400)}
+.mx-seat.open{border:1px dashed var(--ink-600);line-height:1}
+.mx-seat.on{border:1px solid var(--hair-gold);background:var(--ink-800)}
+/* only the newest arrival (the last taken seat) animates in */
+.mx-seat.on:has(+ .open),.mx-seat.on:last-child{animation:seatIn .5s var(--ease) both}
+.mx-seat.on .ava{width:34px;height:34px;border-radius:50%}
+.mx-seat.host{border-color:var(--gold-500)}
+.mx-seat.you{box-shadow:0 0 0 2px var(--ink-950),0 0 0 3px var(--gold-500)}
+@keyframes seatIn{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:none}}
+.mx-seatstat{margin:var(--sp-4) 0 var(--sp-12)}
+@media(max-width:520px){.mx-table{display:grid;grid-template-columns:repeat(5,44px);gap:var(--sp-8) var(--sp-12)}}
+@media(max-width:340px){.mx-table{grid-template-columns:repeat(5,40px);gap:6px}.mx-seat{width:40px;height:40px}.mx-seat.on .ava{width:30px;height:30px}}
+@media(prefers-reduced-motion:reduce){.mx-seat.on:has(+ .open),.mx-seat.on:last-child{animation:none}}

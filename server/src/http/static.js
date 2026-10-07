@@ -1,9 +1,10 @@
-/* Static files: the reference browser client (server/public) at /play, its SDK and ethers under /play/sdk and /play/vendor,
+/* Static files: the reference browser client (server/public): its page at the site root (/), its files under /play, its SDK and ethers under
+   /play/sdk and /play/vendor,
    and the game packs it runs (repo src/core + src/games) at /game/. Read-only, no directory listing, no path escapes. */
 import fs from "node:fs";
 import path from "node:path";
 
-const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon" };
+const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".webp": "image/webp", ".woff2": "font/woff2", ".woff": "font/woff", ".ico": "image/x-icon" };
 
 export function attachStatic(router, cfg) {
   /* most specific prefix first; `allow` restricts which files under `dir` can be reached */
@@ -15,9 +16,15 @@ export function attachStatic(router, cfg) {
   ];
   router.fallback = (req, res, url) => {
     if (req.method !== "GET" && req.method !== "HEAD") return false;
+    /* the app's page lives at the site root; its old address (/play, /play/) sends visitors there, query string kept (e.g. ?join=CODE).
+       302, not 301, so browsers do not cache it. Everything else under /play is the app's files and is served as is. */
+    if (url.pathname === "/play" || url.pathname === "/play/" || url.pathname === "/play/index.html") {
+      res.writeHead(302, { location: "/" + url.search, "cache-control": "no-cache" }); res.end(); return true;
+    }
+    const pathname = url.pathname === "/" ? "/play/index.html" : url.pathname;
     for (const { prefix, dir, allow } of roots) {
-      if (url.pathname !== prefix && !url.pathname.startsWith(prefix + "/")) continue;
-      let rel = decodeSafe(url.pathname.slice(prefix.length)) ?? "";
+      if (pathname !== prefix && !pathname.startsWith(prefix + "/")) continue;
+      let rel = decodeSafe(pathname.slice(prefix.length)) ?? "";
       if (rel === "" || rel.endsWith("/")) rel += "index.html";
       rel = rel.replace(/^\/+/, "");
       const base = path.resolve(dir);
@@ -36,7 +43,7 @@ export function attachStatic(router, cfg) {
         "cache-control": "no-cache",
         etag,
         "last-modified": stat.mtime.toUTCString(),
-        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' ws: wss:; img-src 'self' data:",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' ws: wss:; img-src 'self' data:",
         "x-frame-options": "DENY",
       });
       if (req.method === "HEAD") res.end(); else fs.createReadStream(file).pipe(res);

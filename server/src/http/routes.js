@@ -1,5 +1,5 @@
 /* REST API, version 1. Amounts are always decimal strings of wei. Timestamps are epoch milliseconds. */
-import { bad, notFound } from "../util/errors.js";
+import { AppError, bad, notFound } from "../util/errors.js";
 import { parseWei, toStr } from "../util/amounts.js";
 import { checksum } from "../util/address.js";
 import { ACCT } from "../ledger.js";
@@ -12,12 +12,13 @@ const intParam = (v, d, min, max) => {
 };
 
 export function registerRoutes(r, app) {
-  const { cfg, auth, users, responsible, wallet, matches, catalog, ledger } = app;
+  const { cfg, auth, emailAuth, users, responsible, wallet, matches, catalog, ledger } = app;
 
   /* the caller's own profile; used by /me and by the WebSocket after sign-in */
   const meView = (u) => {
     return {
       id: u.id, address: checksum(u.address), displayName: u.display_name, createdAt: u.created_at,
+      email: u.email || null, emailVerified: !!u.email_verified_at, hasWallet: !!u.address, // an email account links a wallet to withdraw
       balances: { ...wallet.balances(u.id), inPlay: toStr(matches.stakeAtRisk(u.id)) },
       responsible: responsible.view(u.id),
       queueBanUntil: u.queue_ban_until > Date.now() ? u.queue_ban_until : null,
@@ -49,6 +50,7 @@ export function registerRoutes(r, app) {
         feeMode: fee.mode, ...(fee.mode === "fixed" ? { fee: toStr(fee.fixed) } : { feeMarginBps: fee.marginBps }), // the live estimate is in GET /v1/wallet
       },
       age: { minimum: 18, requiredForStakes: true },
+      auth: { wallet: true, email: emailAuth.enabled },
       match: { acceptMs: cfg.match.acceptMs, countdownMs: cfg.match.countdownMs, lobbyTtlMs: cfg.match.lobbyTtlMs, lobbyMaxPlayers: cfg.match.lobbyMaxPlayers, inviteOnly: true },
       websocket: "/v1/ws",
       notice: real
@@ -79,6 +81,18 @@ export function registerRoutes(r, app) {
   });
 
   r.post("/v1/auth/logout", { auth: true }, ({ token }) => { auth.logout(token); return { ok: true }; });
+
+  /* email accounts (src/emailAuth.js). signup and forgot answer { ok: true } whether or not the email has an account; the
+     links they send come back as verify / reset, which sign the player in. */
+  const session = (s) => ({ token: s.token, expiresAt: s.expiresAt, created: s.created, me: meView(s.user) });
+  r.post("/v1/auth/email/signup", { limit: "auth" }, ({ body }) => emailAuth.signup({ email: body.email, password: body.password }));
+  r.post("/v1/auth/email/verify", { limit: "auth" }, ({ body, ip }) => session(emailAuth.verify({ token: body.token, ip })));
+  r.post("/v1/auth/email/login", { limit: "auth" }, async ({ body, ip }) => session(await emailAuth.login({ email: body.email, password: body.password, ip })));
+  r.post("/v1/auth/email/forgot", { limit: "auth" }, ({ body }) => emailAuth.forgot({ email: body.email }));
+  r.post("/v1/auth/email/reset", { limit: "auth" }, async ({ body, ip }) => session(await emailAuth.reset({ token: body.token, password: body.password, ip })));
+  /* link a wallet to an email account: POST /v1/auth/nonce { address } first, sign the message, then send the signature here */
+  r.post("/v1/me/wallet/link", { auth: true, limit: "auth" }, async ({ user, body }) =>
+    meView(await emailAuth.linkWallet(user, { address: body.address, nonce: body.nonce, signature: body.signature })));
 
   /* ---------------------------------------------------------------- profile + responsible play */
 
@@ -148,6 +162,7 @@ export function registerRoutes(r, app) {
     wallet.require();
     const amount = parseWei(body.amount, "amount");
     const maxFee = body.maxFee == null ? null : parseWei(body.maxFee, "maxFee");
+    if (!user.address) throw new AppError("WALLET_NOT_LINKED", "Link a wallet to your account first: withdrawals can only go to your own wallet.", 409);
     const out = await wallet.withdrawals.request({ userId: user.id, to: user.address, amount, idemKey: req.headers["idempotency-key"] || null, maxFee });
     return { status: out.replay ? 200 : 201, body: out };
   });

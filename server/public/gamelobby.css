@@ -33,14 +33,26 @@
 .gl-host{display:grid;margin-bottom:var(--sp-16)}
 .gl-main,.gl-rail{min-width:0}
 .gl-rail{container:glr/inline-size;margin-top:var(--gl-gap)}
-.gl-hero{margin-bottom:var(--gl-gap)}
+.gl-hero{margin-bottom:var(--sp-24)} /* the About / Try out row sits close under it */
 @media(min-width:1240px){
-  .gl-grid{grid-template-columns:minmax(0,1fr) 340px;grid-template-rows:auto auto 1fr;grid-template-areas:"hero rail" "prac rail" "main rail";column-gap:var(--sp-48)}
-  .gl-hero{grid-area:hero}.gl-prac{grid-area:prac}.gl-main{grid-area:main}
+  .gl-grid{grid-template-columns:minmax(0,1fr) 340px;grid-template-rows:auto auto auto 1fr;grid-template-areas:"hero rail" "quick rail" "prac rail" "main rail";column-gap:var(--sp-48)}
+  .gl-hero{grid-area:hero}.gl-quick{grid-area:quick}.gl-prac{grid-area:prac}.gl-main{grid-area:main}
   .gl-rail{grid-area:rail;align-self:start;margin-top:0}
 }
 /* the rail only sticks when the window is tall enough to show all of it */
 @media(min-width:1240px) and (min-height:860px){.gl-rail{position:sticky;top:calc(var(--top-h,64px) + var(--sp-24))}}
+
+/* ---- About / Try out, right under the hero; About opens the description below the buttons */
+.gl-quick{display:grid;gap:var(--sp-32);margin-bottom:var(--gl-gap);min-width:0}
+.gl-quick-acts{display:flex;flex-wrap:wrap;gap:12px}
+.gl-about-btn .ico{transition:transform var(--dur-1) var(--ease)}
+.gl-about-btn[aria-expanded=true]{border-color:var(--gold-500);color:var(--ivory-100)}
+.gl-about-btn[aria-expanded=true] .ico{transform:rotate(180deg)}
+.gl-about-panel{display:grid;gap:var(--sp-32);padding-top:var(--sp-32);border-top:1px solid var(--hair);min-width:0;animation:glPanelIn var(--dur-2) var(--ease) both}
+.gl-about-panel[hidden]{display:none}
+@keyframes glPanelIn{from{opacity:0;transform:translateY(-6px)}}
+@media(max-width:480px){.gl-quick-acts .gl-btn{flex:1 1 0}}
+@media(prefers-reduced-motion:reduce){.gl-about-panel{animation:none}.gl-about-btn .ico{transition:none}}
 
 /* ---- headings and copy */
 .gl-h2{margin:0;font-family:var(--font-display);font-weight:400;font-size:var(--fs-28);line-height:1.12;letter-spacing:-.01em;color:var(--ivory-100);text-wrap:balance}

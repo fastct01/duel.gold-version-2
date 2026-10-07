@@ -88,7 +88,7 @@ function pickedStake() {
 }
 
 /* What every view and action receives. Views are pure: (ctx) => html. Actions: async (el, app) => void. */
-const inviteUrl = (code) => `${location.origin}/play/?join=${encodeURIComponent(code)}`;
+const inviteUrl = (code) => `${location.origin}/?join=${encodeURIComponent(code)}`;
 const ctx = { S, h, pickedStake, inviteUrl };
 const app = {
   S, h, ctx, store, toast, http, render, go, act, createLobby, joinLobby, inviteUrl, askAge,
@@ -267,6 +267,76 @@ async function signIn(kind) {
   store.set("dg.token", client.token, "sessionStorage");
   store.set("dg.address", address, "sessionStorage");
   await startSession(client);
+}
+
+/* ------------------------------------------------------------------ email accounts (views/shell.js emailForm) */
+
+const postJSON = (path, body) => http(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+/* a session from an email sign-in, a confirmed link or a password reset: the same client a wallet sign-in builds, without a signer */
+async function emailSession(out) {
+  const address = out.me && out.me.address;
+  const client = new DuelClient({ baseUrl: location.origin, address, sign: () => { throw new Error("Link a wallet first."); }, bufferEvents: false });
+  client.token = out.token;
+  client.me = out.me;
+  store.set("dg.token", out.token, "sessionStorage");
+  if (address) store.set("dg.address", address, "sessionStorage"); else store.del("dg.address", "sessionStorage");
+  S.ui.emailMode = "signin"; S.ui.resetToken = null;
+  await startSession(client);
+}
+
+async function emailSubmit(form, kind, e) {
+  const err = $("#emErr"), btn = e.submitter || form.querySelector("button[type=submit]");
+  const email = (($("#emEmail") || {}).value || "").trim(), password = ($("#emPw") || {}).value || "";
+  if (err) err.textContent = "";
+  form.dataset.busy = "1";
+  if (btn) { btn.disabled = true; btn.setAttribute("aria-busy", "true"); }
+  try {
+    if (kind === "email-signin") await emailSession(await postJSON("/v1/auth/email/login", { email, password }));
+    else if (kind === "email-signup") { await postJSON("/v1/auth/email/signup", { email, password }); S.ui.emailMode = "sent"; S.ui.emailTo = email; render(true); }
+    else if (kind === "email-forgot") { await postJSON("/v1/auth/email/forgot", { email }); S.ui.emailMode = "sent-reset"; S.ui.emailTo = email; render(true); }
+    else if (kind === "email-reset") await emailSession(await postJSON("/v1/auth/email/reset", { token: S.ui.resetToken, password }));
+  } catch (ex) {
+    if (err && err.isConnected) err.textContent = ex.message; else { S.error = ex.message; render(true); }
+  } finally {
+    delete form.dataset.busy;
+    if (btn && btn.isConnected) { btn.disabled = false; btn.removeAttribute("aria-busy"); }
+  }
+}
+
+/* ?verify=TOKEN (confirms the email and signs in) and ?reset=TOKEN (opens "choose a new password"), from the links we email;
+   the token leaves the address bar at once */
+function readEmailLink() {
+  const q = new URLSearchParams(location.search);
+  const kind = q.has("verify") ? "verify" : q.has("reset") ? "reset" : null;
+  if (!kind) return null;
+  const token = q.get(kind);
+  q.delete("verify"); q.delete("reset");
+  const qs = q.toString();
+  try { history.replaceState(null, "", location.pathname + (qs ? "?" + qs : "") + location.hash); } catch { /* ignore */ }
+  return { kind, token };
+}
+
+/* an email account proves it owns a wallet: the wallet signs a sign-in nonce, the server links it (once) */
+async function linkWallet(el) {
+  if (!window.ethereum) { toast("No browser wallet found. Install a wallet such as MetaMask, then reload this page.", "bad"); return; }
+  el.disabled = true;
+  try {
+    const signer = await new ethers.BrowserProvider(window.ethereum).getSigner();
+    const address = await signer.getAddress();
+    const n = await S.client.api("POST", "/v1/auth/nonce", { address });
+    await S.client.api("POST", "/v1/me/wallet/link", { address, nonce: n.nonce, signature: await signer.signMessage(n.message) });
+    S.client.address = address;
+    store.set("dg.address", address, "sessionStorage");
+    toast("Wallet linked. Withdrawals go to this wallet.", "good");
+    await refreshMe();
+    if (S.wallet) await refreshWallet();
+    render(true);
+  } catch (e) {
+    toast(e.message, "bad");
+  } finally {
+    if (el.isConnected) el.disabled = false;
+  }
 }
 
 async function resume(token) {
@@ -548,6 +618,12 @@ async function act(name, el) {
       case "injected":
         el.disabled = true; try { await signIn(name); } catch (e) { S.error = e.message; render(true); } break;
       case "logout": signOut(); break;
+      case "email-mode": {
+        S.ui.emailMode = el.dataset.v; S.error = ""; render(true);
+        const f = $(S.ui.emailMode === "reset" ? "#emPw" : "#emEmail"); if (f && matchMedia("(pointer:fine)").matches) f.focus();
+        break;
+      }
+      case "link-wallet": return linkWallet(el);
       case "stake": S.pick.stake = el.dataset.v; render(true); break;
       case "copy":
         try { await navigator.clipboard.writeText(S.wallet.depositAddress); toast("Address copied.", "good"); }
@@ -770,12 +846,18 @@ document.addEventListener("input", (e) => {
   if (e.target.id === "customStake") S.pick.custom = e.target.value;
   if (e.target.id === "code") S.pick.code = e.target.value.replace(/[^A-Za-z0-9]/g, "");
 });
+/* remember whether the email sign-in is open, so a re-render (an error, a refresh) does not fold it away */
+document.addEventListener("toggle", (e) => {
+  if (e.target instanceof HTMLDetailsElement && e.target.classList.contains("em-more")) S.ui.emailOpen = e.target.open;
+}, true);
+
 document.addEventListener("submit", async (e) => {
   const form = e.target.closest("[data-form]");
   if (!form) return;
   e.preventDefault();
   if (form.dataset.busy) return; // one request at a time: a double click must not queue two withdrawals
   const kind = form.dataset.form;
+  if (kind.startsWith("email-")) return emailSubmit(form, kind, e);
   const err = $(kind === "withdraw" ? "#wdErr" : "#limErr");
   const btn = e.submitter || form.querySelector("button[type=submit]");
   err.textContent = "";
@@ -847,7 +929,12 @@ async function loadPacks(games) {
     $("#main").innerHTML = `<section class="dg-box"><h2 class="dg-h">Cannot reach the server</h2><p class="lede">${esc(e.message)}</p></section>`;
     return;
   }
-  const token = store.get("dg.token", "sessionStorage");
+  const link = readEmailLink();
+  if (link && link.kind === "verify") {
+    try { await emailSession(await postJSON("/v1/auth/email/verify", { token: link.token })); return; }
+    catch (e) { S.error = e.message; }
+  } else if (link) { S.ui.emailMode = "reset"; S.ui.resetToken = link.token; }
+  const token = !link || link.kind !== "reset" ? store.get("dg.token", "sessionStorage") : null; // a reset link always shows the form
   if (token) { try { await resume(token); return; } catch { store.del("dg.token", "sessionStorage"); } }
   render(true);
   if (S.invite) loadInvite();

@@ -1,0 +1,8 @@
+/* Rothek by Groteskly Yours: the display face (headings, game titles, big numbers). base.css --font-display names it.
+   Commercial font: the .woff2 files below come from a licence that covers web embedding, and they live next to this file.
+   To switch it on, add after the Google Fonts <link> in /play/index.html:
+     <link rel="stylesheet" href="/play/fonts/rothek.css">
+   Until then headings fall back to Manrope. */
+@font-face{font-family:"Rothek";font-style:normal;font-weight:400;font-display:swap;src:url("Rothek-Regular.woff2") format("woff2")}
+@font-face{font-family:"Rothek";font-style:normal;font-weight:500;font-display:swap;src:url("Rothek-Medium.woff2") format("woff2")}
+@font-face{font-family:"Rothek";font-style:normal;font-weight:700;font-display:swap;src:url("Rothek-Bold.woff2") format("woff2")}

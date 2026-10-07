@@ -139,6 +139,20 @@ export function loadConfig(env = process.env, overrides = {}) {
     auth: {
       nonceTtlMs: 5 * 60000,
       sessionTtlMs: int(env.SESSION_TTL_MS, 7 * 24 * 3600000, "SESSION_TTL_MS", 1000),
+      verifyTtlMs: 24 * 3600000,   // email verification link
+      resetTtlMs: 3600000,         // password reset link
+      emailsPerHour: 5,            // per account, so the endpoints cannot be used to flood an inbox
+    },
+
+    /* Email accounts (email + password). On when mail can be delivered (RESEND_API_KEY) or outside production, where messages
+       are logged instead; off in production without a key, so nobody signs up for a link that never arrives. */
+    mail: {
+      resendApiKey: env.RESEND_API_KEY || "",
+      from: env.MAIL_FROM || "",
+      enabled: !!env.RESEND_API_KEY || !production,
+      /* where links in emails point: PUBLIC_URL, else https://PUBLIC_DOMAIN in production, else "" = the address this server
+         is listening on (development and tests use a random port) */
+      publicUrl: String(env.PUBLIC_URL || (production ? `https://${env.PUBLIC_DOMAIN || "localhost"}` : "")).replace(/\/+$/, ""),
     },
 
     rate: {
@@ -180,6 +194,9 @@ function validate(cfg, ctx = {}) {
     if (cfg.chain.rpcUrl && !cfg.keys.mnemonic) throw new Error("config: HD_MNEMONIC is required in production (refusing to generate a dev wallet)");
     if (cfg.allowedOrigins.includes("*")) throw new Error("config: set ALLOWED_ORIGINS explicitly in production");
     if (cfg.adminToken && cfg.adminToken.length < 24) throw new Error("config: ADMIN_TOKEN must be at least 24 characters");
+    if (cfg.mail.resendApiKey && !/^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$|<[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+>$/.test(cfg.mail.from)) {
+      throw new Error('config: MAIL_FROM must be a sender on your verified domain, e.g. "Duel.gold <no-reply@duel.gold>"');
+    }
   }
 }
 

@@ -2,7 +2,7 @@
    Opened from a card in the Game library (app.go("game", id) sets S.ui.gameId and S.pick.game). Styles: /play/gamelobby.css (.gl- prefix).
    The stake picker, terms line and open-lobby banner reuse the lobby page's helpers, so both pages behave the same.
    Everything shown is real: the game pack's text (or gamecopy.js), S.cfg and the player's own rating. Nothing public: no online counts, no results of other players.
-   Layout: an editorial page. A large hero plate (the game's art as a quiet picture), hairline-ruled sections with the heading in a
+   Layout: an editorial page. A large hero plate (the game's art as a quiet picture), an About / Try out row under it, hairline-ruled sections with the heading in a
    narrow left column, and a rail on wide screens that holds the one primary action, Create lobby. */
 import { icon } from "../ui.js";
 import { readFavs, ratingFor, stakeChips, calcHTML, noticesHTML, openLobbyCard } from "./lobby.js";
@@ -84,22 +84,28 @@ function hero(ctx, g, t) {
   </section>`;
 }
 
-function aboutCard(ctx, g, t) {
-  const { esc } = ctx.h;
+/* right under the hero: About opens the game's description in place, Try out starts a practice round against the bot (the level
+   picked in Practice carries over). The panel's open state lives in S.ui.glAbout, so background re-renders keep it. */
+function aboutBar(ctx, g, t) {
+  const { S, h } = ctx; const { esc } = h;
+  const open = !!S.ui.glAbout;
   const ul = (items) => `<ul class="gl-list">${items.map((x) => `<li>${esc(nbu(x))}</li>`).join("")}</ul>`;
   const block = (title, items) => (items.length ? `<div class="gl-block"><h3 class="gl-label">${title}</h3>${ul(items)}</div>` : "");
   const blocks = [block("Scoring", t.scoring), block("Controls", t.controls), block("Tips", t.tips)].filter(Boolean);
-  return `<section class="gl-sec gl-about" aria-labelledby="glAbout"><div class="gl-sec-in">
-    <header class="gl-sec-head"><p class="gl-label">How it plays</p><h2 class="gl-h2" id="glAbout">About the game</h2></header>
-    <div class="gl-sec-body">
+  return `<section class="gl-quick" aria-label="About ${esc(g.name)}">
+    <div class="gl-quick-acts">
+      <button type="button" class="gl-btn quiet gl-about-btn" data-act="gl-about" id="glAboutBtn" aria-expanded="${open}" aria-controls="glAboutPanel">About${icon("chevron")}</button>
+      <button type="button" class="gl-btn" data-act="try-game" data-game="${esc(g.id)}" id="glTry">Try out${icon("arrow")}</button>
+    </div>
+    <div class="gl-about-panel" id="glAboutPanel" role="region" aria-labelledby="glAboutBtn"${open ? "" : " hidden"}>
       ${t.overview ? `<p class="gl-p">${esc(nbu(t.overview))}</p>` : ""}
       ${t.goal ? `<div class="gl-goal"><p class="gl-label gold">Goal</p><p class="gl-goal-t">${esc(nbu(t.goal))}</p></div>` : ""}
       ${t.rules.length ? `<div class="gl-block"><h3 class="gl-label">How to play</h3><ol class="gl-rules">${t.rules.map((x) => `<li>${esc(nbu(x))}</li>`).join("")}</ol></div>` : ""}
       ${blocks.join("")}
-      ${!t.overview && !t.goal && !t.rules.length && !blocks.length ? `<p class="gl-p gl-quiet">There is no written guide for this game yet. Practice against the bot to learn it.</p>` : ""}
+      ${!t.overview && !t.goal && !t.rules.length && !blocks.length ? `<p class="gl-p gl-quiet">There is no written guide for this game yet. Try it out against the bot to learn it.</p>` : ""}
       <p class="gl-fair">Everyone in the match gets the exact same seeded challenge, so the better play wins.</p>
     </div>
-  </div></section>`;
+  </section>`;
 }
 
 /* the terms of every online match of this game */
@@ -203,12 +209,12 @@ export const views = {
       ${host}
       <div class="gl-grid">
         ${hero(ctx, g, t)}
+        ${aboutBar(ctx, g, t)}
         ${practiceCard(ctx, g)}
         <aside class="gl-rail" aria-label="Play with friends">
           ${inviteCard(ctx, g)}
         </aside>
         <div class="gl-main">
-          ${aboutCard(ctx, g, t)}
           ${rulesCard(ctx, g)}
         </div>
       </div>
@@ -216,6 +222,15 @@ export const views = {
   },
 };
 
-export const actions = {};
+export const actions = {
+  /* toggled in place, so focus stays on the button */
+  "gl-about"(el, app) {
+    const open = (app.S.ui.glAbout = !app.S.ui.glAbout);
+    const panel = document.getElementById("glAboutPanel");
+    if (!panel) return app.render(true);
+    panel.hidden = !open;
+    el.setAttribute("aria-expanded", String(open));
+  },
+};
 
 export function mount(name, app) {}
