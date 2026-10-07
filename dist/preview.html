@@ -34,7 +34,7 @@
 
   /* ---- colour rhyme: gold = you, ivory = ally, terracotta = rival, sage = win */
   --ok:#9DB07A;        /* sage: win, ready, online. 8.4:1 on ink-950 */
-  --danger:#D27C63;    /* terracotta: rival, loss, errors. 6.4:1 on ink-950 */
+  --danger:#E2644B;    /* red: rival, loss, errors. More saturated/red than the old #D27C63. 5.8:1 on ink-950, 5.0:1 on ink-800 */
   --rival:var(--danger);
   --ally:var(--ivory-100);
 
@@ -189,7 +189,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 /* ------------------------------------------------------------------ fields */
 .field{display:grid;gap:var(--sp-8);min-width:0}
 .field label,.label{font:600 12px/1.4 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
-input[type=text],input[type=number],input[type=search],select,textarea{width:100%;min-height:48px;background:var(--ink-800);color:var(--ivory-100);
+input[type=text],input[type=number],input[type=search],input[type=email],input[type=password],select,textarea{width:100%;min-height:48px;background:var(--ink-800);color:var(--ivory-100);
   border:1px solid var(--field-line);border-radius:var(--radius-1);padding:10px 14px;font:inherit;box-shadow:var(--shadow-pressed);transition:border-color var(--dur-1) var(--ease)}
 input:focus-visible,select:focus-visible,textarea:focus-visible{border-color:var(--gold-500);outline:1px solid var(--gold-500);outline-offset:2px}
 

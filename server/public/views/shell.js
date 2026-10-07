@@ -97,7 +97,7 @@ const friendly = (m) => {
 
 /* the email account form on the sign-in page (app.js emailSubmit): sign in / create account, forgot password, set a new password
    (from a ?reset= link), and the "check your inbox" note after a link was sent */
-function emailForm(S, esc, primary) {
+function emailForm(S, esc) {
   const m = S.ui.emailMode || "signin";
   if (m === "sent" || m === "sent-reset") {
     const to = `<b>${esc(S.ui.emailTo || "your inbox")}</b>`;
@@ -108,13 +108,16 @@ function emailForm(S, esc, primary) {
   const reset = m === "reset", forgot = m === "forgot", signup = m === "signup", newPw = reset || signup;
   const kind = reset ? "email-reset" : forgot ? "email-forgot" : signup ? "email-signup" : "email-signin";
   const label = reset ? "Set new password" : forgot ? "Send reset link" : signup ? "Create account" : "Sign in";
+  /* one primary action; the other ways (create account, forgot password) are text links under it */
+  const links = reset || forgot ? `<button type="button" class="dg-link" data-act="email-mode" data-v="signin">Back to sign in</button>`
+    : signup ? `<button type="button" class="dg-link" data-act="email-mode" data-v="signin">Already have an account? Sign in</button>`
+    : `<button type="button" class="dg-link" data-act="email-mode" data-v="signup" id="emCreate">New here? Create account</button><button type="button" class="dg-link" data-act="email-mode" data-v="forgot" id="emForgot">Forgot password?</button>`;
   return `<form class="em" id="emailAuth" data-form="${kind}" novalidate>
-    ${reset || forgot ? `<p class="em-h">${reset ? "Choose a new password" : "Reset your password"}</p>`
-      : `<div class="em-seg" role="group" aria-label="Email account"><button type="button" class="dg-chip" data-act="email-mode" data-v="signin" aria-pressed="${!signup}">Sign in</button><button type="button" class="dg-chip" data-act="email-mode" data-v="signup" aria-pressed="${signup}">Create account</button></div>`}
+    ${reset || forgot ? `<p class="em-h">${reset ? "Choose a new password" : "Reset your password"}</p>` : ""}
     ${reset ? "" : `<div class="field"><label for="emEmail">Email</label><input id="emEmail" type="email" autocomplete="email" inputmode="email" required></div>`}
     ${forgot ? "" : `<div class="field"><label for="emPw">${newPw ? "New password" : "Password"}</label><input id="emPw" type="password" autocomplete="${newPw ? "new-password" : "current-password"}" minlength="10" required${newPw ? ' aria-describedby="emPwHint"' : ""}>${newPw ? `<span class="dg-note" id="emPwHint">At least 10 characters.</span>` : ""}</div>`}
-    <div class="em-row"><button type="submit" class="dg-btn${primary ? " primary" : ""}" id="emSubmit"><span>${label}</span></button>
-      ${forgot || reset ? `<button type="button" class="dg-link" data-act="email-mode" data-v="signin">Back to sign in</button>` : signup ? "" : `<button type="button" class="dg-link" data-act="email-mode" data-v="forgot" id="emForgot">Forgot password?</button>`}</div>
+    <button type="submit" class="dg-btn ghost em-submit" id="emSubmit"><span>${label}</span></button>
+    <div class="em-links">${links}</div>
     <div class="err" id="emErr" role="alert"></div>
   </form>`;
 }
@@ -136,22 +139,23 @@ export const views = {
     const head = open
       ? `<span class="l1">${esc(l.host.name)} challenged&nbsp;you.</span><span class="l2">Sign in to <span class="gold-t">accept</span>.</span>`
       : `<span class="l1"><span class="nb">Out-play</span> a&nbsp;friend.</span><span class="l2">Winner takes the <span class="gold-t">pot</span>.</span>`;
-    /* sign in with a wallet the player controls, or (when the server has email on) with an email account, which links a
-       wallet before withdrawing. One solid gold action: the wallet when the browser has one, otherwise email. */
-    const emailOn = !!(S.cfg && S.cfg.auth && S.cfg.auth.email), mode = S.ui.emailMode || "signin";
-    const walletPrimary = hasInjected && mode !== "reset";
-    const injectedBtn = hasInjected
-      ? `<button class="dg-btn${walletPrimary ? " primary" : ""} xl" data-act="injected" id="signInjected"><span>Connect wallet</span></button>`
-      : `<a class="dg-btn${emailOn ? "" : " primary"} xl" id="getWallet" href="https://metamask.io/download/" target="_blank" rel="noopener"><span>Install a wallet to sign in</span></a>`;
-    const emailBlock = emailOn ? `<p class="em-or"><span>${hasInjected ? "or use email" : "or sign in with email"}</span></p>${emailForm(S, esc, !walletPrimary)}` : "";
+    /* two ways in. Connect wallet is the main action: the one solid gold button, at the top. Email sign-in is the lighter path:
+       a text link that opens the email form (opened straight away when the page is showing a link or a newer step). */
+    const emailOn = !!(S.cfg && S.cfg.auth && S.cfg.auth.email);
+    const walletBtn = hasInjected
+      ? `<button class="dg-btn primary xl" data-act="injected" id="signInjected"><span>Connect wallet</span></button>`
+      : `<a class="dg-btn primary xl" id="getWallet" href="https://metamask.io/download/" target="_blank" rel="noopener"><span>Install a wallet</span></a>`;
+    const emailOpen = !!S.ui.emailOpen || (S.ui.emailMode || "signin") !== "signin"; // kept across re-renders once the player opens it
+    const emailBlock = emailOn
+      ? `<p class="em-or"><span>or</span></p><details class="em-more"${emailOpen ? " open" : ""}><summary class="em-sum">Sign in with email</summary>${emailForm(S, esc)}</details>`
+      : "";
+    const walletBlock = `<div class="landing-cta">${walletBtn}</div>`;
     return `<div class="landing">
       <section class="landing-hero" aria-labelledby="hSign">
         <h1 class="landing-h${open ? " is-invite" : ""}" id="hSign">${head}</h1>
         ${banner}
         <p class="lede">Duel.gold lets you challenge friends to a short skill game with a private invite link, with up to 10 players in one lobby. Everyone gets the same seeded challenge, the highest score wins the pot minus ${esc(fee)}, and every result can be replayed and verified.</p>
-        <div class="landing-cta">
-          ${injectedBtn}
-        </div>
+        ${walletBlock}
         ${emailBlock}
         <div class="err" id="err" role="alert">${esc(friendly(S.error))}</div>
         <p class="dg-note">${emailOn ? "Sign in with a browser wallet you control, such as MetaMask, or with your email. Wallet sign-in costs no gas and moves no money. Withdrawals are paid only to your own wallet: the one you sign in with, or the one an email account links before its first withdrawal." : "Sign in with a browser wallet you control, such as MetaMask. Signing in costs no gas and moves no money, and withdrawals are paid only to the wallet you sign in with."}${hasInjected ? "" : emailOn ? "" : " No wallet was found in this browser: install one, then reload this page."}</p>

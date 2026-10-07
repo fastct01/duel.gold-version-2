@@ -693,7 +693,8 @@ document.addEventListener("wheel", (e) => {
 /* ------------------------------------------------------------------ hooks */
 
 /* Card art is drawn toward the right of its 168×140 frame. Centre each picture on what is actually drawn: measure the drawing
-   once per game and shift the viewBox (same size, so the scale never changes and nothing is cropped). */
+   once per game and shift the viewBox (same size, so the scale never changes and nothing is cropped). A picture whose subject is
+   not the whole drawing marks it with data-centre (the dartboard, not board plus dart), and that shape is centred instead. */
 const artCentre = new Map();
 function centreCardArt() {
   for (const svg of document.querySelectorAll(".cv-art svg.gart-svg")) {
@@ -702,7 +703,7 @@ function centreCardArt() {
     let vb = artCentre.get(id);
     if (!vb) {
       try {
-        const b = svg.getBBox(), base = svg.viewBox.baseVal;
+        const b = (svg.querySelector("[data-centre]") || svg).getBBox(), base = svg.viewBox.baseVal;
         if (!b.width || !b.height || !base || !base.width) continue;
         vb = `${(b.x + b.width / 2 - base.width / 2).toFixed(2)} ${(b.y + b.height / 2 - base.height / 2).toFixed(2)} ${base.width} ${base.height}`;
         artCentre.set(id, vb);

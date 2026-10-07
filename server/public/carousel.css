@@ -86,7 +86,8 @@
 .cv-art::before,.cv-art::after{content:"";position:absolute;left:50%;top:52%;aspect-ratio:1;border-radius:50%;border:1px solid var(--hair);transform:translate(-50%,-50%);opacity:.7}
 .cv-art::before{width:74%}
 .cv-art::after{width:112%;opacity:.45}
-.cv-art .gart.gart-card{inset:14px 16px}
+/* 4% more at the top puts the picture's centre at 52%, the rings' centre, so a centred subject sits inside them */
+.cv-art .gart.gart-card{inset:calc(14px + 4%) 16px 14px}
 .cv-card.is-landed .cv-art .gart{animation:cvLand .7s var(--ease)}
 @keyframes cvLand{from{transform:scale(.93)}to{transform:none}}
 @keyframes cvIn{from{opacity:0}}

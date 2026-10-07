@@ -32,7 +32,6 @@
 .pr-hud-s{font:500 var(--fs-12)/1.4 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
 .pr-status{font-size:var(--fs-14);color:var(--gold-300)}
 .pr-quit{min-height:44px;padding:0 20px}
-.pr-quit:hover:not(:disabled){border-color:var(--danger);color:var(--danger)}
 .pr-race{display:grid;gap:var(--sp-12);padding:var(--sp-16) 0;border-block:1px solid var(--hair)}
 .pr-lane{display:grid;grid-template-columns:minmax(0,64px) minmax(0,1fr) auto;gap:var(--sp-16);align-items:center}
 .pr-lane>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:500 var(--fs-12)/1.4 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}

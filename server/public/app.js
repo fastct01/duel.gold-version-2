@@ -846,6 +846,11 @@ document.addEventListener("input", (e) => {
   if (e.target.id === "customStake") S.pick.custom = e.target.value;
   if (e.target.id === "code") S.pick.code = e.target.value.replace(/[^A-Za-z0-9]/g, "");
 });
+/* remember whether the email sign-in is open, so a re-render (an error, a refresh) does not fold it away */
+document.addEventListener("toggle", (e) => {
+  if (e.target instanceof HTMLDetailsElement && e.target.classList.contains("em-more")) S.ui.emailOpen = e.target.open;
+}, true);
+
 document.addEventListener("submit", async (e) => {
   const form = e.target.closest("[data-form]");
   if (!form) return;

@@ -198,6 +198,7 @@ function hostRoom(ctx, l) {
           <div id="lobbyTerms">${terms(h, l, g)}</div>
           ${g && g.blurb ? `<p class="mx-lede">${esc(g.blurb)}</p>` : ""}
           <p class="mx-fine">${free ? "Free play. Ratings still count. Cancelling closes the lobby for everyone." : h.real() ? `Every player stakes the same amount. Cancelling the lobby returns every stake. ${esc(h.moneyNote())}` : "Every player stakes the same amount, held until the match is decided. Cancelling the lobby returns every stake. Test ETH only, no real money."}</p>
+          ${g ? `<a class="dg-link mx-about" href="#game/${esc(g.id)}" data-go="game" data-arg="${esc(g.id)}">About ${esc(g.name)}${icon("arrow")}</a>` : ""}
         </aside>
       </div>
       ${rulesSection(g, h, "While you wait")}
@@ -234,6 +235,7 @@ function guestRoom(ctx, l) {
           <div id="lobbyTerms">${terms(h, l, g)}</div>
           ${g && g.blurb ? `<p class="mx-lede">${esc(g.blurb)}</p>` : ""}
           <p class="mx-fine">${free ? "Free play. Ratings still count." : h.real() ? `Leaving before it starts returns your stake in full. ${esc(h.moneyNote())}` : "Your stake is held until the match is decided. Leaving before it starts returns it in full. Test ETH only, no real money."}</p>
+          ${g ? `<a class="dg-link mx-about" href="#game/${esc(g.id)}" data-go="game" data-arg="${esc(g.id)}">About ${esc(g.name)}${icon("arrow")}</a>` : ""}
         </aside>
       </div>
       ${rulesSection(g, h, "While you wait")}
@@ -330,6 +332,7 @@ export const views = {
           <h2 class="mx-h2">${esc(l.game.name)}</h2>
           <div id="lobbyTerms">${terms(h, l, g)}</div>
           ${free ? "" : `<p class="mx-fine">${esc(h.moneyNote())} Your stake is taken when you press Join, and you can leave before the match starts for a full refund. If everyone ties, all stakes are returned.</p>${S.me && S.me.responsible && S.me.responsible.adultConfirmed === false ? `<p class="mx-fine">You will be asked to confirm that you are 18 or older before you join.</p>` : ""}`}
+          ${g ? `<a class="dg-link mx-about" href="#game/${esc(g.id)}" data-go="game" data-arg="${esc(g.id)}">About ${esc(g.name)}${icon("arrow")}</a>` : ""}
         </aside>
         <div class="mx-a-act">
           ${full ? `<div class="mx-short" role="status" id="fullNote"><p><b>This lobby is full</b><span class="mx-k">All ${max} seats are taken. Ask ${esc(l.host.name)} for a new link.</span></p></div>` : ""}
@@ -418,6 +421,7 @@ export const views = {
           <p class="mx-eyebrow">The terms</p>
           ${terms(h, m, g, { duration: false })}
           ${free ? "" : `<p class="mx-fine">${esc(h.moneyNote())} If everyone ties, all stakes are returned.</p>`}
+          ${g ? `<a class="dg-link mx-about" href="#game/${esc(g.id)}" data-go="game" data-arg="${esc(g.id)}">About ${esc(g.name)}${icon("arrow")}</a>` : ""}
         </aside>
         ${rulesSection(g, h, "Rules", "mx-a-rules stack")}
       </div>

@@ -27,11 +27,19 @@ uniform vec2 uPivot;
 uniform float uSpread;
 attribute vec4 aRib;
 
+/* Each band runs from straight up to straight right round the pivot (just off the top-right corner), so both of its ends always
+   leave the frame: past the top and past the right-hand edge, at every size, sway and scroll. Only the stretch from pointing left
+   to pointing down (ARC_SHOWN) is ever in view; the shape is a function of the angle, so the extra length changes nothing you see. */
+#define ARC_FROM 1.5708
+#define ARC_TO 6.2832
+#define ARC_SHOWN vec2(2.95, 4.8)
+float ribAngle(float u) { return mix(ARC_FROM, ARC_TO, u * 0.5 + 0.5); }
+
 vec3 ribCentre(float u) {
   float i = aRib.x, t = uTime;
-  /* a quarter arc round the pivot, from pointing left to pointing down. Neighbouring bands share one wave with a small phase
-     step, so the fan moves as nested layers, never as loose strands. Scrolling sweeps the outer bands further round. */
-  float a = mix(2.95, 4.8, u * 0.5 + 0.5) + uScroll * (0.1 + 0.28 * i);
+  /* Neighbouring bands share one wave with a small phase step, so the fan moves as nested layers, never as loose strands.
+     Scrolling sweeps the outer bands further round. */
+  float a = ribAngle(u) + uScroll * (0.1 + 0.28 * i);
   float wave = sin(a * 2.6 + t * 0.32 - i * 1.9) * (0.35 + 0.45 * i) + 0.12 * sin(a * 5.0 - t * 0.21 + aRib.y);
   vec3 p = vec3(uPivot + vec2(cos(a), sin(a)) * uSpread * (aRib.w + wave), 0.0);
   p.z = -i * (2.2 + uScroll * 2.4) + 0.9 * sin(a * 1.7 + t * 0.2 - i * 2.4);
@@ -40,9 +48,11 @@ vec3 ribCentre(float u) {
 
 vec3 ribPos(float u, float w) {
   vec3 c = ribCentre(u);
-  vec3 T = normalize(ribCentre(u + 0.01) - ribCentre(u - 0.01));
-  /* the band turns between lying in the picture plane (a wide face) and standing on edge (a thin bright line) */
-  float tw = 0.5 + 0.5 * sin(u * 2.2 + uTime * 0.18 - aRib.x * 2.2 + uScroll * 1.6);
+  vec3 T = normalize(ribCentre(u + 0.004) - ribCentre(u - 0.004));
+  /* the band turns between lying in the picture plane (a wide face) and standing on edge (a thin bright line). The twist is set
+     along the shown stretch (us: −1..1 across it), as it was before the bands were lengthened. */
+  float us = (ribAngle(u) - ARC_SHOWN.x) / (ARC_SHOWN.y - ARC_SHOWN.x) * 2.0 - 1.0;
+  float tw = 0.5 + 0.5 * sin(us * 2.2 + uTime * 0.18 - aRib.x * 2.2 + uScroll * 1.6);
   vec3 flat_ = normalize(cross(T, vec3(0.0, 0.0, 1.0)));
   vec3 side = normalize(mix(flat_, vec3(0.0, 0.0, 1.0), 0.15 + tw * 0.7));
   side = normalize(side - T * dot(side, T));
@@ -52,7 +62,7 @@ vec3 ribPos(float u, float w) {
 }
 
 vec3 ribNormal(float u, float w) {
-  vec3 du = ribPos(u + 0.006, w) - ribPos(u - 0.006, w);
+  vec3 du = ribPos(u + 0.0025, w) - ribPos(u - 0.0025, w);
   vec3 dw = ribPos(u, w + 0.04) - ribPos(u, w - 0.04);
   return normalize(cross(du, dw));
 }
@@ -121,7 +131,7 @@ function build() {
 
   const small = Math.min(screen.width, screen.height) < 700;
   const count = small ? 18 : 26;
-  const geo = strip(small ? 200 : 300, 14);
+  const geo = strip(small ? 510 : 760, 14); // ≈2.55× the old 200/300: the bands are longer, the shown stretch keeps its detail
   const rib = new Float32Array(count * 4), rand = rng(7);
   for (let k = 0; k < count; k++) {
     const i = k / (count - 1);

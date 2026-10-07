@@ -50,7 +50,7 @@ function runBot(g, seed, skill) {
 }
 
 /* ------------------------------------------------------------------ view */
-/* Three screens, one primary action each (solid gold): ready → Start practice, playing → none (Quit is quiet), result → Play again.
+/* Three screens, one primary action each (solid gold): ready → Start practice, playing → none (Quit is danger-red), result → Play again.
    Styles: /play/practice.css (.pr-); buttons, chips, labels and the back link come from the kit at the top of /play/gamelobby.css (.gl-). */
 
 export function practiceHTML(ctx) {
@@ -64,7 +64,7 @@ export function practiceHTML(ctx) {
       <div class="pr-hud">
         <div class="pr-hud-l"><h1 class="pr-hud-t" id="prTitle">${esc(g.name)}</h1><span class="pr-hud-s">vs ${BOT} · ${levelName(P.level)} · free practice</span></div>
         <span class="pr-status dg-mono" id="prStatus" aria-live="off"></span>
-        <button type="button" class="gl-btn quiet pr-quit" data-act="pr-quit" id="prQuit">Quit</button>
+        <button type="button" class="gl-btn danger pr-quit" data-act="pr-quit" id="prQuit">Quit</button>
       </div>
       <div class="pr-race" aria-label="Live scores">
         <div class="pr-lane you"><span>You</span><div class="pr-track"><i id="prFillYou"></i></div><b class="dg-mono" id="prYou">0</b></div>
