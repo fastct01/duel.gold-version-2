@@ -138,7 +138,7 @@ function render(force = false) {
 /* the bar and nav are rebuilt on every render; unchanged markup is left alone so focus, hover and the open menu survive polls */
 function setHTML(el, html) { if (el && el._html !== html) { el._html = html; el.innerHTML = html; } }
 function renderTop() {
-  setHTML($("#topNet"), netBadge(S));
+  setHTML($("#topNet"), S.view === "signin" ? "" : netBadge(S));
   setHTML($("#topRight"), shell.topBar(ctx));
   setHTML($("#nav"), shell.nav(ctx));
 }

@@ -83,17 +83,18 @@ export function meter(label, n, kind = "") {
   return `<div class="meter ${kind}" role="img" aria-label="${esc(label)} ${n} out of 10"><span>${esc(label)}</span><span class="segs">${segs}</span><b>${n}</b></div>`;
 }
 
-/* The persistent network badge: "ETHEREUM MAINNET" in a hairline gold frame for real money, a quieter "… · TEST" otherwise.
-   `long` is the full label; `short` is what a phone shows (MAINNET / TESTNET / LOCAL). Returns "" until the config is loaded. */
+/* The persistent network badge, shown only when real money is at stake: "ETHEREUM MAINNET" in a hairline gold frame.
+   On a test or local chain nothing moves of value, so the badge stays out of the way instead of adding noise to every
+   screen. `long` is the full label; `short` is what a phone shows (MAINNET). Returns "" until the config is loaded,
+   and on any network that is not real money. */
 export function netBadge(S) {
   const c = S.cfg && S.cfg.chain;
-  if (!c) return "";
+  if (!c || !c.realMoney) return "";
   const net = S.cfg.network || (c.realMoney ? "mainnet" : "testnet");
   const name = String(c.name || "Ethereum");
   const long = net === "mainnet" ? (/mainnet/i.test(name) ? name : `${name} mainnet`)
     : net === "local" ? (/local/i.test(name) ? name : `${name} local`)
     : (/test/i.test(name) ? name : `${name} testnet`);
   const short = net === "mainnet" ? "Mainnet" : net === "local" ? "Local" : "Testnet";
-  const title = c.realMoney ? `${name}: real ${c.symbol || "ETH"}` : `${name}: test ${c.symbol || "ETH"} with no real value`;
-  return `<span class="net-tag${c.realMoney ? " real" : ""}" id="netTag" title="${esc(title)}"><i aria-hidden="true"></i><span class="sr-only">Network: ${esc(long)}</span><span class="nt-long" aria-hidden="true">${esc(long)}</span><span class="nt-short" aria-hidden="true">${esc(short)}</span></span>`;
+  return `<span class="net-tag${c.realMoney ? " real" : ""}" id="netTag"><i aria-hidden="true"></i><span class="sr-only">Network: ${esc(long)}</span><span class="nt-long" aria-hidden="true">${esc(long)}</span><span class="nt-short" aria-hidden="true">${esc(short)}</span></span>`;
 }

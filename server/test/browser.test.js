@@ -193,7 +193,7 @@ test("two browsers: sign in, fund on-chain, play each other, win, withdraw on-ch
   await shot(a, "01-signin-1280");
   assert.equal(await view(a), null, "not signed in yet");
   assert.match(await text(a, ".testnote"), /Test network only/i, "a test network says so on the sign-in page");
-  assert.ok(await a.locator("#netTag").isVisible(), "the network badge is there before sign-in too");
+  assert.equal(await a.locator("#netTag").count(), 0, "the network badge stays out of the way on a test network, even before sign-in");
   await Promise.all([signInAndFund(a), signInAndFund(b)]);
   assert.equal(await text(a, "#balAvail"), "1");
   await shot(a, "02-lobby-1280");

@@ -49,7 +49,6 @@ body[data-view=signin] .top-brand{padding-left:max(var(--pad-x),calc((100vw - 12
 .net-tag.real{border-color:var(--hair-gold);color:var(--gold-300)}
 .net-tag.real i{background:var(--gold-500)}
 .net-tag .nt-short{display:none}
-body[data-view=signin] .top-net{margin-left:var(--sp-24)}
 
 /* Join: a quiet text link with an underline reveal */
 .top-join{position:relative;display:inline-flex;align-items:center;gap:8px;min-width:44px;min-height:44px;padding:0 2px;border:0;background:none;color:var(--stone-400);
