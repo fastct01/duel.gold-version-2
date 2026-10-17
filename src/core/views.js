@@ -1,4 +1,4 @@
-/* Duel.gold platform — views: Duel-now panel, Home, Games, Watch, Tournaments, Social, Profile, Settings, Fairness. */
+/* PlayVault platform — views: Duel-now panel, Home, Games, Watch, Tournaments, Social, Profile, Settings, Fairness. */
 (function () {
   "use strict";
   const DG = window.DG, U = DG.util, P = window.DGP, E = P.econ, M = P.match;
@@ -44,7 +44,7 @@
     if (!st.gopts[g.id]) { let v = null; try { v = def.load(); } catch (e) { v = null; } st.gopts[g.id] = v || def.defaults(); }
     return { g, def, values: st.gopts[g.id] };
   }
-  const setupCall = (fn, d) => { try { return fn(); } catch (e) { console.error("[Duel.gold] game setup error", e); return d; } };
+  const setupCall = (fn, d) => { try { return fn(); } catch (e) { console.error("[PlayVault] game setup error", e); return d; } };
   const setupSummary = (gs) => (gs ? setupCall(() => String(gs.def.summary(gs.values) || ""), "") : "");
   const findSmall = (st, gs, stake) => pickLabel(st.pick) + (setupSummary(gs) ? " · " + setupSummary(gs) : "") + " · " + P.fmtName(st.format) + " · " + (stake > 0 ? fmt(stake) : "Free");
   P.duelPanelHTML = function (px, st) {
@@ -561,11 +561,11 @@
       "</div>" +
       '<div class="dg-stack">' +
       '<section class="dg-box cash-box" id="cash"><div class="box-h"><h3 class="dg-h">' + P.icon("lock", "sm") + ' Cash wallet</h3><span class="dg-eyebrow">Locked</span></div>' +
-      '<p class="cash-bal dg-mono">€0.00</p><p>Cash play is not available. Duel.gold is a demo: gold has no cash value and cannot be bought, sold or withdrawn.</p>' +
+      '<p class="cash-bal dg-mono">€0.00</p><p>Cash play is not available. PlayVault is a demo: gold has no cash value and cannot be bought, sold or withdrawn.</p>' +
       '<p class="dg-note">A real-money version would need all of this before launch:</p><ul class="plain"><li>Age and identity verification (KYC) for every player</li><li>UK-only location checks</li><li>A licensed payment provider</li><li>Legal review of the entry and prize structure</li><li>Server-side score verification</li></ul>' +
       '<p class="dg-note">Only cash-eligible games would qualify: deterministic, skill-dominant games with a luck rating of 2 or less. Games marked "Gold only" would stay demo-only.</p></section>' +
       '<section class="dg-box"><div class="box-h"><h3 class="dg-h">Player name</h3></div><form class="dg-row" id="nameForm"><label class="sr" for="nameInp">Player name</label><input class="inp" id="nameInp" maxlength="16" value="' + esc(S.name) + '"><button class="dg-btn" type="submit">Save</button></form></section>' +
-      '<section class="dg-box"><div class="box-h"><h3 class="dg-h">About</h3></div><p class="dg-note"><a href="#fair" id="fairLink" class="tap-link">How Duel.gold works</a> · identical seeds, skill/luck meters, rating-based matchmaking and the 10% fee.</p>' +
+      '<section class="dg-box"><div class="box-h"><h3 class="dg-h">About</h3></div><p class="dg-note"><a href="#fair" id="fairLink" class="tap-link">How PlayVault works</a> · identical seeds, skill/luck meters, rating-based matchmaking and the 10% fee.</p>' +
       '<p class="dg-note" id="storageNote">' + (P.storage.ok ? "Progress is saved in this browser." : "This browser blocks storage, so progress lasts only until you close the page.") + "</p></section>" +
       '<section class="dg-box danger-box"><div class="box-h"><h3 class="dg-h">Reset demo data</h3></div><p class="dg-note">Clears gold, ratings, history and achievements on this device. Your loss limit and reminder are kept.</p><button class="dg-btn danger" id="resetBtn">Reset demo data</button></section>' +
       "</div></div>";
@@ -593,7 +593,7 @@
 
   /* ================= Fairness ================= */
   V.fair = function (el) {
-    el.innerHTML = sectionHead("How Duel.gold works", '<a class="dg-btn" href="#settings">Back to settings</a>') +
+    el.innerHTML = sectionHead("How PlayVault works", '<a class="dg-btn" href="#settings">Back to settings</a>') +
       '<div class="fair">' +
       [["Identical seeds", "Every player in a match gets the same seed, so the same puzzle, board, questions or waves. The seed is shown before you start."],
         ["Skill and luck meters", "Every game is rated 0–10 for how much skill and how much luck decide the winner. High-luck games are marked Gold only."],

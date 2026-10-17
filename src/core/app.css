@@ -1,4 +1,4 @@
-/* Duel.gold platform styles. Builds on base.css tokens. Dark indigo arena; gold = you / money / primary,
+/* PlayVault platform styles. Builds on base.css tokens. Dark indigo arena; gold = you / money / primary,
    coral = rival, blue = ally. Big Shoulders Display for display type, Barlow body, JetBrains Mono numbers. */
 :root{--gut:16px;--hdr-max:1180px;--bn-h:62px}
 html{scroll-padding-top:120px;-webkit-text-size-adjust:100%}

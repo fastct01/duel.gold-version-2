@@ -1,4 +1,4 @@
-/* Duel.gold — Pack D: BUILDER & BATTLE
+/* PlayVault — Pack D: BUILDER & BATTLE
    Games: base (Base Duel), city (City Duel), restaurant (Restaurant Duel). All kind 'race'.
    Each game has a pure, DOM-free engine ("lab") shared by play() and bot(); the lab is also exposed on the
    game definition as `_lab` for automated balance tests. */

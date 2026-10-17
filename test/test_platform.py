@@ -1,4 +1,4 @@
-"""Duel.gold platform tests (Playwright, sync). Build first:
+"""PlayVault platform tests (Playwright, sync). Build first:
     python3 build.py --test-games _samples.js      -> dist/test.html
     python3 test/test_platform.py
 
@@ -581,7 +581,7 @@ def test_errors_and_scale(page, w):
     page.wait_for_selector("[data-test=error]", timeout=8000)
     check(gold(page) == g0, "tournament entry refunded on error")
     page.click("#resBack")
-    unexpected = console_errors(page, allow=("[DG", "[Duel.gold]", "boom"))
+    unexpected = console_errors(page, allow=("[DG", "[PlayVault]", "boom"))
     check(unexpected == [], f"unexpected errors: {unexpected}")
     # 30 games
     page.evaluate("""for (let i = 0; i < 28; i++) { const cats = DG.CATEGORIES.map(c=>c.id);
@@ -608,7 +608,7 @@ def test_errors_and_scale(page, w):
     check(page.query_selector("[data-test=no-games]") is not None, "0 games message")
     check(page.evaluate("DGApp.startMatch({})") != "", "0 games: start refused")
     shot(page, f"home-0games-{w}", full=False)
-    unexpected = console_errors(page, allow=("[DG", "[Duel.gold]", "boom"))
+    unexpected = console_errors(page, allow=("[DG", "[PlayVault]", "boom"))
     check(unexpected == [], f"unexpected errors: {unexpected}")
 
 
@@ -1150,7 +1150,7 @@ def test_ux_round3(page, w):
     # 8: About link ≥ 40 px, card eyebrows on one line
     page.evaluate("DGApp.go('settings')")
     h = page.evaluate("document.getElementById('fairLink').getBoundingClientRect().height")
-    check(h >= 40, f"How Duel.gold works link height {h}")
+    check(h >= 40, f"How PlayVault works link height {h}")
     page.evaluate("DGApp.go('games')")
     multi = page.evaluate("""[...document.querySelectorAll('.gcard-top .dg-eyebrow')].filter(e => { const lh = parseFloat(getComputedStyle(e).lineHeight) || 15; return e.getBoundingClientRect().height > lh * 1.5; }).length""")
     if w >= 1280:

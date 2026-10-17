@@ -1,4 +1,4 @@
-/* Duel.gold — Pack E: KNOWLEDGE, WORD, CARDS, DICE, SOCIAL (pack 'social')
+/* PlayVault — Pack E: KNOWLEDGE, WORD, CARDS, DICE, SOCIAL (pack 'social')
    Games: trivia (race), groups (race), durak (versus), liars (versus), auction (versus). */
 (function () {
   "use strict";

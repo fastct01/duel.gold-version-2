@@ -1,4 +1,4 @@
-/* Duel.gold — Pack B: BRAIN.
+/* PlayVault — Pack B: BRAIN.
    Five race games: Sudoku Sprint, Mine Sweep, Royal Grid, Merge 2048, Memory Duel.
    All content comes from the match seed, so both sides always face the identical challenge.
    Each game def also carries a `lab` object (generators, solvers, human reference) used only by tests. */

@@ -1,4 +1,4 @@
-# Duel.gold — PLATFORM spec (for the platform agent; read SPEC.md first)
+# PlayVault — PLATFORM spec (for the platform agent; read SPEC.md first)
 
 You build everything that is not a game: the page template, the lobby, matchmaking, the match runner for every
 format, results/payouts/ratings, tournaments, Duel Mix, Watch, social, profile, economy, responsible-play controls,
@@ -7,7 +7,7 @@ persistence. Games plug in through `window.DG.games` (see SPEC.md). You own `src
 `src/core/app.css`).
 
 ## Page template rules (the page ships as a claude.ai Artifact)
-- `src/index.html` has NO `<!doctype>`, `<html>`, `<head>`, `<body>` tags. Start with `<title>Duel.gold</title>`,
+- `src/index.html` has NO `<!doctype>`, `<html>`, `<head>`, `<body>` tags. Start with `<title>PlayVault</title>`,
   then Google Fonts `<link>` (Big Shoulders Display 600/800/900, Barlow 400/500/600/700, JetBrains Mono 500/700),
   then `<link rel="stylesheet" href="core/base.css">`, your css links, markup, then scripts in this order:
   ```html
@@ -35,7 +35,7 @@ persistence. Games plug in through `window.DG.games` (see SPEC.md). You own `src
   must keep working (catch, show a clear message, refund the stake, log to console).
 
 ## Design direction
-Continue the existing Duel.gold identity: dark indigo "arena" ground, gold = you/money/primary action, coral red =
+Continue the existing PlayVault identity: dark indigo "arena" ground, gold = you/money/primary action, coral red =
 rival, blue = ally. Big Shoulders Display for display type (uppercase, tight), Barlow for body, JetBrains Mono for all
 numbers. Deliberate, sporty, not a casino: no slot-machine glitter, no emoji as section markers. Cards only where
 something is a separate object. Numbers use tabular figures. Plain, direct copy ("Find opponent", "Rematch · 250").
@@ -121,14 +121,14 @@ Hat-trick streak, Mix master, Tournament champion, Polymath = 10 different games
 Comeback, Beat a 1600+ player). Duel-points **shop**: cosmetic profile frames/titles/name colours bought with DP.
 
 ### Settings & responsible play
-- Age gate on first visit (in-page modal): "Duel.gold is for players aged 18+ … demo gold has no cash value" →
+- Age gate on first visit (in-page modal): "PlayVault is for players aged 18+ … demo gold has no cash value" →
   "I am 18 or older" / "I am under 18" (under 18 → free play only; stakes disabled, explained).
 - Daily loss limit (gold; off/1,000/2,500/5,000 or custom), session reminder every 15/30/60 min (in-page toast with
   time played and net result today), cool-off (24 h / 7 days: staked play blocked, free play allowed), today's stats.
 - Cash wallet panel: explains cash play is not available — it requires age and identity verification (KYC), UK-only
   location checks, a licensed payment provider and legal review; only cash-eligible (skill-dominant) games would
   qualify. No fake deposit flow.
-- Reset demo data (in-page confirm). Fairness page ("How Duel.gold works": identical seeds, skill/luck meters,
+- Reset demo data (in-page confirm). Fairness page ("How PlayVault works": identical seeds, skill/luck meters,
   rating-based matchmaking, 10% fee, server verification would be required in production).
 
 ### State & persistence

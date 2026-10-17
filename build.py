@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build Duel.gold into single-file pages.
+"""Build PlayVault into single-file pages.
 
 Reads src/index.html and inlines every LOCAL <link rel="stylesheet" href="..."> and <script src="..."></script>
 (paths relative to src/). Remote URLs (https://...) are left untouched.

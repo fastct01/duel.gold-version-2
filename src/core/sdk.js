@@ -1,4 +1,4 @@
-/* Duel.gold SDK — shared by the platform and every game pack.
+/* PlayVault SDK — shared by the platform and every game pack.
    Defines window.DG: the game registry, utilities, CSS injection and the match context (ctx).
    Loaded BEFORE any game pack. Do not put platform UI here. */
 (function () {

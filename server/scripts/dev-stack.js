@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* One-command development environment: a local EVM chain + the Duel.gold server with the wallet switched on,
+/* One-command development environment: a local EVM chain + the PlayVault server with the wallet switched on,
    plus a local-only faucet so a fresh browser wallet can get test ETH.
 
      npm run dev                 → http://localhost:8787/play/
@@ -92,7 +92,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const args = process.argv.slice(2);
   const opt = (n, d) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 1] : d; };
   const stack = await startDevStack({ port: Number(opt("port", 8787)), chainPort: Number(opt("chain-port", 8545)), fresh: args.includes("--fresh") });
-  console.log(`\n  Duel.gold dev stack is up\n  ─────────────────────────\n  play      ${stack.url}/play/\n  api       ${stack.url}/v1/config\n  chain     ${stack.rpcUrl}  (chain id 31337, test ETH is free at /v1/dev/faucet)\n`);
+  console.log(`\n  PlayVault dev stack is up\n  ─────────────────────────\n  play      ${stack.url}/play/\n  api       ${stack.url}/v1/config\n  chain     ${stack.rpcUrl}  (chain id 31337, test ETH is free at /v1/dev/faucet)\n`);
   let stopping = false;
   for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, async () => { if (stopping) return; stopping = true; await stack.stop(); process.exit(0); });
 }

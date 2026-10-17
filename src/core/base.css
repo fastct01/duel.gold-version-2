@@ -1,4 +1,4 @@
-/* Duel.gold design system: the one source of tokens and shared components.
+/* PlayVault design system: the one source of tokens and shared components.
    Loaded by the client (/play), the game packs (/game) and the standalone artifact shell, so every surface draws from here.
    Rules: gold is an accent (about 10% of a screen), ink is the ground, corners are 2-4px, depth comes from hairlines and
    edges rather than blur or glow, motion is ease-out at 180-500ms. Fonts are loaded by each HTML page (Rothek, Manrope,

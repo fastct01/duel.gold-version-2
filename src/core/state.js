@@ -1,4 +1,4 @@
-/* Duel.gold platform — state, persistence, economy, ratings, simulated world.
+/* PlayVault platform — state, persistence, economy, ratings, simulated world.
    Shared internal namespace: window.DGP (platform only; games never touch it). */
 (function () {
   "use strict";
@@ -200,7 +200,7 @@
   P.onChange = (fn) => listeners.push(fn);
   P.commit = function () {
     P.save();
-    for (const fn of listeners) { try { fn(); } catch (e) { console.error("[Duel.gold] render error", e); } }
+    for (const fn of listeners) { try { fn(); } catch (e) { console.error("[PlayVault] render error", e); } }
   };
   /* Reset clears progress but keeps the responsible-play limits (loss limit, pending change, reminder). */
   P.reset = function () {

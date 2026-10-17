@@ -154,7 +154,7 @@ export const views = {
       <section class="landing-hero" aria-labelledby="hSign">
         <h1 class="landing-h${open ? " is-invite" : ""}" id="hSign">${head}</h1>
         ${banner}
-        <p class="lede">Duel.gold lets you challenge friends to a short skill game with a private invite link, with up to 10 players in one lobby. Everyone gets the same seeded challenge, the highest score wins the pot minus ${esc(fee)}, and every result can be replayed and verified.</p>
+        <p class="lede">PlayVault lets you challenge friends to a short skill game with a private invite link, with up to 10 players in one lobby. Everyone gets the same seeded challenge, the highest score wins the pot minus ${esc(fee)}, and every result can be replayed and verified.</p>
         ${walletBlock}
         ${emailBlock}
         <div class="err" id="err" role="alert">${esc(friendly(S.error))}</div>

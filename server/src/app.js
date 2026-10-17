@@ -62,7 +62,7 @@ export async function createApp(config, { now = () => Date.now() } = {}) {
       const addr = server.address();
       app.address = addr;
       app.url = `http://${addr.address === "::" ? "localhost" : addr.address}:${addr.port}`;
-      log.info("duel.gold server listening", { url: app.url, wallet: wallet.enabled ? wallet.chainInfo().name : "disabled" });
+      log.info("PlayVault server listening", { url: app.url, wallet: wallet.enabled ? wallet.chainInfo().name : "disabled" });
       return addr;
     },
     async stop() {

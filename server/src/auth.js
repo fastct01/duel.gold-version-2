@@ -34,7 +34,7 @@ export class Auth {
       `${domain} wants you to sign in with your Ethereum account:`,
       getAddress(address),
       "",
-      "Sign in to Duel.gold. This request does not cost gas and cannot move funds.",
+      "Sign in to PlayVault. This request does not cost gas and cannot move funds.",
       "",
       `URI: https://${domain}`,
       "Version: 1",

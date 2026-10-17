@@ -1,4 +1,4 @@
-/* Duel.gold platform — UI helpers: DOM shortcuts, icons, meters, toasts, in-page modals. */
+/* PlayVault platform — UI helpers: DOM shortcuts, icons, meters, toasts, in-page modals. */
 (function () {
   "use strict";
   const DG = window.DG, U = DG.util, P = window.DGP;

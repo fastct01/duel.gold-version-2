@@ -1,4 +1,4 @@
-"""Playwright helpers for Duel.gold tests.
+"""Playwright helpers for PlayVault tests.
 
 Usage (python3, sync API):
     from dglib import browser_page, open_harness, wait_result

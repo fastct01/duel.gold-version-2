@@ -785,7 +785,7 @@ async function shareInvite() {
   if (!S.host || !navigator.share) return;
   const l = S.host;
   const stake = String(l.stake) === "0" ? "free" : `${h.eth(l.stake)} ${h.sym()}`;
-  try { await navigator.share({ title: "Duel.gold challenge", text: `${S.me.displayName} invites you to play ${l.game.name} (${stake}) on Duel.gold.`, url: inviteUrl(l.code) }); }
+  try { await navigator.share({ title: "PlayVault challenge", text: `${S.me.displayName} invites you to play ${l.game.name} (${stake}) on PlayVault.`, url: inviteUrl(l.code) }); }
   catch (e) { if (e && e.name !== "AbortError") toast("Could not open the share sheet. Copy the link instead.", "bad"); }
 }
 
@@ -919,8 +919,8 @@ async function loadPacks(games) {
   try {
     const [cfg, list] = await Promise.all([http("/v1/config"), http("/v1/games")]);
     S.cfg = cfg;
-    document.title = cfg.chain && cfg.chain.realMoney ? `Duel.gold · invite-only duels with real ${cfg.chain.symbol || "ETH"}`
-      : cfg.chain ? "Duel.gold · invite-only duels (test network)" : "Duel.gold · invite-only skill duels";
+    document.title = cfg.chain && cfg.chain.realMoney ? `PlayVault · invite-only duels with real ${cfg.chain.symbol || "ETH"}`
+      : cfg.chain ? "PlayVault · invite-only duels (test network)" : "PlayVault · invite-only skill duels";
     S.games = list.games.filter((g) => g.pvp);
     await loadPacks(S.games);
     S.games = S.games.filter((g) => DG.getGame(g.id)); // only games whose code actually loaded

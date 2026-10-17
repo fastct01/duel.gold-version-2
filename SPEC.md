@@ -1,6 +1,6 @@
-# Duel.gold — build spec (read fully before writing code)
+# PlayVault — build spec (read fully before writing code)
 
-Duel.gold is a PvP skill-game arena: players pick a game, a format and a stake (demo **gold**), get matched
+PlayVault is a PvP skill-game arena: players pick a game, a format and a stake (demo **gold**), get matched
 with an opponent of similar rating, play the same seeded challenge, and the winner takes the pot minus a 10% fee.
 This build is a **front-end prototype**: opponents are bots, balances are demo gold, there is no server.
 It will ship as ONE self-contained HTML page (a claude.ai Artifact) produced by `build.py`.

@@ -1,4 +1,4 @@
-# Duel.gold server
+# PlayVault server
 
 Backend for real **player-vs-player** skill games with **crypto wallets**, on a test network by default and on **Ethereum mainnet with real ETH** when the operator opts in.
 

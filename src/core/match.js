@@ -1,4 +1,4 @@
-/* Duel.gold platform — match runner: matchmaking, escrow, every format, settlement, spectating.
+/* PlayVault platform — match runner: matchmaking, escrow, every format, settlement, spectating.
    Money rules live in DGP.econ (state.js); everything here uses integer gold. */
 (function () {
   "use strict";
@@ -11,7 +11,7 @@
   const newSeed = () => 100000 + Math.floor(Math.random() * 900000);
   const rnd = () => Math.random();
   function later(cur, fn, ms, realTime) {
-    const id = setTimeout(() => { cur.timers.delete(id); if (M.cur === cur && !cur.closed) { try { fn(); } catch (e) { console.error("[Duel.gold] runner error", e); } } }, Math.max(0, ms) / (realTime ? 1 : M.speed));
+    const id = setTimeout(() => { cur.timers.delete(id); if (M.cur === cur && !cur.closed) { try { fn(); } catch (e) { console.error("[PlayVault] runner error", e); } } }, Math.max(0, ms) / (realTime ? 1 : M.speed));
     cur.timers.add(id);
     return id;
   }
@@ -56,7 +56,7 @@
   function setupAsk(cur, gid, fn, d) {
     const v = optsFor(cur, gid), def = setupDefOf(gid);
     if (!v || !def || typeof def[fn] !== "function") return d;
-    try { return def[fn](v); } catch (e) { console.error("[Duel.gold] game setup error", e); return d; }
+    try { return def[fn](v); } catch (e) { console.error("[PlayVault] game setup error", e); return d; }
   }
   const unrated = (cur, gid) => setupAsk(cur, gid, "rated", true) === false;
   const spreadFor = (cur) => { const r = Number(setupAsk(cur, cur.games[0].id, "ratingRange", 60)); return r > 0 ? r : 60; };
@@ -433,7 +433,7 @@
           const bad = validate(g, res);
           if (bad) return fail(cur, new Error(bad), "when reporting the result");
           if (g.kind === "race") r.my = Number(res.score);
-          try { done({ ok: true, res, bots }); } catch (e) { console.error("[Duel.gold] settle error", e); fail(cur, e, "while settling"); }
+          try { done({ ok: true, res, bots }); } catch (e) { console.error("[PlayVault] settle error", e); fail(cur, e, "while settling"); }
         },
         onError,
       });
@@ -486,7 +486,7 @@
   /* ---------------- errors: stop, refund, explain ---------------- */
   function fail(cur, err, when) {
     if (M.cur !== cur || cur.phase === "error") return;
-    console.error("[Duel.gold] game failure " + (when || ""), err);
+    console.error("[PlayVault] game failure " + (when || ""), err);
     cur.phase = "error";
     clearTimers(cur);
     if (cur.handle) { try { cur.handle.abort(); } catch (e) { /* ignore */ } }
@@ -998,7 +998,7 @@
     try { box.scrollIntoView({ block: "nearest" }); } catch (e) { /* ignore */ }
   }
   function watchError(cur, e) {
-    console.error("[Duel.gold] spectate error", e);
+    console.error("[PlayVault] spectate error", e);
     cur.phase = "error"; clearTimers(cur);
     stage('<div class="result err" data-test="error"><h2 class="dg-h">Broadcast unavailable</h2><p>' + esc(cur.games[0].name) + " could not be shown.</p><p class=\"dg-note\">" + esc(String((e && e.message) || e).slice(0, 200)) + '</p><div class="res-actions"><button class="dg-btn primary" id="resBack" data-test="back">Back</button></div></div>');
     $("#resBack").onclick = closeOverlay;

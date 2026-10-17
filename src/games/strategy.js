@@ -1,4 +1,4 @@
-/* Duel.gold — Pack A: STRATEGY (chess, four, reversi, gomoku).
+/* PlayVault — Pack A: STRATEGY (chess, four, reversi, gomoku).
    All games are kind 'versus' with our own AI, plus spectate(ctx) for bot-vs-bot viewing.
    The human (or players[0] in spectate) is gold; the opponent is rival red. */
 (function () {

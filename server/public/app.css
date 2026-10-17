@@ -1,4 +1,4 @@
-/* Duel.gold PvP client: app shell + shared primitives, in the gold style.
+/* PlayVault PvP client: app shell + shared primitives, in the gold style.
    Every colour, size and space comes from /game/core/base.css (--gold-*, --ink-*, --stone-400, --ivory-*, --hair*, --font-*, --fs-*, --sp-*, --radius-*).
    Shared helpers other modules may rely on: .page-h, .eyebrow, .gold-t, .tile, .skel, .rpill(.win|.loss|.draw|.void), .sr-only, .t-label,
    .dg-box (card), .dg-stat, .dg-chip, .dg-btn(.primary|.ghost|.danger|.xl|.sm), .dg-link, .field, .chips, .list .row, .mono-box, .grid2, .grid3,

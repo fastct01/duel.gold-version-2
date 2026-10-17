@@ -103,8 +103,8 @@ export class EmailAuth {
 
   async #sendVerify(user) {
     const token = this.#newToken(user.id, "verify", this.cfg.auth.verifyTtlMs);
-    await this.#mail(user, "Confirm your email for Duel.gold", [
-      "Confirm your email to finish creating your Duel.gold account:", "", this.#link("verify", token), "",
+    await this.#mail(user, "Confirm your email for PlayVault", [
+      "Confirm your email to finish creating your PlayVault account:", "", this.#link("verify", token), "",
       "The link works once and expires in 24 hours. If you did not sign up, ignore this email: no account is created without it.",
     ]);
   }
@@ -120,7 +120,7 @@ export class EmailAuth {
     if (existing && existing.email_verified_at) {
       // the address already has an account: say nothing here, tell the inbox
       await this.#mail(existing, "Someone tried to sign up with your email", [
-        "Someone (maybe you) tried to create a Duel.gold account with this email, but you already have one.", "",
+        "Someone (maybe you) tried to create a PlayVault account with this email, but you already have one.", "",
         `Sign in at ${this.baseUrl()}/ or, if you forgot your password, use "Forgot password" there.`, "",
         "If this was not you, nothing has changed and you can ignore this email.",
       ]);
@@ -171,8 +171,8 @@ export class EmailAuth {
     const user = this.byEmail(email);
     if (user && user.password_hash) {
       const token = this.#newToken(user.id, "reset", this.cfg.auth.resetTtlMs);
-      await this.#mail(user, "Reset your Duel.gold password", [
-        "Choose a new password for your Duel.gold account:", "", this.#link("reset", token), "",
+      await this.#mail(user, "Reset your PlayVault password", [
+        "Choose a new password for your PlayVault account:", "", this.#link("reset", token), "",
         "The link works once and expires in 1 hour. Setting a new password signs you out everywhere else.",
         "If you did not ask for this, ignore this email: your password stays the same.",
       ]);
@@ -201,13 +201,13 @@ export class EmailAuth {
     const linked = this.db.tx(() => {
       const signer = this.auth.checkSignature({ address, nonce, signature });
       const other = this.users.byAddress(signer);
-      if (other) throw new AppError("WALLET_IN_USE", "That wallet already has its own Duel.gold account. Sign in with the wallet instead.", 409);
+      if (other) throw new AppError("WALLET_IN_USE", "That wallet already has its own PlayVault account. Sign in with the wallet instead.", 409);
       this.db.run("UPDATE users SET address = ? WHERE id = ? AND address IS NULL", signer, user.id);
       return this.users.byId(user.id);
     });
     if (linked.email) {
-      await this.#mail(linked, "A wallet was linked to your Duel.gold account", [
-        `The wallet ${linked.address} is now linked to your Duel.gold account. Withdrawals can only go to this wallet.`, "",
+      await this.#mail(linked, "A wallet was linked to your PlayVault account", [
+        `The wallet ${linked.address} is now linked to your PlayVault account. Withdrawals can only go to this wallet.`, "",
         "If this was not you, reset your password now and contact support before making any withdrawal.",
       ]).catch(() => {}); // the link stands even if the notice could not be sent
     }

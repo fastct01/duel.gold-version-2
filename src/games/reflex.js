@@ -1,4 +1,4 @@
-/* Duel.gold — Pack C: REFLEX & PRECISION
+/* PlayVault — Pack C: REFLEX & PRECISION
    Games: reaction (Reaction Duel), aim (Aim Duel), rush (Number Rush), darts (Darts Nine), hockey (Air Hockey).
    All content comes from the match seed; bots replay the same seeded content with skill-scaled behaviour. */
 (function () {

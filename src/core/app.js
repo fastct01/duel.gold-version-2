@@ -1,4 +1,4 @@
-/* Duel.gold platform — boot: router, header/wallet, nav, reminders, tickers, test hooks (window.DGApp). */
+/* PlayVault platform — boot: router, header/wallet, nav, reminders, tickers, test hooks (window.DGApp). */
 (function () {
   "use strict";
   const DG = window.DG, P = window.DGP, M = P.match;
@@ -39,7 +39,7 @@
     if (!el) return;
     try { P.views[view](el); }
     catch (e) {
-      console.error("[Duel.gold] view error", e);
+      console.error("[PlayVault] view error", e);
       el.innerHTML = '<div class="dg-box empty">Something went wrong showing this page. <button class="dg-btn" id="viewRetry">Try again</button></div>';
       const b = el.querySelector("#viewRetry"); if (b) b.onclick = () => renderView();
     }
@@ -93,7 +93,7 @@
   function accountNote() {
     P.modal({
       title: "Accounts are coming soon", testId: "account-note",
-      body: '<p class="modal-text">Duel.gold is a demo, so there is nothing to sign in to yet. Your gold, ratings and progress are saved in this browser.</p>',
+      body: '<p class="modal-text">PlayVault is a demo, so there is nothing to sign in to yet. Your gold, ratings and progress are saved in this browser.</p>',
       actions: [{ label: "Got it", id: "accountOk", kind: "primary" }],
     });
   }
@@ -173,7 +173,7 @@
     reportLoad();
     P.scheduleReminder();
     let rec = null;
-    try { rec = M.recover(); } catch (e) { console.error("[Duel.gold] recovery error", e); }
+    try { rec = M.recover(); } catch (e) { console.error("[PlayVault] recovery error", e); }
     if (rec) {
       const txt = rec.kind === "refund"
         ? "Your duel was still matchmaking when the page closed. " + (rec.amount ? fmt(rec.amount) + " gold was refunded." : "Nothing was charged.")
@@ -209,5 +209,5 @@
   };
 
   try { boot(); }
-  catch (e) { console.error("[Duel.gold] boot error", e); }
+  catch (e) { console.error("[PlayVault] boot error", e); }
 })();

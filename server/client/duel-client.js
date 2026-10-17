@@ -1,4 +1,4 @@
-/* Duel.gold client SDK — works in Node 22+ and in browsers (uses only fetch and WebSocket).
+/* PlayVault client SDK — works in Node 22+ and in browsers (uses only fetch and WebSocket).
 
      const c = new DuelClient({ baseUrl: "http://localhost:8787", address, sign: (msg) => wallet.signMessage(msg) });
      await c.login();          // wallet signature → session token

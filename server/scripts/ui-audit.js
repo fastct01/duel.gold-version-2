@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* UI layout audit for the Duel.gold web client (/play/).
+/* UI layout audit for the PlayVault web client (/play/).
 
      node scripts/ui-audit.js                         every screen at 360, 390, 768, 1024, 1280, 1440
      node scripts/ui-audit.js --only=lobby,waiting    just these screens (the flows needed to reach them still run)
