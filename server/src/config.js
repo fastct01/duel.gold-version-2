@@ -195,7 +195,7 @@ function validate(cfg, ctx = {}) {
     if (cfg.allowedOrigins.includes("*")) throw new Error("config: set ALLOWED_ORIGINS explicitly in production");
     if (cfg.adminToken && cfg.adminToken.length < 24) throw new Error("config: ADMIN_TOKEN must be at least 24 characters");
     if (cfg.mail.resendApiKey && !/^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$|<[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+>$/.test(cfg.mail.from)) {
-      throw new Error('config: MAIL_FROM must be a sender on your verified domain, e.g. "PlayVault <no-reply@duel.gold>"');
+      throw new Error('config: MAIL_FROM must be a sender on your verified domain, e.g. "PlayVault <no-reply@playground.gg>"');
     }
   }
 }
