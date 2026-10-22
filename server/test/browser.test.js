@@ -849,10 +849,9 @@ test("mainnet mode (GET /v1/config and /v1/wallet overridden in the browser): re
   });
   await a.goto(`${stack.url}/play/?test=1`);
 
-  // signed out: the badge, the title, sober real-money copy, and no test wording
-  await a.waitForSelector("#netTag");
-  assert.match(await text(a, "#netTag"), /Ethereum Mainnet/i);
-  assert.equal(await a.locator("#netTag.real").count(), 1, "real money gets the gold-framed badge");
+  // signed out: no network badge on the sign-in page (it shows once you are in), the title, sober real-money copy, and no test wording
+  await a.waitForSelector(".landing-title");
+  assert.equal(await a.locator("#netTag").count(), 0, "the sign-in page has no network badge");
   assert.match(await a.title(), /real ETH/i);
   assert.match(await text(a, ".testnote"), /Real ETH on Ethereum Mainnet/);
   assert.match(await text(a, ".testnote"), /Stakes are held in escrow until the match is decided\. A 10% fee is taken from the pot\./);
@@ -861,7 +860,8 @@ test("mainnet mode (GET /v1/config and /v1/wallet overridden in the browser): re
   assert.doesNotMatch(await a.evaluate(() => document.body.innerText), /test network|test ETH|no real money|Test ETH only/i, "no test wording on mainnet");
   await shot(a, "30-mainnet-signin-1280");
   await a.setViewportSize({ width: 360, height: 780 });
-  assert.ok(await noOverflow(a) && (await topFits(a)).inside, "the mainnet sign-in page fits 360px");
+  assert.ok(await noOverflow(a), "the mainnet sign-in page fits 360px");
+  assert.ok(await a.locator(".landing-title").isVisible(), "the sign-in page has its PlayVault title (there is no top bar on it)");
   await a.setViewportSize({ width: 1280, height: 900 });
 
   await a.click("#signInjected");
@@ -876,6 +876,9 @@ test("mainnet mode (GET /v1/config and /v1/wallet overridden in the browser): re
   await a.click('[data-act=stake][data-v="1000000000000000"]');
   assert.match(await text(a, "#lbCalc"), /real ETH on Ethereum Mainnet, held in escrow until the match is decided/);
   await noTest("lobby");
+  await a.waitForSelector("#netTag");
+  assert.match(await text(a, "#netTag"), /Ethereum Mainnet/i);
+  assert.equal(await a.locator("#netTag.real").count(), 1, "real money gets the gold-framed badge once signed in");
   await shot(a, "31-mainnet-lobby-1280");
   for (const w of [320, 360, 390, 430, 520, 640]) {
     await a.setViewportSize({ width: w, height: 800 });

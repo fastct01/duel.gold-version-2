@@ -415,3 +415,9 @@ body[data-view=signin] #main{position:relative;z-index:1}
 .em-sent{padding:var(--sp-16) var(--sp-24);border:1px solid var(--hair-gold);border-radius:var(--radius-2);background:var(--gold-soft)}
 .em-sent p{margin:0;color:var(--text-2,var(--ivory-100));line-height:1.6}
 .link-wallet{display:grid;gap:var(--sp-16);justify-items:start}
+
+/* sign-in page: no top bar; the PlayVault wordmark opens the main body instead */
+body[data-view=signin] .top{display:none}
+body[data-view=signin] #main{padding-top:calc(env(safe-area-inset-top,0px) + clamp(32px,7vh,96px))}
+.landing-title{margin:0;font-family:var(--font-display);font-weight:600;font-size:clamp(26px,2.4vw,32px);line-height:1;letter-spacing:-.005em;color:var(--ivory-100)}
+.landing-title b{font-weight:600;color:var(--gold-500)}
