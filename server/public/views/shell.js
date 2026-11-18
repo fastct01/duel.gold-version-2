@@ -147,7 +147,7 @@ export const views = {
       : `<a class="dg-btn primary xl" id="getWallet" href="https://metamask.io/download/" target="_blank" rel="noopener"><span>Install a wallet</span></a>`;
     const emailOpen = !!S.ui.emailOpen || (S.ui.emailMode || "signin") !== "signin"; // kept across re-renders once the player opens it
     const emailBlock = emailOn
-      ? `<p class="em-or"><span>or</span></p><details class="em-more"${emailOpen ? " open" : ""}><summary class="em-sum">Sign in with email</summary>${emailForm(S, esc)}</details>`
+      ? `<details class="em-more"${emailOpen ? " open" : ""}><summary class="em-sum">Sign in with email</summary>${emailForm(S, esc)}</details>`
       : "";
     const walletBlock = `<div class="landing-cta">${walletBtn}</div>`;
     return `<div class="landing">
@@ -159,7 +159,7 @@ export const views = {
         ${walletBlock}
         ${emailBlock}
         <div class="err" id="err" role="alert">${esc(friendly(S.error))}</div>
-        <p class="dg-note">${emailOn ? "Sign in with a browser wallet you control, such as MetaMask, or with your email. Wallet sign-in costs no gas and moves no money. Withdrawals are paid only to your own wallet: the one you sign in with, or the one an email account links before its first withdrawal." : "Sign in with a browser wallet you control, such as MetaMask. Signing in costs no gas and moves no money, and withdrawals are paid only to the wallet you sign in with."}${hasInjected ? "" : emailOn ? "" : " No wallet was found in this browser: install one, then reload this page."}</p>
+        <p class="dg-note">${emailOn ? "Sign in with a browser wallet you control, or with your email. Wallet sign-in costs no gas and moves no money. Withdrawals are paid only to your own wallet: the one you sign in with, or the one an email account links before its first withdrawal." : "Sign in with a browser wallet you control. Signing in costs no gas and moves no money, and withdrawals are paid only to the wallet you sign in with."}${hasInjected ? "" : emailOn ? "" : " No wallet was found in this browser: install one, then reload this page."}</p>
       </section>
 
       <figure class="landing-art" aria-hidden="true"></figure>

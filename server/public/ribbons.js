@@ -1,17 +1,23 @@
-/* The sign-in background, drawn live with three.js: a fan of thin gold bands with rolled edges, nested like the folds of a
-   metal ribbon sculpture. They sway slowly on their own, and unfurl and spread in depth as the page scrolls.
+/* The sign-in background, drawn live with three.js: broad gold bands with rolled edges sweeping in from the top-right, nested
+   like the folds of a metal ribbon sculpture, with the brand's floating gold objects in front of them (a vault door, a play
+   tile, star coins, cubes and smoked-glass shards: vault-objects.js). The bands sway slowly on their own, the objects float,
+   both answer the pointer and unfurl in depth as the page scrolls.
+   - The first time the page shows, a GSAP timeline plays the intro: the bands sweep round into place and the objects come
+     forward out of the dark one after another. Later visits start from the resting pose.
    - Every band is the same flat strip, shaped on the GPU: the vertex shader bends it along an arc, twists it between face-on
      and edge-on, curls its two long edges (the bright rim lines) and works out its normals by finite differences.
    - One renderer for the whole session, in a <canvas class="bg-ribbons"> on <body>, under #main. app.js rebuilds #main on
      every render, so the canvas lives outside it; attach() shows it on the sign-in page, detach() hides it elsewhere.
    - It renders only while on screen, the tab is visible and the sign-in page is showing.
-   - prefers-reduced-motion: one still frame, redrawn on resize.
+   - prefers-reduced-motion: no intro, one still frame of the resting pose, redrawn on resize.
    - attach() returns false when WebGL is unavailable; the page is then simply dark. */
 import {
   WebGLRenderer, Scene, PerspectiveCamera, Mesh, Color, BufferGeometry, BufferAttribute, InstancedBufferGeometry,
   InstancedBufferAttribute, SphereGeometry, PlaneGeometry, MeshPhysicalMaterial, MeshBasicMaterial, NeutralToneMapping,
   PMREMGenerator, DoubleSide, BackSide,
 } from "/play/lib/three.min.js";
+import { gsap } from "/play/lib/gsap.min.js";
+import { createObjects, layout, update } from "/play/vault-objects.js";
 
 const FOV = 35, CAM_Z = 14;
 const reduce = matchMedia("(prefers-reduced-motion: reduce)");
@@ -25,6 +31,7 @@ uniform float uTime;
 uniform float uScroll;
 uniform vec2 uPivot;
 uniform float uSpread;
+uniform float uIntro;
 attribute vec4 aRib;
 
 /* Each band runs from straight up to straight right round the pivot (just off the top-right corner), so both of its ends always
@@ -39,7 +46,7 @@ vec3 ribCentre(float u) {
   float i = aRib.x, t = uTime;
   /* Neighbouring bands share one wave with a small phase step, so the fan moves as nested layers, never as loose strands.
      Scrolling sweeps the outer bands further round. */
-  float a = ribAngle(u) + uScroll * (0.1 + 0.28 * i);
+  float a = ribAngle(u) + uScroll * (0.1 + 0.28 * i) + (1.0 - uIntro) * (0.7 + 0.5 * i);
   float wave = sin(a * 2.6 + t * 0.32 - i * 1.9) * (0.35 + 0.45 * i) + 0.12 * sin(a * 5.0 - t * 0.21 + aRib.y);
   vec3 p = vec3(uPivot + vec2(cos(a), sin(a)) * uSpread * (aRib.w + wave), 0.0);
   p.z = -i * (2.2 + uScroll * 2.4) + 0.9 * sin(a * 1.7 + t * 0.2 - i * 2.4);
@@ -54,7 +61,7 @@ vec3 ribPos(float u, float w) {
   float us = (ribAngle(u) - ARC_SHOWN.x) / (ARC_SHOWN.y - ARC_SHOWN.x) * 2.0 - 1.0;
   float tw = 0.5 + 0.5 * sin(us * 2.2 + uTime * 0.18 - aRib.x * 2.2 + uScroll * 1.6);
   vec3 flat_ = normalize(cross(T, vec3(0.0, 0.0, 1.0)));
-  vec3 side = normalize(mix(flat_, vec3(0.0, 0.0, 1.0), 0.15 + tw * 0.7));
+  vec3 side = normalize(mix(flat_, vec3(0.0, 0.0, 1.0), 0.08 + tw * 0.42)); // mostly face-on: broad, smooth bands
   side = normalize(side - T * dot(side, T));
   vec3 N = cross(T, side);
   float e = smoothstep(0.72, 1.0, abs(w));
@@ -129,21 +136,22 @@ function build() {
   const camera = new PerspectiveCamera(FOV, 16 / 9, 1, 60);
   camera.position.set(0, 0, CAM_Z);
 
+  /* two groups, as in the brand artwork: tight arcs folded into the top-right corner, then, past an open dark middle where the
+     objects float, a wide sweep that runs out along the bottom. Broad bands alternate with fine wires. [arc radius, half width] */
   const small = Math.min(screen.width, screen.height) < 700;
-  const count = small ? 18 : 26;
+  const BANDS = [[2.4, 0.42], [3.05, 0.03], [3.6, 0.5], [4.3, 0.035], [4.8, 0.3],
+    [8.7, 0.55], [9.35, 0.03], [9.95, 0.48], [10.7, 0.04], [11.4, 0.36], [12.3, 0.03]];
+  const count = BANDS.length;
   const geo = strip(small ? 510 : 760, 14); // ≈2.55× the old 200/300: the bands are longer, the shown stretch keeps its detail
   const rib = new Float32Array(count * 4), rand = rng(7);
-  for (let k = 0; k < count; k++) {
-    const i = k / (count - 1);
-    rib.set([i, rand() * 6.28, 0.26 + rand() * 0.16, 3.2 + i * 7.4], k * 4);
-  }
+  BANDS.forEach(([r, hw], k) => rib.set([k / (count - 1), rand() * 6.28, hw, r], k * 4));
   geo.setAttribute("aRib", new InstancedBufferAttribute(rib, 4));
   geo.instanceCount = count;
 
-  const U = { uTime: { value: 0 }, uScroll: { value: 0 }, uPivot: { value: [0, 0] }, uSpread: { value: 1 } };
+  const U = { uTime: { value: 0 }, uScroll: { value: 0 }, uPivot: { value: [0, 0] }, uSpread: { value: 1 }, uIntro: { value: 1 } };
   /* the UI's gold, a touch deeper and less saturated: metal reads richer than the flat swatch */
   const gold = new Color(getComputedStyle(document.documentElement).getPropertyValue("--gold-500").trim() || "#E7B52C").offsetHSL(0, -0.06, -0.04);
-  const mat = new MeshPhysicalMaterial({ color: gold, metalness: 1, roughness: 0.2, envMapIntensity: 1.3, side: DoubleSide });
+  const mat = new MeshPhysicalMaterial({ color: gold, metalness: 1, roughness: 0.27, envMapIntensity: 1.02, side: DoubleSide });
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader
@@ -154,9 +162,10 @@ function build() {
   const mesh = new Mesh(geo, mat);
   mesh.frustumCulled = false; // the shader moves every vertex, so the strip's own bounds mean nothing
   scene.add(mesh);
+  const objects = createObjects(scene, gold);
 
   return {
-    renderer, canvas, scene, camera, U,
+    renderer, canvas, scene, camera, U, objects, intro: null,
     on: false, raf: 0, last: 0, t: 0, visible: false,
     scroll: 0, scrollT: 0, px: 0, py: 0, pxT: 0, pyT: 0, size: [0, 0],
   };
@@ -167,6 +176,10 @@ function frame3d(w, h) {
   const halfH = CAM_Z * Math.tan((FOV / 2) * Math.PI / 180), halfW = halfH * (w / h);
   R.U.uPivot.value = [halfW * 0.96, halfH * 1.04];
   R.U.uSpread.value = Math.min(1.15, Math.max(0.5, halfW / 7.8));
+  /* the objects' art band: the first screen beside the text on wide layouts, the open band above the headline on narrow ones */
+  const hero = document.querySelector(".landing-hero");
+  const band = w < 900 && hero ? hero.getBoundingClientRect().top + scrollY - 8 : Math.min(h, innerHeight);
+  layout(R.objects, w, h, Math.max(160, band), (z) => (CAM_Z - z) * Math.tan((FOV / 2) * Math.PI / 180));
 }
 
 function resize() {
@@ -196,6 +209,7 @@ function draw() {
   const { camera, U, scroll: s, px, py } = R;
   U.uTime.value = R.t;
   U.uScroll.value = s;
+  update(R.objects, R.t, s, px, py);
   /* the camera drifts up as the page scrolls, so the fan lags behind the content; a little sway follows a mouse */
   camera.position.set(px * 0.35, s * 1.6 - py * 0.2, CAM_Z + s * 1.5);
   camera.lookAt(px * 0.1, s * 1.2, 0);
@@ -234,6 +248,7 @@ function still() {
   if (!reduce.matches) { wake(); return; }
   cancelAnimationFrame(R.raf); R.raf = 0;
   Object.assign(R, { scroll: 0, scrollT: 0, px: 0, py: 0, pxT: 0, pyT: 0, t: 6 });
+  finishIntro();
   draw();
 }
 
@@ -249,12 +264,29 @@ function listen() {
   ro = new ResizeObserver(resize);
 }
 
+/* the intro, once per page load: the bands sweep round into place while the objects come forward one after another, the vault
+   door first. GSAP only moves the numbers (uIntro, each object's intro 0 → 1); the render loop draws them. */
+function playIntro() {
+  const items = R.objects.items.filter((it) => it.obj.userData.on !== false);
+  R.U.uIntro.value = 0;
+  for (const it of R.objects.items) it.intro = 0;
+  R.intro = gsap.timeline({ defaults: { ease: "expo.out" }, onComplete: () => { R.intro = null; } })
+    .to(R.U.uIntro, { value: 1, duration: 2.6, ease: "power3.out" }, 0)
+    .to(items, { intro: 1, duration: 1.7, stagger: 0.11 }, 0.35);
+}
+function finishIntro() {
+  if (R.intro) { R.intro.progress(1); R.intro.kill(); R.intro = null; }
+  R.U.uIntro.value = 1;
+  for (const it of R.objects.items) it.intro = 1;
+}
+
 export function attach() {
   if (!R) {
     R = build();
     if (!R) return false;
     listen();
     R.t = 6; // start mid-sway rather than from the symmetric pose
+    if (reduce.matches) finishIntro(); else playIntro();
   }
   if (!R.on) {
     if (!R.canvas.isConnected) document.body.prepend(R.canvas);
