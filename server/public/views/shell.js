@@ -126,7 +126,6 @@ export const views = {
   signin(ctx) {
     const { S, h } = ctx; const { esc } = h;
     const hasInjected = !!window.ethereum;
-    const fee = S.cfg && S.cfg.feeBps != null ? `${S.cfg.feeBps / 100}%` : "a small fee";
     const net = h.chainName(), real = h.real(), sym = h.sym();
     const inv = S.invite, l = inv && inv.lobby;
     const open = l && l.state === "open";
@@ -155,11 +154,11 @@ export const views = {
         <p class="landing-title logo">Play<b>Vault</b></p>
         <h1 class="landing-h${open ? " is-invite" : ""}" id="hSign">${head}</h1>
         ${banner}
-        <p class="lede">PlayVault lets you challenge friends to a short skill game with a private invite link, with up to 10 players in one lobby. Everyone gets the same seeded challenge, the highest score wins the pot minus ${esc(fee)}, and every result can be replayed and verified.</p>
+        <p class="lede">PlayVault lets you challenge friends to a short skill game with a private invite link, with up to 10 players in one lobby.</p>
         ${walletBlock}
         ${emailBlock}
         <div class="err" id="err" role="alert">${esc(friendly(S.error))}</div>
-        <p class="dg-note">${emailOn ? "Sign in with a browser wallet you control, or with your email. Wallet sign-in costs no gas and moves no money. Withdrawals are paid only to your own wallet: the one you sign in with, or the one an email account links before its first withdrawal." : "Sign in with a browser wallet you control. Signing in costs no gas and moves no money, and withdrawals are paid only to the wallet you sign in with."}${hasInjected ? "" : emailOn ? "" : " No wallet was found in this browser: install one, then reload this page."}</p>
+        ${hasInjected || emailOn ? "" : `<p class="dg-note">No wallet was found in this browser: install one, then reload this page.</p>`}
       </section>
 
       <figure class="landing-art" aria-hidden="true"></figure>
