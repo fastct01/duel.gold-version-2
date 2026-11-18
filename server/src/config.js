@@ -39,6 +39,8 @@ function merge(base, extra) {
 }
 
 const NETWORKS = ["mainnet", "testnet", "local"];
+/* the Postgres container `npm run db` starts (scripts/local-db.js); development and tests only */
+export const LOCAL_DATABASE_URL = "postgres://postgres:playvault@127.0.0.1:54329/postgres";
 const LOCALISH = /^(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[?::1\]?)$|\.localhost$/i;
 
 export function loadConfig(env = process.env, overrides = {}) {
@@ -60,7 +62,14 @@ export function loadConfig(env = process.env, overrides = {}) {
     /* Bearer tokens (no cookies) are used for auth, so a wildcard CORS policy is safe; WebSocket origins are still checked. */
     allowedOrigins: list(env.ALLOWED_ORIGINS, ["*"]),
     trustProxy: bool(env.TRUST_PROXY, false),
-    dbPath: env.DB_PATH || path.join(SERVER_ROOT, "data", "duel.db"),
+    /* Postgres. Production needs DATABASE_URL (Supabase: Connect → Session pooler). Elsewhere it defaults to the local
+       container `npm run db` starts. DB_SCHEMA puts the tables in a schema other than the default (public). */
+    db: {
+      url: env.DATABASE_URL || (production ? "" : LOCAL_DATABASE_URL),
+      schema: env.DB_SCHEMA || null,
+      poolMax: int(env.DB_POOL_MAX, 5, "DB_POOL_MAX", 1, 50),
+      dropOnClose: false, // tests only: remove the schema when the app stops
+    },
     logLevel: env.LOG_LEVEL || (nodeEnv === "test" ? "silent" : "info"),
     adminToken: env.ADMIN_TOKEN || "",
     gamesDir: env.GAMES_DIR || path.join(REPO_ROOT, "src"),

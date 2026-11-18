@@ -171,7 +171,7 @@ async function apiPlayer(name, eth = 1) {
   await client.login();
   await client.connect();
   const wei = parseEther(String(eth)), n = ++creditSeq;
-  stack.app.ledger.post({ kind: "deposit", ref: `ui-${n}`, uniq: `ui-deposit:${n}`, entries: [[ACCT.chain, -wei], [ACCT.user(client.me.id), wei]] });
+  await stack.app.ledger.post({ kind: "deposit", ref: `ui-${n}`, uniq: `ui-deposit:${n}`, entries: [[ACCT.chain, -wei], [ACCT.user(client.me.id), wei]] });
   await client.api("PATCH", "/v1/me", { displayName: name });
   await client.api("POST", "/v1/me/age", { adult: true }); // staked lobbies need the 18+ confirmation
   return { client, name, id: client.me.id };
@@ -201,11 +201,10 @@ test("two browsers: sign in, fund on-chain, play each other, win, withdraw on-ch
 
   assert.equal(await a.locator("#findBtn, [data-act=find], [data-act=cancel-queue]").count(), 0, "no public matchmaking button");
 
-  // the network badge: persistent, names the chain; this stack is a local chain, so it speaks of test money, not real money
+  // the network badge appears only when real money is at stake (the mainnet test checks it); this stack is a local chain
   const cfg = await a.evaluate(() => window.__duel.S.cfg);
   assert.equal(cfg.chain.realMoney, false, "the test stack is not real money");
-  assert.match(await text(a, "#netTag"), new RegExp(cfg.chain.name.split(/[\s(]/)[0], "i"), "the badge names the chain");
-  assert.equal(await a.locator("#netTag.real").count(), 0, "a test network gets the quiet badge");
+  assert.equal(await a.locator("#netTag").count(), 0, "no network badge on a test network, signed in or not");
   assert.match(await text(a, "#lbSetup"), /test network/i, "the stake label says test network");
   assert.ok(await a.locator("#faucetBtn").isVisible(), "the faucet is offered on the local chain");
 
@@ -348,7 +347,7 @@ test("two browsers: sign in, fund on-chain, play each other, win, withdraw on-ch
   await shot(a, "09-lobby-360");
 
   for (const p of [a, b]) assert.deepEqual(p.errors, [], "no console or page errors");
-  const audit = stack.app.ledger.audit();
+  const audit = (await stack.app.ledger.audit());
   assert.deepEqual(audit.problems, []);
 });
 
@@ -402,7 +401,7 @@ test("reload restores the waiting room; closed links are refused; a reload mid-m
   assert.equal((await text(b, "[data-test=result]")).trim().toLowerCase(), "defeat");
 
   for (const p of [a, b]) assert.deepEqual(p.errors, []);
-  assert.deepEqual(stack.app.ledger.audit().problems, []);
+  assert.deepEqual((await stack.app.ledger.audit()).problems, []);
 });
 
 test("Back to lobby keeps the lobby open; the red Cancel button only appears for an open lobby, and cancels it with a refund", { skip: !CHROME && "no Chromium available" }, async () => {
@@ -437,7 +436,7 @@ test("Back to lobby keeps the lobby open; the red Cancel button only appears for
   await shot(a, "11-cancel-lobby-1280");
 
   assert.deepEqual(a.errors, []);
-  assert.deepEqual(stack.app.ledger.audit().problems, []);
+  assert.deepEqual((await stack.app.ledger.audit()).problems, []);
 });
 
 test("three browsers in one lobby: everyone sees the live player list, the host starts, a tied top score is a shared win", { skip: !CHROME && "no Chromium available" }, async () => {
@@ -529,7 +528,7 @@ test("three browsers in one lobby: everyone sees the live player list, the host 
   await until(async () => (await text(b, "#balAvail")) === "1.00035", "tied winner b");
   await until(async () => (await text(c, "#balAvail")) === "0.999", "loser c");
   for (const p of [a, b, c]) assert.deepEqual(p.errors, [], "no console or page errors");
-  assert.deepEqual(stack.app.ledger.audit().problems, []);
+  assert.deepEqual((await stack.app.ledger.audit()).problems, []);
 });
 
 test("a guest can leave and is refunded; Back to lobby and a reload keep a guest in the lobby; the host's cancel refunds everyone", { skip: !CHROME && "no Chromium available" }, async () => {
@@ -598,7 +597,7 @@ test("a guest can leave and is refunded; Back to lobby and a reload keep a guest
   assert.equal(await c.locator("#joinBtn").count(), 0, "a closed lobby cannot be joined");
   assert.match(await text(c, "main"), /closed/i);
   for (const p of [a, b, c]) assert.deepEqual(p.errors, [], "no console or page errors");
-  assert.deepEqual(stack.app.ledger.audit().problems, []);
+  assert.deepEqual((await stack.app.ledger.audit()).problems, []);
 });
 
 test("a full ten-player lobby starts by itself: nine names on the invite page, ten in the ready list, a compact race, standings with shared places", { skip: !CHROME && "no Chromium available" }, async () => {
@@ -696,7 +695,7 @@ test("a full ten-player lobby starts by itself: nine names on the invite page, t
     await shot(a, "23b-result-10players-360");
     await a.setViewportSize({ width: 1280, height: 900 });
     for (const p of [a, b]) assert.deepEqual(p.errors, [], "no console or page errors");
-    assert.deepEqual(stack.app.ledger.audit().problems, []);
+    assert.deepEqual((await stack.app.ledger.audit()).problems, []);
   } finally {
     for (const g of guests) g.client.close();
   }
@@ -753,7 +752,7 @@ test("forfeiting a three-player match: the match goes on for the others, you wai
     assert.equal(rows[2].you, true, "the forfeiter is the last row");
     assert.match(rows[2].note, /Forfeited/i);
     assert.deepEqual(a.errors, []);
-    assert.deepEqual(stack.app.ledger.audit().problems, []);
+    assert.deepEqual((await stack.app.ledger.audit()).problems, []);
   } finally {
     for (const g of guests) g.client.close();
   }
@@ -900,7 +899,7 @@ test("mainnet mode (GET /v1/config and /v1/wallet overridden in the browser): re
 
   // fund the account (ledger credit) and reload so the page sees the balance
   const uid = await a.evaluate(() => window.__duel.client.me.id);
-  stack.app.ledger.post({ kind: "deposit", ref: "mainnet-ui", uniq: "ui-deposit:mainnet-ui", entries: [[ACCT.chain, -parseEther("1")], [ACCT.user(uid), parseEther("1")]] });
+  await stack.app.ledger.post({ kind: "deposit", ref: "mainnet-ui", uniq: "ui-deposit:mainnet-ui", entries: [[ACCT.chain, -parseEther("1")], [ACCT.user(uid), parseEther("1")]] });
   await a.reload();
   await a.waitForSelector("#createBtn");
   await a.click('[data-go="wallet"]');

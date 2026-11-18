@@ -15,15 +15,15 @@ export function registerRoutes(r, app) {
   const { cfg, auth, emailAuth, users, responsible, wallet, matches, catalog, ledger } = app;
 
   /* the caller's own profile; used by /me and by the WebSocket after sign-in */
-  const meView = (u) => {
+  const meView = async (u) => {
     return {
       id: u.id, address: checksum(u.address), displayName: u.display_name, createdAt: u.created_at,
       email: u.email || null, emailVerified: !!u.email_verified_at, hasWallet: !!u.address, // an email account links a wallet to withdraw
-      balances: { ...wallet.balances(u.id), inPlay: toStr(matches.stakeAtRisk(u.id)) },
-      responsible: responsible.view(u.id),
+      balances: { ...(await wallet.balances(u.id)), inPlay: toStr(await matches.stakeAtRisk(u.id)) },
+      responsible: await responsible.view(u.id),
       queueBanUntil: u.queue_ban_until > Date.now() ? u.queue_ban_until : null,
-      ratings: matches.ratingsFor(u.id),
-      ...matches.sync(u.id),
+      ratings: await matches.ratingsFor(u.id),
+      ...(await matches.sync(u.id)),
     };
   };
   app.meView = meView;
@@ -62,31 +62,31 @@ export function registerRoutes(r, app) {
 
   r.get("/v1/games", {}, () => ({ games: catalog.list() }));
 
-  r.get("/v1/leaderboard", {}, ({ query }) => {
+  r.get("/v1/leaderboard", {}, async ({ query }) => {
     const g = catalog.get(query.game);
     if (!g) throw bad("UNKNOWN_GAME", "Pass ?game=<id>.");
-    return { game: g.id, players: matches.leaderboard(g.id, intParam(query.limit, 20, 1, 100)) };
+    return { game: g.id, players: await matches.leaderboard(g.id, intParam(query.limit, 20, 1, 100)) };
   });
 
   /* ---------------------------------------------------------------- auth */
 
-  r.post("/v1/auth/nonce", { limit: "auth" }, ({ body }) => {
-    const n = auth.issueNonce(body.address);
+  r.post("/v1/auth/nonce", { limit: "auth" }, async ({ body }) => {
+    const n = await auth.issueNonce(body.address);
     return { nonce: n.nonce, message: n.message, expiresAt: n.expiresAt };
   });
 
-  r.post("/v1/auth/login", { limit: "auth" }, ({ body, ip }) => {
-    const s = auth.login({ address: body.address, nonce: body.nonce, signature: body.signature, ip });
-    return { token: s.token, expiresAt: s.expiresAt, created: s.created, me: meView(s.user) };
+  r.post("/v1/auth/login", { limit: "auth" }, async ({ body, ip }) => {
+    const s = await auth.login({ address: body.address, nonce: body.nonce, signature: body.signature, ip });
+    return { token: s.token, expiresAt: s.expiresAt, created: s.created, me: await meView(s.user) };
   });
 
-  r.post("/v1/auth/logout", { auth: true }, ({ token }) => { auth.logout(token); return { ok: true }; });
+  r.post("/v1/auth/logout", { auth: true }, async ({ token }) => { await auth.logout(token); return { ok: true }; });
 
   /* email accounts (src/emailAuth.js). signup and forgot answer { ok: true } whether or not the email has an account; the
      links they send come back as verify / reset, which sign the player in. */
-  const session = (s) => ({ token: s.token, expiresAt: s.expiresAt, created: s.created, me: meView(s.user) });
+  const session = async (s) => ({ token: s.token, expiresAt: s.expiresAt, created: s.created, me: await meView(s.user) });
   r.post("/v1/auth/email/signup", { limit: "auth" }, ({ body }) => emailAuth.signup({ email: body.email, password: body.password }));
-  r.post("/v1/auth/email/verify", { limit: "auth" }, ({ body, ip }) => session(emailAuth.verify({ token: body.token, ip })));
+  r.post("/v1/auth/email/verify", { limit: "auth" }, async ({ body, ip }) => session(await emailAuth.verify({ token: body.token, ip })));
   r.post("/v1/auth/email/login", { limit: "auth" }, async ({ body, ip }) => session(await emailAuth.login({ email: body.email, password: body.password, ip })));
   r.post("/v1/auth/email/forgot", { limit: "auth" }, ({ body }) => emailAuth.forgot({ email: body.email }));
   r.post("/v1/auth/email/reset", { limit: "auth" }, async ({ body, ip }) => session(await emailAuth.reset({ token: body.token, password: body.password, ip })));
@@ -98,19 +98,19 @@ export function registerRoutes(r, app) {
 
   r.get("/v1/me", { auth: true }, ({ user }) => meView(user));
 
-  r.patch("/v1/me", { auth: true }, ({ user, body }) => ({ displayName: users.setDisplayName(user.id, body.displayName) }));
+  r.patch("/v1/me", { auth: true }, async ({ user, body }) => ({ displayName: await users.setDisplayName(user.id, body.displayName) }));
 
   /* 18+ attestation: required before any staked action (create / join / start a lobby with a stake above 0). Free play never needs it. */
-  r.post("/v1/me/age", { auth: true }, ({ user, body }) => {
+  r.post("/v1/me/age", { auth: true }, async ({ user, body }) => {
     if (body.adult !== true) throw bad("BAD_REQUEST", 'Send { "adult": true } to confirm you are 18 or older.');
-    responsible.attestAdult(user.id);
+    await responsible.attestAdult(user.id);
     return responsible.view(user.id);
   });
 
-  r.put("/v1/me/loss-limit", { auth: true }, ({ user, body }) => {
+  r.put("/v1/me/loss-limit", { auth: true }, async ({ user, body }) => {
     const value = body.amount === null ? null : parseWei(body.amount, "amount");
-    const out = responsible.setLossLimit(user.id, value);
-    return { ...out, responsible: responsible.view(user.id) };
+    const out = await responsible.setLossLimit(user.id, value);
+    return { ...out, responsible: await responsible.view(user.id) };
   });
 
   /* ---------------------------------------------------------------- wallet */
@@ -122,11 +122,11 @@ export function registerRoutes(r, app) {
     return {
       network: wallet.network(),
       chain: wallet.chainInfo(),
-      depositAddress: checksum(wallet.depositAddress(user.id)),
+      depositAddress: checksum(await wallet.depositAddress(user.id)),
       withdrawTo: checksum(user.address),
-      balances: wallet.balances(user.id),
+      balances: await wallet.balances(user.id),
       /* deposit.min: deposits below it are recorded but not credited until the uncredited total reaches it (pending/remaining show where you are) */
-      deposit: wallet.depositState(user.id),
+      deposit: await wallet.depositState(user.id),
       limits: { min: toStr(cfg.economy.minWithdrawal), max: toStr(cfg.economy.maxWithdrawal), dailyCap: toStr(cfg.economy.dailyWithdrawalCap), minDeposit: toStr(cfg.economy.minDeposit) },
       /* network fee on top of a withdrawal: you pay amount + fee, the recipient gets amount. fee is null if it cannot be estimated right now. */
       withdrawalFee: { mode: cfg.economy.withdrawalFee.mode, fee: q ? toStr(q.fee) : null, marginBps: q ? q.marginBps : cfg.economy.withdrawalFee.marginBps },
@@ -136,24 +136,24 @@ export function registerRoutes(r, app) {
     };
   });
 
-  r.get("/v1/wallet/history", { auth: true }, ({ user, query }) => ({
-    entries: ledger.statement(ACCT.user(user.id), { limit: intParam(query.limit, 50, 1, 200), before: query.before ? intParam(query.before, null, 1, Number.MAX_SAFE_INTEGER) : null }),
+  r.get("/v1/wallet/history", { auth: true }, async ({ user, query }) => ({
+    entries: await ledger.statement(ACCT.user(user.id), { limit: intParam(query.limit, 50, 1, 200), before: query.before ? intParam(query.before, null, 1, Number.MAX_SAFE_INTEGER) : null }),
   }));
 
-  r.get("/v1/wallet/deposits", { auth: true }, ({ user }) => {
+  r.get("/v1/wallet/deposits", { auth: true }, async ({ user }) => {
     wallet.require();
     const explorer = wallet.chain.meta.explorer;
     return {
-      deposit: wallet.depositState(user.id),
+      deposit: await wallet.depositState(user.id),
       /* status "credited" or "pending" (seen on-chain, below the minimum deposit so far; creditedAt is null until it is credited) */
-      deposits: app.db.all("SELECT tx_hash, amount, block_number, credited_at, status, detected_at FROM deposits WHERE user_id = ? ORDER BY COALESCE(NULLIF(credited_at, 0), detected_at) DESC LIMIT 50", user.id)
+      deposits: (await app.db.all("SELECT tx_hash, amount, block_number, credited_at, status, detected_at FROM deposits WHERE user_id = ? ORDER BY COALESCE(NULLIF(credited_at, 0), detected_at) DESC LIMIT 50", user.id))
         .map((d) => ({ txHash: d.tx_hash, amount: d.amount, blockNumber: d.block_number, status: d.status, credited: d.status === "credited", creditedAt: d.status === "credited" ? d.credited_at : null, detectedAt: d.detected_at ?? d.credited_at, explorerUrl: explorer ? `${explorer}/tx/${d.tx_hash}` : null })),
     };
   });
 
-  r.get("/v1/wallet/withdrawals", { auth: true }, ({ user }) => {
+  r.get("/v1/wallet/withdrawals", { auth: true }, async ({ user }) => {
     wallet.require();
-    return { withdrawals: wallet.withdrawals.list(user.id) };
+    return { withdrawals: await wallet.withdrawals.list(user.id) };
   });
 
   /* The player pays amount + network fee (see GET /v1/wallet withdrawalFee); the recipient gets amount. Optional `maxFee` (wei):
@@ -169,8 +169,8 @@ export function registerRoutes(r, app) {
 
   /* ---------------------------------------------------------------- play */
 
-  r.get("/v1/matches", { auth: true }, ({ user, query }) => ({
-    matches: matches.history(user.id, { limit: intParam(query.limit, 20, 1, 100), before: query.before ? intParam(query.before, null, 1, Number.MAX_SAFE_INTEGER) : null }),
+  r.get("/v1/matches", { auth: true }, async ({ user, query }) => ({
+    matches: await matches.history(user.id, { limit: intParam(query.limit, 20, 1, 100), before: query.before ? intParam(query.before, null, 1, Number.MAX_SAFE_INTEGER) : null }),
   }));
 
   r.get("/v1/matches/:id", { auth: true }, ({ user, params }) => matches.get(user.id, params.id));
@@ -183,12 +183,12 @@ export function registerRoutes(r, app) {
        leave  → { lobby }  guests only, stake refunded
        start  → { match }  host only, needs at least 2 players
        DELETE → { lobby }  host only, refunds every member */
-  r.post("/v1/lobbies", { auth: true }, ({ user, body }) => ({ status: 201, body: { lobby: matches.createLobby(user.id, body) } }));
-  r.get("/v1/lobbies/:code", {}, ({ params }) => ({ lobby: matches.getLobby(params.code) }));
+  r.post("/v1/lobbies", { auth: true }, async ({ user, body }) => ({ status: 201, body: { lobby: await matches.createLobby(user.id, body) } }));
+  r.get("/v1/lobbies/:code", {}, async ({ params }) => ({ lobby: await matches.getLobby(params.code) }));
   r.post("/v1/lobbies/:code/join", { auth: true }, ({ user, params }) => matches.joinLobby(user.id, params.code));
-  r.post("/v1/lobbies/:code/leave", { auth: true }, ({ user, params }) => ({ lobby: matches.leaveLobby(user.id, params.code) }));
-  r.post("/v1/lobbies/:code/start", { auth: true }, ({ user, params }) => ({ match: matches.startLobby(user.id, params.code) }));
-  r.delete("/v1/lobbies/:code", { auth: true }, ({ user, params }) => ({ lobby: matches.closeLobby(user.id, params.code) }));
+  r.post("/v1/lobbies/:code/leave", { auth: true }, async ({ user, params }) => ({ lobby: await matches.leaveLobby(user.id, params.code) }));
+  r.post("/v1/lobbies/:code/start", { auth: true }, async ({ user, params }) => ({ match: await matches.startLobby(user.id, params.code) }));
+  r.delete("/v1/lobbies/:code", { auth: true }, async ({ user, params }) => ({ lobby: await matches.closeLobby(user.id, params.code) }));
 
   r.post("/v1/matches/:id/ready", { auth: true }, ({ user, params }) => matches.ready(user.id, params.id, null));
   r.post("/v1/matches/:id/submit", { auth: true }, ({ user, params, body }) => matches.submit(user.id, params.id, body));
@@ -198,10 +198,11 @@ export function registerRoutes(r, app) {
 
   r.get("/v1/admin/audit", { auth: "admin" }, () => ledger.audit());
   r.get("/v1/admin/solvency", { auth: "admin" }, async () => wallet.solvency());
-  r.get("/v1/admin/flags", { auth: "admin" }, () => ({ flagged: matches.flagged(100) }));
-  r.get("/v1/admin/users/:id", { auth: "admin" }, ({ params }) => {
-    const u = users.byId(Number(params.id));
+  r.get("/v1/admin/flags", { auth: "admin" }, async () => ({ flagged: await matches.flagged(100) }));
+  r.get("/v1/admin/users/:id", { auth: "admin" }, async ({ params }) => {
+    const id = Number(params.id);
+    const u = Number.isSafeInteger(id) && id > 0 ? await users.byId(id) : null;
     if (!u) throw notFound("Unknown player.");
-    return { id: u.id, address: checksum(u.address), name: u.display_name, banned: !!u.banned, strikes: u.strikes, balances: wallet.balances(u.id) };
+    return { id: u.id, address: checksum(u.address), name: u.display_name, banned: !!u.banned, strikes: u.strikes, balances: await wallet.balances(u.id) };
   });
 }

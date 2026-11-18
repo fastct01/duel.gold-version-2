@@ -10,25 +10,25 @@ export class Users {
     this.now = now;
   }
 
-  byId(id) { return this.db.get("SELECT * FROM users WHERE id = ?", id) || null; }
-  byAddress(address) { return this.db.get("SELECT * FROM users WHERE address = ?", address) || null; }
-  require(id) { const u = this.byId(id); if (!u) throw notFound("Unknown player."); return u; }
+  async byId(id) { return (await this.db.get("SELECT * FROM users WHERE id = ?", id)) || null; }
+  async byAddress(address) { return (await this.db.get("SELECT * FROM users WHERE address = ?", address)) || null; }
+  async require(id) { const u = await this.byId(id); if (!u) throw notFound("Unknown player."); return u; }
 
   getOrCreate(address) {
-    return this.db.tx(() => {
-      const existing = this.byAddress(address);
+    return this.db.tx(async () => {
+      const existing = await this.byAddress(address);
       if (existing) return { user: existing, created: false };
       const name = `Player-${address.slice(2, 6)}${address.slice(-2)}`;
-      const id = this.db.run("INSERT INTO users (address, display_name, created_at) VALUES (?, ?, ?)", address, name, this.now()).lastInsertRowid;
-      return { user: this.byId(Number(id)), created: true };
+      const id = (await this.db.run("INSERT INTO users (address, display_name, created_at) VALUES (?, ?, ?) RETURNING id", address, name, this.now())).lastInsertRowid;
+      return { user: await this.byId(Number(id)), created: true };
     });
   }
 
-  setDisplayName(id, raw) {
+  async setDisplayName(id, raw) {
     const name = String(raw ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
     if (!NAME_RE.test(name)) throw bad("BAD_NAME", "Names are 3–20 characters: letters, numbers, spaces, dot, dash or underscore.");
     if (/^0x[0-9a-f]{4,}/i.test(name)) throw bad("BAD_NAME", "A name cannot look like a wallet address.");
-    this.db.run("UPDATE users SET display_name = ? WHERE id = ?", name, id);
+    await this.db.run("UPDATE users SET display_name = ? WHERE id = ?", name, id);
     return name;
   }
 

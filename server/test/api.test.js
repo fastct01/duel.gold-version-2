@@ -217,7 +217,7 @@ test("WebSocket: malformed input is answered, not fatal; binary frames and flood
   assert.ok(["UNKNOWN_GAME", "BAD_AMOUNT"].includes(acks.find((m) => m.id === 10).error.code));
   assert.equal(acks.find((m) => m.id === 11).error.code, "NOT_FOUND");
   assert.equal(s.msgs.filter((m) => m.type === "ack" && m.error && m.error.code === "BAD_JSON").length, 1);
-  assert.ok(h.app.db.get("SELECT COUNT(*) AS n FROM users").n >= 1, "tables intact");
+  assert.ok((await h.app.db.get("SELECT COUNT(*) AS n FROM users")).n >= 1, "tables intact");
 
   for (let i = 0; i < 60; i++) s.ws.send(JSON.stringify({ type: "ping", t: i }));
   assert.equal(await s.closed, 4008, "flooding closes the socket");
@@ -252,7 +252,7 @@ test("WebSocket: origin allow-list applies to browsers; connections per account 
 test("WebSocket: a session that expires stops working on the open socket", async () => {
   const h = await boot();
   const p = await h.player();
-  h.app.db.run("UPDATE sessions SET expires_at = ? WHERE user_id = ?", Date.now() - 1, p.id); // the socket was authenticated earlier
+  await h.app.db.run("UPDATE sessions SET expires_at = ? WHERE user_id = ?", Date.now() - 1, p.id); // the socket was authenticated earlier
   const closed = new Promise((r) => p.client.on("close", r));
   await assert.rejects(p.client.request("sync"), { code: "SESSION_EXPIRED" });
   assert.equal((await closed).code, 4003);
@@ -308,9 +308,9 @@ test("logging out (or being banned) ends live WebSocket sessions, not just futur
   await a.client.api("POST", "/v1/auth/logout");
   await assert.rejects(a.client.request("lobby.create", { game: "aim", stake: String(mETH) }), { code: "SESSION_EXPIRED" }, "a revoked token cannot stake over an open socket");
   assert.equal((await closed).code, 4003);
-  assert.equal(h.app.db.get("SELECT COUNT(*) AS n FROM tickets WHERE user_id = ?", a.id).n, 0, "nothing was staked");
+  assert.equal((await h.app.db.get("SELECT COUNT(*) AS n FROM tickets WHERE user_id = ?", a.id)).n, 0, "nothing was staked");
 
   const b = await h.player();
-  h.app.db.run("UPDATE users SET banned = 1 WHERE id = ?", b.id);
+  await h.app.db.run("UPDATE users SET banned = 1 WHERE id = ?", b.id);
   await assert.rejects(b.client.request("lobby.create", { game: "aim", stake: "0" }), { code: "SESSION_EXPIRED" }, "a banned player is cut off on their live socket");
 });

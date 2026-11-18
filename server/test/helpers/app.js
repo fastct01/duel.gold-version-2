@@ -1,8 +1,13 @@
-/* Test harness: a full app (in-memory DB, real HTTP + WebSocket on an ephemeral port) and players that talk to it
-   through the same DuelClient a real client would use. Funding is a direct ledger credit — the on-chain path is covered
-   by wallet.chain.test.js and e2e.test.js. */
+/* Test harness: a full app (its own Postgres schema, real HTTP + WebSocket on an ephemeral port) and players that talk to
+   it through the same DuelClient a real client would use. Funding is a direct ledger credit — the on-chain path is covered
+   by wallet.chain.test.js and e2e.test.js.
+
+   Postgres: TEST_DATABASE_URL, or the local container from `npm run db`. Every app gets a fresh schema named t_…, dropped
+   again when it stops, so tests never see each other's rows and never touch any other schema in that database. */
 import { Wallet } from "ethers";
-import { loadConfig } from "../../src/config.js";
+import pg from "pg";
+import { loadConfig, LOCAL_DATABASE_URL } from "../../src/config.js";
+import { Db } from "../../src/db/index.js";
 import { createApp } from "../../src/app.js";
 import { ACCT } from "../../src/ledger.js";
 import { DuelClient } from "../../client/duel-client.js";
@@ -20,9 +25,34 @@ export const FAST = {
   rate: { authPerMin: 1000, apiPerMin: 100000, wsPerSec: 500 },
 };
 
+export const TEST_DB_URL = process.env.TEST_DATABASE_URL || LOCAL_DATABASE_URL;
+let schemas = 0;
+/* a schema name no other test uses */
+export const freshSchema = () => `t_${process.pid}_${Date.now().toString(36)}_${(schemas++).toString(36)}`;
+/* db config for one app. keep: leave the schema in place when the app stops (restart tests open it again; call dropSchema) */
+export const testDb = (schema = freshSchema(), { keep = false } = {}) => ({ url: TEST_DB_URL, schema, dropOnClose: !keep, poolMax: 4, allowExitOnIdle: true });
+
+/* A bare database for unit tests that build services by hand. Every one opened is closed (and its schema dropped) by
+   closeTestDbs(); test files that use it call that in an after() hook. */
+const opened = new Set();
+export async function openTestDb(schema = freshSchema(), opts = {}) {
+  const db = await Db.open(testDb(schema, opts));
+  opened.add(db);
+  const close = db.close.bind(db);
+  db.close = async () => { opened.delete(db); await close(); };
+  return db;
+}
+export async function closeTestDbs() { for (const db of [...opened]) await db.close().catch(() => {}); }
+export async function dropSchema(schema) {
+  if (!/^t_[a-z0-9_]+$/.test(schema)) throw new Error(`refusing to drop schema "${schema}"`);
+  const c = new pg.Client({ connectionString: TEST_DB_URL });
+  await c.connect();
+  try { await c.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); } finally { await c.end(); }
+}
+
 export async function startApp(overrides = {}) {
   const cfg = loadConfig({ NODE_ENV: "test", PORT: "0", HOST: "127.0.0.1" }, {
-    dbPath: ":memory:", chain: { rpcUrl: "" }, ...merge(structuredCloneSafe(FAST), overrides),
+    db: testDb(), chain: { rpcUrl: "" }, ...merge(structuredCloneSafe(FAST), overrides),
   });
   const app = await createApp(cfg);
   await app.start();
@@ -37,7 +67,7 @@ export async function startApp(overrides = {}) {
       await client.login();
       if (connect) await client.connect();
       const id = client.me.id;
-      if (fund > 0n) helpers.credit(id, fund);
+      if (fund > 0n) await helpers.credit(id, fund);
       if (name) await client.api("PATCH", "/v1/me", { displayName: name });
       if (adult) await client.api("POST", "/v1/me/age", { adult: true });
       const p = { client, wallet, id, address: wallet.address.toLowerCase(), bal: () => app.ledger.balance(ACCT.user(id)) };
@@ -47,7 +77,7 @@ export async function startApp(overrides = {}) {
     /* simulate an on-chain deposit: external → user */
     credit(userId, wei) {
       helpers.seq = (helpers.seq || 0) + 1;
-      app.ledger.post({ kind: "deposit", ref: `test-${helpers.seq}`, uniq: `test-deposit:${helpers.seq}`, entries: [[ACCT.chain, -wei], [ACCT.user(userId), wei]] });
+      return app.ledger.post({ kind: "deposit", ref: `test-${helpers.seq}`, uniq: `test-deposit:${helpers.seq}`, entries: [[ACCT.chain, -wei], [ACCT.user(userId), wei]] });
     },
     house: () => app.ledger.balance(ACCT.house),
     /* two players meet the only way there is: an invite lobby. `a` hosts, `b` joins with the code, `a` starts it; both then

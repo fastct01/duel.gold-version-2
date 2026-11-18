@@ -32,30 +32,33 @@ export class Ledger {
   constructor(db, now = () => Date.now()) {
     this.db = db;
     this.now = now;
-    this.ensure(ACCT.chain);
-    this.ensure(ACCT.house);
-    this.ensure(ACCT.gas);
   }
 
-  ensure(account) {
-    this.db.run("INSERT OR IGNORE INTO accounts (id, kind) VALUES (?, ?)", account, kindOf(account));
+  /* the platform's own accounts exist from the start */
+  async init() {
+    for (const a of [ACCT.chain, ACCT.house, ACCT.gas]) await this.ensure(a);
+    return this;
   }
 
-  balance(account) {
-    const r = this.db.get("SELECT balance FROM accounts WHERE id = ?", account);
+  async ensure(account) {
+    await this.db.run("INSERT INTO accounts (id, kind) VALUES (?, ?) ON CONFLICT (id) DO NOTHING", account, kindOf(account));
+  }
+
+  async balance(account) {
+    const r = await this.db.get("SELECT balance FROM accounts WHERE id = ?", account);
     return r ? big(r.balance) : 0n;
   }
 
-  has(uniq) {
-    return !!this.db.get("SELECT 1 AS x FROM ledger_tx WHERE uniq = ?", uniq);
+  async has(uniq) {
+    return !!(await this.db.get("SELECT 1 AS x FROM ledger_tx WHERE uniq = ?", uniq));
   }
 
   /* Post one balanced transaction. entries: [[account, signedBigInt], ...]
      With `uniq`, posting the same key twice is a no-op that returns { duplicate: true }. */
   post({ kind, ref = null, uniq = null, memo = null, entries }) {
-    return this.db.tx(() => {
+    return this.db.tx(async () => {
       if (uniq) {
-        const prior = this.db.get("SELECT id FROM ledger_tx WHERE uniq = ?", uniq);
+        const prior = await this.db.get("SELECT id FROM ledger_tx WHERE uniq = ?", uniq);
         if (prior) return { txId: prior.id, duplicate: true };
       }
       const merged = new Map();
@@ -67,18 +70,20 @@ export class Ledger {
       for (const v of merged.values()) sum += v;
       if (sum !== 0n) throw new Error(`unbalanced ledger transaction (${kind}): entries sum to ${sum}`);
 
-      const txId = this.db.run("INSERT INTO ledger_tx (kind, ref, uniq, memo, created_at) VALUES (?, ?, ?, ?, ?)",
-        kind, ref == null ? null : String(ref), uniq, memo, this.now()).lastInsertRowid;
+      const txId = (await this.db.run("INSERT INTO ledger_tx (kind, ref, uniq, memo, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id",
+        kind, ref == null ? null : String(ref), uniq, memo, this.now())).lastInsertRowid;
 
       for (const [account, amount] of merged) {
         if (amount === 0n) continue;
-        this.ensure(account);
-        const next = this.balance(account) + amount;
+        await this.ensure(account);
+        // FOR UPDATE: the row stays locked until the transaction ends, so no other writer can read the old balance meanwhile
+        const row = await this.db.get("SELECT balance FROM accounts WHERE id = ? FOR UPDATE", account);
+        const next = big(row.balance) + amount;
         if (next < 0n && account !== ACCT.chain) {
           throw new AppError("INSUFFICIENT_FUNDS", "Not enough balance for this operation.", 402, { account: account.startsWith("user:") ? undefined : account });
         }
-        this.db.run("UPDATE accounts SET balance = ? WHERE id = ?", toStr(next), account);
-        this.db.run("INSERT INTO ledger_entries (tx_id, account, amount) VALUES (?, ?, ?)", txId, account, toStr(amount));
+        await this.db.run("UPDATE accounts SET balance = ? WHERE id = ?", toStr(next), account);
+        await this.db.run("INSERT INTO ledger_entries (tx_id, account, amount) VALUES (?, ?, ?)", txId, account, toStr(amount));
       }
       return { txId: Number(txId), duplicate: false };
     });
@@ -90,8 +95,8 @@ export class Ledger {
   }
 
   /* newest-first slice of one account's entries, for wallet history */
-  statement(account, { limit = 50, before = null } = {}) {
-    const rows = this.db.all(
+  async statement(account, { limit = 50, before = null } = {}) {
+    const rows = await this.db.all(
       `SELECT e.id, e.amount, t.kind, t.ref, t.memo, t.created_at
          FROM ledger_entries e JOIN ledger_tx t ON t.id = e.tx_id
         WHERE e.account = ? ${before ? "AND e.id < ?" : ""}
@@ -101,11 +106,11 @@ export class Ledger {
   }
 
   /* Re-derive every balance from the entries. Returns { ok, problems, totals }. */
-  audit() {
+  async audit() {
     const problems = [];
     const sums = new Map(); // account -> bigint
     const perTx = new Map(); // tx -> bigint
-    for (const e of this.db.all("SELECT tx_id, account, amount FROM ledger_entries ORDER BY id")) {
+    for (const e of await this.db.all("SELECT tx_id, account, amount FROM ledger_entries ORDER BY id")) {
       const a = big(e.amount);
       sums.set(e.account, (sums.get(e.account) ?? 0n) + a);
       perTx.set(e.tx_id, (perTx.get(e.tx_id) ?? 0n) + a);
@@ -113,7 +118,7 @@ export class Ledger {
     for (const [tx, s] of perTx) if (s !== 0n) problems.push(`tx ${tx} does not sum to zero (${s})`);
 
     let total = 0n, liabilities = 0n;
-    for (const a of this.db.all("SELECT id, balance FROM accounts")) {
+    for (const a of await this.db.all("SELECT id, balance FROM accounts")) {
       const bal = big(a.balance);
       total += bal;
       if (a.id !== ACCT.chain) liabilities += bal;
@@ -121,6 +126,6 @@ export class Ledger {
       if (bal < 0n && a.id !== ACCT.chain) problems.push(`account ${a.id} is negative (${bal})`);
     }
     if (total !== 0n) problems.push(`ledger does not sum to zero (${total})`);
-    return { ok: problems.length === 0, problems, liabilities: toStr(liabilities), external: toStr(this.balance(ACCT.chain)) };
+    return { ok: problems.length === 0, problems, liabilities: toStr(liabilities), external: toStr(await this.balance(ACCT.chain)) };
   }
 }

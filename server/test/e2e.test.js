@@ -4,7 +4,7 @@ import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import { HDNodeWallet, Wallet, parseEther } from "ethers";
 import { startChain } from "./helpers/chain.js";
-import { FAST, sleep } from "./helpers/app.js";
+import { FAST, sleep, testDb } from "./helpers/app.js";
 import { loadConfig } from "../src/config.js";
 import { createApp } from "../src/app.js";
 import { ACCT } from "../src/ledger.js";
@@ -17,7 +17,7 @@ const clients = [];
 before(async () => {
   H = await startChain();
   const cfg = loadConfig({ NODE_ENV: "test", PORT: "0", HOST: "127.0.0.1" }, {
-    dbPath: ":memory:",
+    db: testDb(),
     keys: { mnemonic: HDNodeWallet.createRandom().mnemonic.phrase },
     chain: { rpcUrl: H.url, confirmations: 2, pollMs: 50, sweepIntervalMs: 100, withdrawIntervalMs: 100, sweepMinWei: ETH("0.001"), rebroadcastAfterMs: 5000 },
     match: FAST.match, rate: FAST.rate,
@@ -86,7 +86,7 @@ test("deposit → play → win → withdraw, with every balance checked on-chain
   assert.equal(deps[0].amount, ETH("0.2").toString());
 
   // ---- the background sweeper moves the deposits into the treasury (ledger unaffected)
-  await until(() => app.db.get("SELECT COUNT(*) AS n FROM sweeps WHERE status = 'confirmed'").n >= 2);
+  await until(async () => (await app.db.get("SELECT COUNT(*) AS n FROM sweeps WHERE status = 'confirmed'")).n >= 2);
   assert.equal((await alice.client.api("GET", "/v1/wallet")).balances.available, ETH("0.2").toString());
 
   // ---- play a real match for 0.01 each
@@ -109,7 +109,7 @@ test("deposit → play → win → withdraw, with every balance checked on-chain
   // 0.02 pot − 10% = 0.018 to the winner, 0.002 to the house
   assert.equal((await alice.client.api("GET", "/v1/wallet")).balances.available, ETH("0.208").toString());
   assert.equal((await bob.client.api("GET", "/v1/wallet")).balances.available, ETH("0.19").toString());
-  assert.equal(app.ledger.balance(ACCT.house), ETH("0.002"));
+  assert.equal((await app.ledger.balance(ACCT.house)), ETH("0.002"));
 
   // ---- withdraw the winnings; a hostile `to` in the body changes nothing
   const attacker = Wallet.createRandom().address;
@@ -124,7 +124,7 @@ test("deposit → play → win → withdraw, with every balance checked on-chain
   assert.equal((await w2.json()).id, wd.id);
   assert.equal((await alice.client.api("GET", "/v1/wallet")).balances.available, ETH("0.058").toString(), "debited once");
 
-  await until(() => app.db.get("SELECT status FROM withdrawals WHERE id = ?", wd.id).status === "broadcast");
+  await until(async () => (await app.db.get("SELECT status FROM withdrawals WHERE id = ?", wd.id)).status === "broadcast");
   await H.mine(2);
   const done = await until(async () => { const r = (await alice.client.api("GET", "/v1/wallet/withdrawals")).withdrawals[0]; return r.status === "confirmed" ? r : null; });
   assert.ok(done.txHash);
@@ -206,7 +206,7 @@ test("the minimum deposit and the withdrawal network fee are visible over the AP
     const out = await p.client.api("POST", "/v1/wallet/withdraw", { amount: ETH("0.03").toString(), maxFee: ETH("0.002").toString() });
     assert.deepEqual([out.amount, out.fee, out.total], [ETH("0.03").toString(), ETH("0.002").toString(), ETH("0.032").toString()]);
     assert.equal((await p.client.api("GET", "/v1/wallet")).balances.available, ETH("0.028").toString(), "amount + fee left the balance");
-    await until(() => app.db.get("SELECT status FROM withdrawals WHERE id = ?", out.id).status === "broadcast");
+    await until(async () => (await app.db.get("SELECT status FROM withdrawals WHERE id = ?", out.id)).status === "broadcast");
     await H.mine(2);
     const done = await until(async () => { const r = (await p.client.api("GET", "/v1/wallet/withdrawals")).withdrawals[0]; return r.status === "confirmed" ? r : null; });
     assert.deepEqual([done.amount, done.fee], [ETH("0.03").toString(), ETH("0.002").toString()]);
@@ -219,7 +219,7 @@ test("the minimum deposit and the withdrawal network fee are visible over the AP
     const sol = await (await fetch(app.url + "/v1/admin/solvency", { headers: admin })).json();
     assert.equal(sol.ledgerOk, true);
     assert.equal(sol.insolvent, false);
-    assert.equal(app.ledger.balance(ACCT.gas) >= ETH("0.002"), true, "the fee is in the gas account");
+    assert.equal((await app.ledger.balance(ACCT.gas)) >= ETH("0.002"), true, "the fee is in the gas account");
   } finally {
     eco.minDeposit = saved.minDeposit;
     eco.withdrawalFee = saved.withdrawalFee;

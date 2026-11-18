@@ -1,5 +1,5 @@
 /* Wires every service together. `createApp(config)` returns an object with start()/stop(); nothing listens on a
-   port or touches the chain until start(). Tests build one per case (with an in-memory database). */
+   port or touches the chain until start(). Tests build one per case (each in its own Postgres schema). */
 import http from "node:http";
 import { createLogger } from "./util/log.js";
 import { openDb } from "./db/index.js";
@@ -20,15 +20,16 @@ import { Gateway } from "./ws/gateway.js";
 
 export async function createApp(config, { now = () => Date.now() } = {}) {
   const log = createLogger(config.logLevel);
-  const db = openDb(config.dbPath);
-  const ledger = new Ledger(db, now);
+  const db = await openDb({ ...config.db, log });
+  let ledger;
+  try { ledger = await new Ledger(db, now).init(); } catch (e) { await db.close(); throw e; }
   const hub = new Hub();
   const users = new Users(db, now);
   const responsible = new Responsible({ db, config, now });
   let wallet;
   try {
     wallet = await WalletService.create({ db, ledger, cfg: config, log, bus: hub, now });
-  } catch (e) { db.close(); throw e; }
+  } catch (e) { await db.close(); throw e; }
   if (wallet.enabled && wallet.chain.realMoney && !config.adminToken) {
     log.warn("ADMIN_TOKEN is not set on a real-money deployment: /v1/admin/* (ledger audit, solvency, flagged scores) is disabled. Set it, and watch the logs for INSOLVENT.");
   }
@@ -54,9 +55,9 @@ export async function createApp(config, { now = () => Date.now() } = {}) {
     server, gateway, router,
     /* Recover unfinished matches first, then start the chain workers, then accept connections. */
     async start() {
-      matches.start();
+      await matches.start();
       wallet.start();
-      purgeTimer = setInterval(() => auth.purge(), 3600000);
+      purgeTimer = setInterval(() => auth.purge().catch((e) => log.warn("session purge failed", { error: String(e.message || e) })), 3600000);
       purgeTimer.unref?.();
       await new Promise((resolve, reject) => { server.once("error", reject); server.listen(config.port, config.host, resolve); });
       const addr = server.address();
@@ -71,7 +72,9 @@ export async function createApp(config, { now = () => Date.now() } = {}) {
       await new Promise((resolve) => { server.close(resolve); server.closeAllConnections?.(); });
       matches.stop();
       await wallet.stop();
-      db.close();
+      await matches.flagsSettled();
+      await db.exclusive(async () => {}); // let an operation that is still running finish
+      await db.close();
     },
   });
   return app;

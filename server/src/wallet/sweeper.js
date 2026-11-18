@@ -35,11 +35,11 @@ export class Sweeper {
   /* Same coalescing rule as Withdrawals.pass: a call during a pass waits, then runs once more. */
   pass() {
     if (this.current) { this.rerun = true; return this.current; }
-    this.current = (async () => {
+    this.current = this.db.detach(async () => {
       try {
         do { this.rerun = false; await this.#once(); } while (this.rerun);
       } finally { this.current = null; }
-    })();
+    });
     return this.current;
   }
 
@@ -54,13 +54,13 @@ export class Sweeper {
 
   async #settle() {
     const { provider } = this.chain;
-    for (const s of this.db.all("SELECT * FROM sweeps WHERE status = 'pending'")) {
+    for (const s of await this.db.all("SELECT * FROM sweeps WHERE status = 'pending'")) {
       const receipt = await provider.getTransactionReceipt(s.tx_hash);
       if (receipt) {
         const ok = receipt.status === 1;
-        this.db.tx(() => {
-          this.db.run("UPDATE sweeps SET status = ?, updated_at = ? WHERE id = ?", ok ? "confirmed" : "failed", this.now(), s.id);
-          if (!ok) this.db.run("UPDATE deposit_addresses SET needs_sweep = 1 WHERE user_id = ?", s.user_id);
+        await this.db.tx(async () => {
+          await this.db.run("UPDATE sweeps SET status = ?, updated_at = ? WHERE id = ?", ok ? "confirmed" : "failed", this.now(), s.id);
+          if (!ok) await this.db.run("UPDATE deposit_addresses SET needs_sweep = 1 WHERE user_id = ?", s.user_id);
         });
         continue;
       }
@@ -68,9 +68,9 @@ export class Sweeper {
       const tx = Transaction.from(s.raw_tx);
       const latest = await provider.getTransactionCount(s.address, "latest");
       if (latest > tx.nonce && !(await provider.getTransactionReceipt(s.tx_hash))) {
-        this.db.tx(() => {
-          this.db.run("UPDATE sweeps SET status = 'failed', updated_at = ? WHERE id = ?", this.now(), s.id);
-          this.db.run("UPDATE deposit_addresses SET needs_sweep = 1 WHERE user_id = ?", s.user_id);
+        await this.db.tx(async () => {
+          await this.db.run("UPDATE sweeps SET status = 'failed', updated_at = ? WHERE id = ?", this.now(), s.id);
+          await this.db.run("UPDATE deposit_addresses SET needs_sweep = 1 WHERE user_id = ?", s.user_id);
         });
       } else {
         await broadcast(provider, s.raw_tx);
@@ -79,7 +79,7 @@ export class Sweeper {
   }
 
   async #sweepNew() {
-    const rows = this.db.all(
+    const rows = await this.db.all(
       `SELECT d.user_id, d.idx, d.address FROM deposit_addresses d
         WHERE d.needs_sweep = 1 AND NOT EXISTS (SELECT 1 FROM sweeps s WHERE s.user_id = d.user_id AND s.status = 'pending')`);
     if (!rows.length) return;
@@ -93,7 +93,7 @@ export class Sweeper {
     for (const r of rows) {
       const balance = await provider.getBalance(r.address);
       if (balance === 0n || balance < this.cfg.chain.sweepMinWei) {
-        this.db.run("UPDATE deposit_addresses SET needs_sweep = 0 WHERE user_id = ?", r.user_id); // dust waits for the next deposit
+        await this.db.run("UPDATE deposit_addresses SET needs_sweep = 0 WHERE user_id = ?", r.user_id); // dust waits for the next deposit
         continue;
       }
       if (balance < minBalance) {
@@ -109,17 +109,17 @@ export class Sweeper {
       });
       const hash = Transaction.from(raw).hash;
       // persist first, then broadcast: a crash in between leaves a pending row that #settle re-sends
-      this.db.tx(() => {
-        this.db.run("INSERT INTO sweeps (user_id, address, amount, tx_hash, raw_tx, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)",
+      await this.db.tx(async () => {
+        await this.db.run("INSERT INTO sweeps (user_id, address, amount, tx_hash, raw_tx, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)",
           r.user_id, r.address, toStr(value), hash, raw, this.now(), this.now());
-        this.db.run("UPDATE deposit_addresses SET needs_sweep = 0 WHERE user_id = ?", r.user_id);
+        await this.db.run("UPDATE deposit_addresses SET needs_sweep = 0 WHERE user_id = ?", r.user_id);
       });
       const res = await broadcast(provider, raw);
       if (!res.ok) {
         this.log.warn("sweep broadcast failed", { userId: r.user_id, error: res.error });
-        this.db.tx(() => {
-          this.db.run("UPDATE sweeps SET status = 'failed', updated_at = ? WHERE tx_hash = ?", this.now(), hash);
-          this.db.run("UPDATE deposit_addresses SET needs_sweep = 1 WHERE user_id = ?", r.user_id);
+        await this.db.tx(async () => {
+          await this.db.run("UPDATE sweeps SET status = 'failed', updated_at = ? WHERE tx_hash = ?", this.now(), hash);
+          await this.db.run("UPDATE deposit_addresses SET needs_sweep = 1 WHERE user_id = ?", r.user_id);
         });
       } else {
         this.log.info("sweep sent", { userId: r.user_id, txHash: hash, amount: toStr(value) });

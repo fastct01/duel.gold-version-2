@@ -3,7 +3,7 @@ import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { Wallet, HDNodeWallet, parseEther } from "ethers";
-import { Db } from "../src/db/index.js";
+import { openTestDb, closeTestDbs } from "./helpers/app.js";
 import { Ledger, ACCT } from "../src/ledger.js";
 import { Users } from "../src/users.js";
 import { Hub } from "../src/hub.js";
@@ -17,19 +17,19 @@ import { startChain } from "./helpers/chain.js";
 let H; // the running chain
 const fakes = []; // fake RPC nodes, closed at the end even if a test failed half-way
 before(async () => { H = await startChain(); });
-after(async () => { await H.stop(); for (const f of fakes) { f.closeAllConnections?.(); f.close(); } });
+after(async () => { await H.stop(); for (const f of fakes) { f.closeAllConnections?.(); f.close(); } await closeTestDbs(); });
 
 const ETH = (s) => parseEther(String(s));
 
 async function stack(over = {}) {
   const clock = { t: Date.now() };
   const now = () => clock.t;
-  const db = new Db(":memory:");
+  const db = await openTestDb();
   const cfg = loadConfig({ NODE_ENV: "test" }, {
     chain: { rpcUrl: H.url, confirmations: 2, sweepMinWei: ETH("0.001"), rebroadcastAfterMs: 1000, ...over.chain },
     economy: { minWithdrawal: ETH("0.001"), maxWithdrawal: ETH(2), dailyWithdrawalCap: ETH(3), ...over.economy },
   });
-  const ledger = new Ledger(db, now);
+  const ledger = await new Ledger(db, now).init();
   const users = new Users(db, now);
   const bus = new Hub();
   const events = [];
@@ -39,15 +39,16 @@ async function stack(over = {}) {
   const keys = new KeyManager(HDNodeWallet.createRandom().mnemonic.phrase);
   const chain = await connectChain(cfg.chain);
   const wallet = new WalletService({ db, ledger, cfg, log, bus, chain, keys, now });
+  await wallet.deposits.init();
   await wallet.deposits.scanOnce(); // put the cursor at the tip before any funds move
   const s = {
     clock, db, cfg, ledger, users, bus, events, logs, keys, chain, wallet,
     bal: (u) => ledger.balance(ACCT.user(u.id)),
-    mkUser: () => users.getOrCreate(Wallet.createRandom().address.toLowerCase()).user,
+    mkUser: async () => (await users.getOrCreate(Wallet.createRandom().address.toLowerCase())).user,
     async fundTreasury(eth) { await H.fund(keys.treasury().address, ETH(eth)); },
     /* deposit `eth` on-chain and run the watcher until it is credited */
     async deposit(u, eth) {
-      const addr = wallet.depositAddress(u.id);
+      const addr = (await wallet.depositAddress(u.id));
       await H.fund(addr, ETH(eth));
       await H.mine(cfg.chain.confirmations);
       await wallet.deposits.scanOnce();
@@ -117,7 +118,7 @@ test("NETWORK=mainnet refuses a testnet or a local chain", async () => {
 
 test("the full wallet service applies the same guard, before any key is derived", async () => {
   const srv = await fakeRpc(1);
-  const bus = new Hub(), db = new Db(":memory:");
+  const bus = new Hub(), db = await openTestDb();
   const mk = (env, over = {}) => {
     const cfg = loadConfig({ NODE_ENV: "test", ...env }, { chain: { rpcUrl: urlOf(srv) }, keys: { mnemonic: HDNodeWallet.createRandom().mnemonic.phrase }, ...over });
     return WalletService.create({ db, ledger: new Ledger(db), cfg, log: createLogger("silent"), bus, now: () => Date.now() });
@@ -132,75 +133,76 @@ test("the full wallet service applies the same guard, before any key is derived"
   assert.equal(svc.network(), "mainnet");
   svc.chain.destroy();
   srv.close();
-  db.close();
+  await db.close();
 });
 
 test("the dev faucet flag is refused on any chain that is not local", async () => {
   const srv = await fakeRpc(11155111);
-  const db = new Db(":memory:");
+  const db = await openTestDb();
   const cfg = loadConfig({ NODE_ENV: "test" }, { chain: { rpcUrl: urlOf(srv) }, keys: { mnemonic: HDNodeWallet.createRandom().mnemonic.phrase }, devFaucet: true });
   await assert.rejects(WalletService.create({ db, ledger: new Ledger(db), cfg, log: createLogger("silent"), bus: new Hub(), now: () => Date.now() }), /dev faucet is enabled but chain id 11155111 is not a local chain/);
   srv.close();
-  db.close();
+  await db.close();
 });
 
 /* ------------------------------------------------------------------ deposits */
 
 test("a deposit is credited exactly once, and only after enough confirmations", async () => {
   const s = await stack();
-  const u = s.mkUser();
-  const addr = s.wallet.depositAddress(u.id);
+  const u = (await s.mkUser());
+  const addr = (await s.wallet.depositAddress(u.id));
   assert.equal(addr, s.keys.userAddress(u.id));
-  assert.equal(s.wallet.depositAddress(u.id), addr, "the address is stable");
+  assert.equal((await s.wallet.depositAddress(u.id)), addr, "the address is stable");
 
   const txHash = await H.fund(addr, ETH("0.25")); // mined, 1 confirmation
   assert.equal(await s.wallet.deposits.scanOnce(), 0, "1 confirmation is not enough (need 2)");
-  assert.equal(s.bal(u), 0n);
+  assert.equal((await s.bal(u)), 0n);
 
   await H.mine(1);
   assert.equal(await s.wallet.deposits.scanOnce(), 1);
-  assert.equal(s.bal(u), ETH("0.25"));
+  assert.equal((await s.bal(u)), ETH("0.25"));
   assert.equal(await s.wallet.deposits.scanOnce(), 0, "scanning again must not credit again");
-  assert.equal(s.bal(u), ETH("0.25"));
+  assert.equal((await s.bal(u)), ETH("0.25"));
 
-  const row = s.db.get("SELECT * FROM deposits WHERE tx_hash = ?", txHash);
+  const row = (await s.db.get("SELECT * FROM deposits WHERE tx_hash = ?", txHash));
   assert.equal(row.amount, ETH("0.25").toString());
   assert.equal(row.user_id, u.id);
   assert.ok(s.events.some(([id, m]) => id === u.id && m.type === "wallet.updated" && m.reason === "deposit" && m.txHash === txHash));
-  assert.ok(s.ledger.audit().ok);
-  assert.equal(s.ledger.balance(ACCT.chain), -ETH("0.25"));
+  assert.ok((await s.ledger.audit()).ok);
+  assert.equal((await s.ledger.balance(ACCT.chain)), -ETH("0.25"));
 });
 
 test("crediting is idempotent even if the same deposit is offered twice or the cursor is lost", async () => {
   const s = await stack();
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   const addr = await s.deposit(u, "0.1");
-  const row = s.db.get("SELECT * FROM deposits WHERE user_id = ?", u.id);
+  const row = (await s.db.get("SELECT * FROM deposits WHERE user_id = ?", u.id));
   // rewind the cursor to before the deposit: a re-scan sees the same tx again
-  s.db.run("UPDATE chain_state SET value = ? WHERE key = 'last_scanned'", String(row.block_number - 1));
+  await s.db.run("UPDATE chain_state SET value = ? WHERE key = 'last_scanned'", String(row.block_number - 1));
   assert.equal(await s.wallet.deposits.scanOnce(), 0);
-  assert.equal(s.bal(u), ETH("0.1"), "no double credit after a cursor rewind");
-  assert.equal(s.db.get("SELECT COUNT(*) AS n FROM deposits").n, 1);
+  assert.equal((await s.bal(u)), ETH("0.1"), "no double credit after a cursor rewind");
+  assert.equal((await s.db.get("SELECT COUNT(*) AS n FROM deposits")).n, 1);
   assert.ok(addr);
 });
 
 test("a restarted server carries on from the stored cursor and misses nothing", async () => {
   const s = await stack();
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "0.1");
   // "restart": a brand-new service over the same database
   const again = new WalletService({ db: s.db, ledger: s.ledger, cfg: s.cfg, log: createLogger("silent"), bus: s.bus, chain: s.chain, keys: s.keys, now: () => s.clock.t });
-  await H.fund(again.depositAddress(u.id), ETH("0.2")); // sent while "down"
+  await again.deposits.init();
+  await H.fund(await again.depositAddress(u.id), ETH("0.2")); // sent while "down"
   await H.mine(2);
   assert.equal(await again.deposits.scanOnce(), 1);
-  assert.equal(s.bal(u), ETH("0.3"));
+  assert.equal((await s.bal(u)), ETH("0.3"));
   assert.equal(await again.deposits.scanOnce(), 0);
 });
 
 test("several players in one scan; unrelated, zero-value and unknown-address transfers are ignored", async () => {
   const s = await stack();
-  const a = s.mkUser(), b = s.mkUser();
-  const addrA = s.wallet.depositAddress(a.id), addrB = s.wallet.depositAddress(b.id);
+  const a = (await s.mkUser()), b = (await s.mkUser());
+  const addrA = (await s.wallet.depositAddress(a.id)), addrB = (await s.wallet.depositAddress(b.id));
   await H.fund(addrA, ETH("0.05"));
   await H.fund(addrB, ETH("0.07"));
   await H.fund(addrA, ETH("0.01"));
@@ -208,9 +210,9 @@ test("several players in one scan; unrelated, zero-value and unknown-address tra
   await H.faucet.sendTransaction({ to: addrB, value: 0n }).then((t) => t.wait()); // zero value
   await H.mine(2);
   assert.equal(await s.wallet.deposits.scanOnce(), 3);
-  assert.equal(s.bal(a), ETH("0.06"));
-  assert.equal(s.bal(b), ETH("0.07"));
-  assert.ok(s.ledger.audit().ok);
+  assert.equal((await s.bal(a)), ETH("0.06"));
+  assert.equal((await s.bal(b)), ETH("0.07"));
+  assert.ok((await s.ledger.audit()).ok);
 });
 
 test("a fresh database starts at the chain tip instead of replaying history", async () => {
@@ -225,33 +227,33 @@ test("a fresh database starts at the chain tip instead of replaying history", as
 
 test("the sweeper moves confirmed deposits to the treasury without touching player balances", async () => {
   const s = await stack();
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   const addr = await s.deposit(u, "1");
   const treasury = s.keys.treasury().address;
   const before = await H.provider.getBalance(treasury);
 
   await s.wallet.sweeper.pass(); // signs + broadcasts (automine mines it)
   await s.wallet.sweeper.pass(); // sees the receipt
-  const sweep = s.db.get("SELECT * FROM sweeps WHERE user_id = ?", u.id);
+  const sweep = (await s.db.get("SELECT * FROM sweeps WHERE user_id = ?", u.id));
   assert.equal(sweep.status, "confirmed");
   const after = await H.provider.getBalance(treasury);
   assert.equal(after - before, BigInt(sweep.amount), "treasury received exactly the swept amount");
   assert.ok(ETH("1") - BigInt(sweep.amount) < ETH("0.001"), "only gas was deducted");
   assert.ok((await H.provider.getBalance(addr)) < ETH("0.0001"), "the deposit address is emptied (dust from the fee cap at most)");
-  assert.equal(s.bal(u), ETH("1"), "the player's balance is unchanged by sweeping");
+  assert.equal((await s.bal(u)), ETH("1"), "the player's balance is unchanged by sweeping");
 
   await s.wallet.sweeper.pass();
-  assert.equal(s.db.get("SELECT COUNT(*) AS n FROM sweeps").n, 1, "nothing left to sweep");
-  assert.ok(s.ledger.audit().ok);
+  assert.equal((await s.db.get("SELECT COUNT(*) AS n FROM sweeps")).n, 1, "nothing left to sweep");
+  assert.ok((await s.ledger.audit()).ok);
 });
 
 test("dust below the sweep threshold is credited but not swept", async () => {
   const s = await stack();
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "0.0002");
-  assert.equal(s.bal(u), ETH("0.0002"));
+  assert.equal((await s.bal(u)), ETH("0.0002"));
   await s.wallet.sweeper.pass();
-  assert.equal(s.db.get("SELECT COUNT(*) AS n FROM sweeps").n, 0);
+  assert.equal((await s.db.get("SELECT COUNT(*) AS n FROM sweeps")).n, 0);
 });
 
 /* ------------------------------------------------------------------ withdrawals */
@@ -259,27 +261,27 @@ test("dust below the sweep threshold is credited but not swept", async () => {
 test("withdrawal: hold → sign → broadcast → confirm, paying exactly the requested amount once", async () => {
   const s = await stack();
   await s.fundTreasury(5);
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "1");
 
   const w = await s.wallet.withdrawals.request({ userId: u.id, to: u.address, amount: ETH("0.4") });
   assert.equal(w.status, "queued");
-  assert.equal(s.bal(u), ETH("0.6"));
-  assert.equal(s.ledger.balance(ACCT.withdrawal(w.id)), ETH("0.4"), "funds are held in escrow while in flight");
+  assert.equal((await s.bal(u)), ETH("0.6"));
+  assert.equal((await s.ledger.balance(ACCT.withdrawal(w.id))), ETH("0.4"), "funds are held in escrow while in flight");
 
   await s.wallet.withdrawals.pass();
-  const row = s.wd(w.id);
+  const row = (await s.wd(w.id));
   assert.equal(row.status, "broadcast");
   assert.ok(row.raw_tx && row.tx_hash, "the signed transaction is stored");
   assert.equal(await H.provider.getBalance(u.address), ETH("0.4"), "paid on-chain");
-  assert.equal(s.ledger.balance(ACCT.withdrawal(w.id)), ETH("0.4"), "still escrowed until it is deep enough");
+  assert.equal((await s.ledger.balance(ACCT.withdrawal(w.id))), ETH("0.4"), "still escrowed until it is deep enough");
 
   await s.finish();
-  assert.equal(s.wd(w.id).status, "confirmed");
-  assert.equal(s.ledger.balance(ACCT.withdrawal(w.id)), 0n);
-  assert.equal(s.ledger.balance(ACCT.chain), -ETH("0.6"), "net deposits − withdrawals");
+  assert.equal((await s.wd(w.id)).status, "confirmed");
+  assert.equal((await s.ledger.balance(ACCT.withdrawal(w.id))), 0n);
+  assert.equal((await s.ledger.balance(ACCT.chain)), -ETH("0.6"), "net deposits − withdrawals");
   assert.equal(await H.provider.getBalance(u.address), ETH("0.4"), "not paid twice");
-  assert.ok(s.ledger.audit().ok);
+  assert.ok((await s.ledger.audit()).ok);
 
   const sol = await s.wallet.solvency();
   assert.equal(sol.ledgerOk, true);
@@ -288,52 +290,52 @@ test("withdrawal: hold → sign → broadcast → confirm, paying exactly the re
 
 test("with an empty treasury a withdrawal waits in the queue, then goes through once funded", async () => {
   const s = await stack();
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "0.5");
   const w = await s.wallet.withdrawals.request({ userId: u.id, to: u.address, amount: ETH("0.2") });
   await s.wallet.withdrawals.pass();
-  assert.equal(s.wd(w.id).status, "queued");
-  assert.equal(s.wd(w.id).error, "treasury_underfunded");
+  assert.equal((await s.wd(w.id)).status, "queued");
+  assert.equal((await s.wd(w.id)).error, "treasury_underfunded");
   assert.equal(s.wallet.withdrawals.underfunded, true);
-  assert.equal(s.bal(u), ETH("0.3"), "the player's money stays held, not lost");
+  assert.equal((await s.bal(u)), ETH("0.3"), "the player's money stays held, not lost");
 
   await s.fundTreasury(1);
   await s.wallet.withdrawals.pass();
-  assert.equal(s.wd(w.id).status, "broadcast");
-  assert.equal(s.wd(w.id).error, null);
+  assert.equal((await s.wd(w.id)).status, "broadcast");
+  assert.equal((await s.wd(w.id)).error, null);
   await s.finish();
-  assert.equal(s.wd(w.id).status, "confirmed");
+  assert.equal((await s.wd(w.id)).status, "confirmed");
   assert.equal(await H.provider.getBalance(u.address), ETH("0.2"));
 });
 
 test("withdrawal requests are validated; a refused request changes nothing", async () => {
   const s = await stack({ economy: { dailyWithdrawalCap: ETH("0.5") } });
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "1");
   const req = (amount, extra = {}) => s.wallet.withdrawals.request({ userId: u.id, to: u.address, amount, ...extra });
-  const rows = () => s.db.get("SELECT COUNT(*) AS n FROM withdrawals").n;
+  const rows = async () => (await s.db.get("SELECT COUNT(*) AS n FROM withdrawals")).n;
 
   await assert.rejects(req(ETH("0.0001")), { code: "BELOW_MINIMUM" });
   await assert.rejects(req(ETH(3)), { code: "ABOVE_MAXIMUM" });
   await assert.rejects(req(ETH("0.6")), { code: "DAILY_WITHDRAWAL_CAP" });
-  assert.equal(rows(), 0);
+  assert.equal(await rows(), 0);
 
-  const other = s.mkUser(); // nothing deposited
+  const other = (await s.mkUser()); // nothing deposited
   await assert.rejects(s.wallet.withdrawals.request({ userId: other.id, to: other.address, amount: ETH("0.01") }), { code: "INSUFFICIENT_FUNDS" });
-  assert.equal(rows(), 0, "an overdraft rolls the withdrawal row back too");
-  assert.equal(s.bal(u), ETH(1));
+  assert.equal(await rows(), 0, "an overdraft rolls the withdrawal row back too");
+  assert.equal((await s.bal(u)), ETH(1));
 
   await req(ETH("0.3"));
   await assert.rejects(req(ETH("0.3")), { code: "DAILY_WITHDRAWAL_CAP" }, "0.3 + 0.3 exceeds the 0.5 rolling cap");
   s.clock.t += 24 * 3600000 + 1;
   await req(ETH("0.3")); // the window has rolled
-  assert.equal(rows(), 2);
-  assert.ok(s.ledger.audit().ok);
+  assert.equal(await rows(), 2);
+  assert.ok((await s.ledger.audit()).ok);
 });
 
 test("an Idempotency-Key makes a retried request safe", async () => {
   const s = await stack();
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "1");
   const req = (amount, key) => s.wallet.withdrawals.request({ userId: u.id, to: u.address, amount, idemKey: key });
   const first = await req(ETH("0.1"), "retry-1");
@@ -341,11 +343,11 @@ test("an Idempotency-Key makes a retried request safe", async () => {
   assert.equal(first.replay, false);
   assert.equal(second.replay, true);
   assert.equal(second.id, first.id);
-  assert.equal(s.bal(u), ETH("0.9"), "debited once");
+  assert.equal((await s.bal(u)), ETH("0.9"), "debited once");
   await assert.rejects(req(ETH("0.2"), "retry-1"), { code: "IDEMPOTENCY_MISMATCH" });
   await assert.rejects(req(ETH("0.1"), "bad key!"), { code: "BAD_IDEMPOTENCY_KEY" });
   // another player may reuse the same key string
-  const v = s.mkUser();
+  const v = (await s.mkUser());
   await s.deposit(v, "0.5");
   assert.equal((await s.wallet.withdrawals.request({ userId: v.id, to: v.address, amount: ETH("0.1"), idemKey: "retry-1" })).replay, false);
 });
@@ -353,7 +355,7 @@ test("an Idempotency-Key makes a retried request safe", async () => {
 test("if broadcasting fails, the same signed bytes are retried, later withdrawals wait, and nobody is paid twice", async () => {
   const s = await stack();
   await s.fundTreasury(5);
-  const u = s.mkUser(), v = s.mkUser();
+  const u = (await s.mkUser()), v = (await s.mkUser());
   await s.deposit(u, "0.5");
   await s.deposit(v, "0.5");
   const a = await s.wallet.withdrawals.request({ userId: u.id, to: u.address, amount: ETH("0.1") });
@@ -362,27 +364,27 @@ test("if broadcasting fails, the same signed bytes are retried, later withdrawal
   const real = s.chain.provider.broadcastTransaction.bind(s.chain.provider);
   s.chain.provider.broadcastTransaction = async () => { throw new Error("connect ECONNREFUSED 127.0.0.1:8545"); };
   await s.wallet.withdrawals.pass();
-  assert.equal(s.wd(a.id).status, "signed", "signed and stored, but not sent");
-  assert.equal(s.wd(b.id).status, "queued", "nothing later is signed while an earlier nonce is stuck");
-  const signedHash = s.wd(a.id).tx_hash;
+  assert.equal((await s.wd(a.id)).status, "signed", "signed and stored, but not sent");
+  assert.equal((await s.wd(b.id)).status, "queued", "nothing later is signed while an earlier nonce is stuck");
+  const signedHash = (await s.wd(a.id)).tx_hash;
 
   s.chain.provider.broadcastTransaction = real; // the node is back
   await s.wallet.withdrawals.pass();
-  assert.equal(s.wd(a.id).status, "broadcast");
-  assert.equal(s.wd(a.id).tx_hash, signedHash, "the very same transaction was sent");
-  assert.equal(s.wd(b.id).status, "broadcast");
-  assert.notEqual(s.wd(b.id).nonce, s.wd(a.id).nonce);
-  assert.equal(s.wd(b.id).nonce, s.wd(a.id).nonce + 1);
+  assert.equal((await s.wd(a.id)).status, "broadcast");
+  assert.equal((await s.wd(a.id)).tx_hash, signedHash, "the very same transaction was sent");
+  assert.equal((await s.wd(b.id)).status, "broadcast");
+  assert.notEqual((await s.wd(b.id)).nonce, (await s.wd(a.id)).nonce);
+  assert.equal((await s.wd(b.id)).nonce, (await s.wd(a.id)).nonce + 1);
   await s.finish();
   assert.equal(await H.provider.getBalance(u.address), ETH("0.1"));
   assert.equal(await H.provider.getBalance(v.address), ETH("0.1"));
-  assert.ok(s.ledger.audit().ok);
+  assert.ok((await s.ledger.audit()).ok);
 });
 
 test("if the node accepted the transaction but the call errored, we notice the receipt instead of resending", async () => {
   const s = await stack();
   await s.fundTreasury(5);
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "0.5");
   const real = s.chain.provider.broadcastTransaction.bind(s.chain.provider);
   let sent = 0;
@@ -391,66 +393,66 @@ test("if the node accepted the transaction but the call errored, we notice the r
   await s.wallet.withdrawals.pass();
   await s.wallet.withdrawals.pass();
   assert.equal(sent, 1, "the transaction went out once and was never re-sent");
-  assert.equal(s.wd(w.id).status, "broadcast", "the row moved on because a receipt exists");
+  assert.equal((await s.wd(w.id)).status, "broadcast", "the row moved on because a receipt exists");
   s.chain.provider.broadcastTransaction = real;
   await s.finish();
-  assert.equal(s.wd(w.id).status, "confirmed");
+  assert.equal((await s.wd(w.id)).status, "confirmed");
   assert.equal(await H.provider.getBalance(u.address), ETH("0.1"), "paid exactly once");
-  assert.ok(s.ledger.audit().ok);
+  assert.ok((await s.ledger.audit()).ok);
 });
 
 test("a payout that reverts on-chain is refunded to the player", async () => {
   const s = await stack();
   await s.fundTreasury(5);
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "0.5");
   await H.rpc("hardhat_setCode", [u.address, "0xfe"]); // recipient is a contract that always fails
   const w = await s.wallet.withdrawals.request({ userId: u.id, to: u.address, amount: ETH("0.2") });
   await s.wallet.withdrawals.pass();
   await s.finish();
-  const row = s.wd(w.id);
+  const row = (await s.wd(w.id));
   assert.equal(row.status, "failed");
   assert.match(row.error, /reverted/);
-  assert.equal(s.bal(u), ETH("0.5"), "refunded in full");
-  assert.equal(s.ledger.balance(ACCT.withdrawal(w.id)), 0n);
+  assert.equal((await s.bal(u)), ETH("0.5"), "refunded in full");
+  assert.equal((await s.ledger.balance(ACCT.withdrawal(w.id))), 0n);
   assert.equal(await H.provider.getBalance(u.address), 0n, "no value reached the reverting contract");
-  assert.ok(s.ledger.audit().ok);
+  assert.ok((await s.ledger.audit()).ok);
 });
 
 test("a slow (not dropped) transaction is never refunded; it is re-sent and pays exactly once", async () => {
   const s = await stack();
   await s.fundTreasury(5);
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "0.5");
   const w = await s.wallet.withdrawals.request({ userId: u.id, to: u.address, amount: ETH("0.2") });
   await H.rpc("evm_setAutomine", [false]);
   try {
     await s.wallet.withdrawals.pass();
-    assert.equal(s.wd(w.id).status, "broadcast");
+    assert.equal((await s.wd(w.id)).status, "broadcast");
     s.clock.t += 10 * s.cfg.chain.rebroadcastAfterMs; // far past every threshold, but the nonce is still unspent
     await s.wallet.withdrawals.pass();
-    assert.equal(s.wd(w.id).status, "broadcast", "still waiting: the tx can yet be mined");
-    assert.equal(s.bal(u), ETH("0.3"));
+    assert.equal((await s.wd(w.id)).status, "broadcast", "still waiting: the tx can yet be mined");
+    assert.equal((await s.bal(u)), ETH("0.3"));
   } finally {
     await H.rpc("evm_setAutomine", [true]);
   }
   await H.mine(1);
   await s.finish();
-  assert.equal(s.wd(w.id).status, "confirmed");
+  assert.equal((await s.wd(w.id)).status, "confirmed");
   assert.equal(await H.provider.getBalance(u.address), ETH("0.2"));
-  assert.ok(s.ledger.audit().ok);
+  assert.ok((await s.ledger.audit()).ok);
 });
 
 test("a transaction that was replaced (its nonce taken by another tx) is refunded, but only after the safety delay", async () => {
   const s = await stack();
   await s.fundTreasury(5);
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "0.5");
   const w = await s.wallet.withdrawals.request({ userId: u.id, to: u.address, amount: ETH("0.2") });
   await H.rpc("evm_setAutomine", [false]);
   try {
     await s.wallet.withdrawals.pass();
-    const row = s.wd(w.id);
+    const row = (await s.wd(w.id));
     assert.equal(row.status, "broadcast");
     await H.rpc("hardhat_dropTransaction", [row.tx_hash]);
     // something else (an operator mistake, say) spends that treasury nonce
@@ -460,18 +462,18 @@ test("a transaction that was replaced (its nonce taken by another tx) is refunde
     await H.rpc("evm_setAutomine", [true]);
   }
   await s.wallet.withdrawals.pass();
-  assert.equal(s.wd(w.id).status, "broadcast", "too early to be sure it will never mine");
+  assert.equal((await s.wd(w.id)).status, "broadcast", "too early to be sure it will never mine");
   s.clock.t += 1.5 * s.cfg.chain.rebroadcastAfterMs;
   await s.wallet.withdrawals.pass();
-  assert.equal(s.wd(w.id).status, "broadcast", "still inside the safety window");
+  assert.equal((await s.wd(w.id)).status, "broadcast", "still inside the safety window");
   s.clock.t += 1.5 * s.cfg.chain.rebroadcastAfterMs;
   await s.wallet.withdrawals.pass();
-  const done = s.wd(w.id);
+  const done = (await s.wd(w.id));
   assert.equal(done.status, "failed");
   assert.match(done.error, /dropped or replaced/);
-  assert.equal(s.bal(u), ETH("0.5"));
+  assert.equal((await s.bal(u)), ETH("0.5"));
   assert.equal(await H.provider.getBalance(u.address), 0n);
-  assert.ok(s.ledger.audit().ok);
+  assert.ok((await s.ledger.audit()).ok);
 });
 
 
@@ -491,24 +493,24 @@ test("sweeps wait until the balance is worth the gas: threshold = gas cost x SWE
   assert.equal(gasCost, ETH("0.0021"));
   assert.equal(s.wallet.sweeper.minBalanceFor(100n * GWEI), ETH("0.0063"));
 
-  const small = s.mkUser(), big = s.mkUser();
+  const small = (await s.mkUser()), big = (await s.mkUser());
   await s.deposit(small, "0.005");   // above the gas cost, below 3x
   await s.deposit(big, "0.007");     // above 3x
   await s.wallet.sweeper.pass();
-  const swept = s.db.all("SELECT user_id FROM sweeps").map((r) => r.user_id);
+  const swept = (await s.db.all("SELECT user_id FROM sweeps")).map((r) => r.user_id);
   assert.deepEqual(swept, [big.id], "only the address whose balance clears 3x the gas cost is swept");
   assert.equal(s.wallet.sweeper.deferred, 1);
-  assert.equal(s.db.get("SELECT needs_sweep FROM deposit_addresses WHERE user_id = ?", small.id).needs_sweep, 1, "the deferred address is not forgotten");
-  assert.equal(s.bal(small), ETH("0.005"), "deferral never touches the player's credited balance");
-  const sweep = s.db.get("SELECT * FROM sweeps WHERE user_id = ?", big.id);
+  assert.equal((await s.db.get("SELECT needs_sweep FROM deposit_addresses WHERE user_id = ?", small.id)).needs_sweep, 1, "the deferred address is not forgotten");
+  assert.equal((await s.bal(small)), ETH("0.005"), "deferral never touches the player's credited balance");
+  const sweep = (await s.db.get("SELECT * FROM sweeps WHERE user_id = ?", big.id));
   assert.equal(BigInt(sweep.amount), ETH("0.007") - gasCost, "gas at the live fee cap comes out of the swept amount");
 
   // gas gets cheaper: the same address is now worth sweeping, and is picked up on a later pass
   pinFees(s, 50); // threshold 0.00315
   await s.wallet.sweeper.pass();
-  assert.deepEqual(s.db.all("SELECT user_id FROM sweeps ORDER BY id").map((r) => r.user_id), [big.id, small.id]);
+  assert.deepEqual((await s.db.all("SELECT user_id FROM sweeps ORDER BY id")).map((r) => r.user_id), [big.id, small.id]);
   assert.equal(s.wallet.sweeper.deferred, 0);
-  assert.ok(s.ledger.audit().ok);
+  assert.ok((await s.ledger.audit()).ok);
 });
 
 test("the sweep multiplier is 1 outside mainnet (old behaviour) and 3 on mainnet; a balance at or below one gas cost is never swept", async () => {
@@ -516,102 +518,102 @@ test("the sweep multiplier is 1 outside mainnet (old behaviour) and 3 on mainnet
   const s = await stack({ chain: { sweepMinWei: 0n, sweepMinMultiplier: 1 } });
   pinFees(s, 100);
   assert.equal(s.wallet.sweeper.minBalanceFor(100n * GWEI), ETH("0.0021") + 1n, "x1 and no floor: just over one gas cost, so something is left to send");
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "0.002"); // below one gas cost: nothing would be left to send
   await s.wallet.sweeper.pass();
-  assert.equal(s.db.get("SELECT COUNT(*) AS n FROM sweeps").n, 0);
-  const v = s.mkUser();
+  assert.equal((await s.db.get("SELECT COUNT(*) AS n FROM sweeps")).n, 0);
+  const v = (await s.mkUser());
   await s.deposit(v, "0.0025"); // above one gas cost, multiplier 1: swept
   await s.wallet.sweeper.pass();
-  assert.deepEqual(s.db.all("SELECT user_id FROM sweeps").map((r) => r.user_id), [v.id]);
+  assert.deepEqual((await s.db.all("SELECT user_id FROM sweeps")).map((r) => r.user_id), [v.id]);
 });
 
 test("SWEEP_MIN_WEI still applies on top: dust is dropped from the sweep list, gas-deferred balances are kept", async () => {
   const s = await stack({ chain: { sweepMinWei: ETH("0.004"), sweepMinMultiplier: 1 } });
   pinFees(s, 10); // gas 0.00021
-  const dust = s.mkUser(), fine = s.mkUser();
+  const dust = (await s.mkUser()), fine = (await s.mkUser());
   await s.deposit(dust, "0.003");
   await s.deposit(fine, "0.01");
   await s.wallet.sweeper.pass();
-  assert.deepEqual(s.db.all("SELECT user_id FROM sweeps").map((r) => r.user_id), [fine.id]);
-  assert.equal(s.db.get("SELECT needs_sweep FROM deposit_addresses WHERE user_id = ?", dust.id).needs_sweep, 0, "static dust waits for the next deposit");
+  assert.deepEqual((await s.db.all("SELECT user_id FROM sweeps")).map((r) => r.user_id), [fine.id]);
+  assert.equal((await s.db.get("SELECT needs_sweep FROM deposit_addresses WHERE user_id = ?", dust.id)).needs_sweep, 0, "static dust waits for the next deposit");
 });
 
 /* ------------------------------------------------------------------ mainnet economics: minimum deposit */
 
 test("a deposit below MIN_DEPOSIT_WEI is recorded but not credited until the total at that address reaches it", async () => {
   const s = await stack({ economy: { minDeposit: ETH("0.005") } });
-  const u = s.mkUser();
-  const addr = s.wallet.depositAddress(u.id);
+  const u = (await s.mkUser());
+  const addr = (await s.wallet.depositAddress(u.id));
   const pendingEvents = () => s.events.filter(([id, m]) => id === u.id && m.reason === "deposit-pending");
 
   const h1 = await H.fund(addr, ETH("0.002"));
   await H.mine(2);
   assert.equal(await s.wallet.deposits.scanOnce(), 0, "recorded, not credited");
-  assert.equal(s.bal(u), 0n);
-  let row = s.db.get("SELECT * FROM deposits WHERE tx_hash = ?", h1);
+  assert.equal((await s.bal(u)), 0n);
+  let row = (await s.db.get("SELECT * FROM deposits WHERE tx_hash = ?", h1));
   assert.equal(row.status, "pending");
   assert.equal(row.amount, ETH("0.002").toString());
-  assert.equal(s.ledger.balance(ACCT.chain), 0n, "no ledger movement yet");
-  assert.equal(s.wallet.balances(u.id).pendingDeposit, ETH("0.002").toString());
-  assert.deepEqual(s.wallet.depositState(u.id), { min: ETH("0.005").toString(), pending: ETH("0.002").toString(), remaining: ETH("0.003").toString(), confirmations: 2 });
+  assert.equal((await s.ledger.balance(ACCT.chain)), 0n, "no ledger movement yet");
+  assert.equal((await s.wallet.balances(u.id)).pendingDeposit, ETH("0.002").toString());
+  assert.deepEqual((await s.wallet.depositState(u.id)), { min: ETH("0.005").toString(), pending: ETH("0.002").toString(), remaining: ETH("0.003").toString(), confirmations: 2 });
   assert.equal(pendingEvents().length, 1);
   assert.equal(pendingEvents()[0][1].pending, ETH("0.002").toString());
   assert.equal(pendingEvents()[0][1].minDeposit, ETH("0.005").toString());
-  assert.equal(s.db.get("SELECT needs_sweep FROM deposit_addresses WHERE user_id = ?", u.id).needs_sweep, 0, "nothing to sweep: nothing was credited");
+  assert.equal((await s.db.get("SELECT needs_sweep FROM deposit_addresses WHERE user_id = ?", u.id)).needs_sweep, 0, "nothing to sweep: nothing was credited");
 
   const h2 = await H.fund(addr, ETH("0.002"));
   await H.mine(2);
   assert.equal(await s.wallet.deposits.scanOnce(), 0, "0.004 in total is still below 0.005");
-  assert.equal(s.bal(u), 0n);
-  assert.equal(s.wallet.depositState(u.id).remaining, ETH("0.001").toString());
+  assert.equal((await s.bal(u)), 0n);
+  assert.equal((await s.wallet.depositState(u.id)).remaining, ETH("0.001").toString());
 
   // a cursor rewind re-sees both transfers: still not credited, and not counted twice
-  s.db.run("UPDATE chain_state SET value = ? WHERE key = 'last_scanned'", String(row.block_number - 1));
+  await s.db.run("UPDATE chain_state SET value = ? WHERE key = 'last_scanned'", String(row.block_number - 1));
   assert.equal(await s.wallet.deposits.scanOnce(), 0);
-  assert.equal(s.wallet.balances(u.id).pendingDeposit, ETH("0.004").toString());
+  assert.equal((await s.wallet.balances(u.id)).pendingDeposit, ETH("0.004").toString());
 
   const h3 = await H.fund(addr, ETH("0.002"));
   await H.mine(2);
   assert.equal(await s.wallet.deposits.scanOnce(), 3, "the third transfer lifts the total to 0.006: all three are credited together");
-  assert.equal(s.bal(u), ETH("0.006"));
+  assert.equal((await s.bal(u)), ETH("0.006"));
   for (const h of [h1, h2, h3]) {
-    row = s.db.get("SELECT * FROM deposits WHERE tx_hash = ?", h);
+    row = (await s.db.get("SELECT * FROM deposits WHERE tx_hash = ?", h));
     assert.equal(row.status, "credited");
     assert.ok(row.credited_at > 0);
-    assert.ok(s.ledger.has(`deposit:${h}`), "one ledger entry per transfer");
+    assert.ok((await s.ledger.has(`deposit:${h}`)), "one ledger entry per transfer");
   }
-  assert.equal(s.ledger.balance(ACCT.chain), -ETH("0.006"));
-  assert.equal(s.wallet.balances(u.id).pendingDeposit, "0");
-  assert.equal(s.wallet.depositState(u.id).remaining, "0");
-  assert.equal(s.db.get("SELECT needs_sweep FROM deposit_addresses WHERE user_id = ?", u.id).needs_sweep, 1);
+  assert.equal((await s.ledger.balance(ACCT.chain)), -ETH("0.006"));
+  assert.equal((await s.wallet.balances(u.id)).pendingDeposit, "0");
+  assert.equal((await s.wallet.depositState(u.id)).remaining, "0");
+  assert.equal((await s.db.get("SELECT needs_sweep FROM deposit_addresses WHERE user_id = ?", u.id)).needs_sweep, 1);
   assert.ok(s.events.some(([id, m]) => id === u.id && m.reason === "deposit" && m.txHash === h3));
-  assert.ok(s.ledger.audit().ok);
+  assert.ok((await s.ledger.audit()).ok);
 
   // once credited, a small top-up is a new pending amount again (the minimum applies to what is waiting at the address)
   await H.fund(addr, ETH("0.001"));
   await H.mine(2);
   assert.equal(await s.wallet.deposits.scanOnce(), 0);
-  assert.equal(s.wallet.balances(u.id).pendingDeposit, ETH("0.001").toString());
-  assert.equal(s.bal(u), ETH("0.006"));
+  assert.equal((await s.wallet.balances(u.id)).pendingDeposit, ETH("0.001").toString());
+  assert.equal((await s.bal(u)), ETH("0.006"));
 });
 
 test("a single deposit at or above the minimum is credited at once; with no minimum (testnets) every deposit is", async () => {
   const s = await stack({ economy: { minDeposit: ETH("0.005") } });
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "0.005");
-  assert.equal(s.bal(u), ETH("0.005"));
-  assert.equal(s.db.get("SELECT status FROM deposits WHERE user_id = ?", u.id).status, "credited");
+  assert.equal((await s.bal(u)), ETH("0.005"));
+  assert.equal((await s.db.get("SELECT status FROM deposits WHERE user_id = ?", u.id)).status, "credited");
   const t = await stack();
   assert.equal(t.cfg.economy.minDeposit, 0n);
-  const v = t.mkUser();
+  const v = await t.mkUser();
   await t.deposit(v, "0.000001");
-  assert.equal(t.bal(v), ETH("0.000001"));
+  assert.equal((await t.bal(v)), ETH("0.000001"));
 });
 
 test("pending deposits are not counted as surplus in the solvency view", async () => {
   const s = await stack({ economy: { minDeposit: ETH("0.005") } });
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "0.002");
   const sol = await s.wallet.solvency();
   assert.equal(sol.pendingDeposits, ETH("0.002").toString());
@@ -627,57 +629,57 @@ const FEE_FIXED = { withdrawalFee: { mode: "fixed", fixed: ETH("0.01"), marginBp
 test("withdrawal fee (fixed): charged on top, its own ledger entry in house:gas, the recipient gets the full amount, audit clean", async () => {
   const s = await stack({ economy: FEE_FIXED });
   await s.fundTreasury(5);
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "1");
 
   const w = await s.wallet.withdrawals.request({ userId: u.id, to: u.address, amount: ETH("0.4") });
   assert.equal(w.fee, ETH("0.01").toString());
   assert.equal(w.total, ETH("0.41").toString());
   assert.equal(w.amount, ETH("0.4").toString());
-  assert.equal(s.bal(u), ETH("0.59"), "the player pays amount + fee");
-  assert.equal(s.ledger.balance(ACCT.withdrawal(w.id)), ETH("0.4"), "only the amount is escrowed for the payout");
-  assert.equal(s.ledger.balance(ACCT.gas), ETH("0.01"), "the fee sits in its own account");
-  assert.equal(s.wd(w.id).fee, ETH("0.01").toString());
-  const kinds = s.ledger.statement(ACCT.user(u.id)).map((e) => [e.kind, e.amount]).reverse();
+  assert.equal((await s.bal(u)), ETH("0.59"), "the player pays amount + fee");
+  assert.equal((await s.ledger.balance(ACCT.withdrawal(w.id))), ETH("0.4"), "only the amount is escrowed for the payout");
+  assert.equal((await s.ledger.balance(ACCT.gas)), ETH("0.01"), "the fee sits in its own account");
+  assert.equal((await s.wd(w.id)).fee, ETH("0.01").toString());
+  const kinds = (await s.ledger.statement(ACCT.user(u.id))).map((e) => [e.kind, e.amount]).reverse();
   assert.deepEqual(kinds, [["deposit", ETH(1).toString()], ["withdrawal-hold", (-ETH("0.4")).toString()], ["withdrawal-fee", (-ETH("0.01")).toString()]]);
-  assert.ok(s.ledger.audit().ok, "balanced after the request");
+  assert.ok((await s.ledger.audit()).ok, "balanced after the request");
 
   await s.wallet.withdrawals.pass();
   await s.finish();
-  assert.equal(s.wd(w.id).status, "confirmed");
+  assert.equal((await s.wd(w.id)).status, "confirmed");
   assert.equal(await H.provider.getBalance(u.address), ETH("0.4"), "exactly the requested amount arrived, not amount minus fee");
-  assert.equal(s.ledger.balance(ACCT.gas), ETH("0.01"), "the fee is kept once the withdrawal completes");
-  assert.equal(s.ledger.balance(ACCT.withdrawal(w.id)), 0n);
-  assert.equal(s.ledger.balance(ACCT.chain), -ETH("0.6"));
-  const audit = s.ledger.audit();
+  assert.equal((await s.ledger.balance(ACCT.gas)), ETH("0.01"), "the fee is kept once the withdrawal completes");
+  assert.equal((await s.ledger.balance(ACCT.withdrawal(w.id))), 0n);
+  assert.equal((await s.ledger.balance(ACCT.chain)), -ETH("0.6"));
+  const audit = (await s.ledger.audit());
   assert.deepEqual(audit.problems, []);
   assert.equal(audit.liabilities, ETH("0.6").toString(), "user 0.59 + house:gas 0.01");
-  assert.equal(s.wallet.withdrawals.list(u.id)[0].fee, ETH("0.01").toString());
-  assert.equal(s.wallet.withdrawals.list(u.id)[0].total, ETH("0.41").toString());
+  assert.equal((await s.wallet.withdrawals.list(u.id))[0].fee, ETH("0.01").toString());
+  assert.equal((await s.wallet.withdrawals.list(u.id))[0].total, ETH("0.41").toString());
 });
 
 test("a failed withdrawal gives back the amount AND the fee, and the audit stays clean", async () => {
   const s = await stack({ economy: FEE_FIXED });
   await s.fundTreasury(5);
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "0.5");
   await H.rpc("hardhat_setCode", [u.address, "0xfe"]); // a recipient that always reverts
   const w = await s.wallet.withdrawals.request({ userId: u.id, to: u.address, amount: ETH("0.2") });
-  assert.equal(s.bal(u), ETH("0.29"));
+  assert.equal((await s.bal(u)), ETH("0.29"));
   await s.wallet.withdrawals.pass();
   await s.finish();
-  assert.equal(s.wd(w.id).status, "failed");
-  assert.equal(s.bal(u), ETH("0.5"), "everything came back, fee included");
-  assert.equal(s.ledger.balance(ACCT.gas), 0n);
-  assert.equal(s.ledger.balance(ACCT.withdrawal(w.id)), 0n);
-  assert.deepEqual(s.ledger.statement(ACCT.user(u.id)).map((e) => e.kind).reverse(), ["deposit", "withdrawal-hold", "withdrawal-fee", "withdrawal-refund", "withdrawal-fee-refund"]);
-  assert.ok(s.ledger.audit().ok);
+  assert.equal((await s.wd(w.id)).status, "failed");
+  assert.equal((await s.bal(u)), ETH("0.5"), "everything came back, fee included");
+  assert.equal((await s.ledger.balance(ACCT.gas)), 0n);
+  assert.equal((await s.ledger.balance(ACCT.withdrawal(w.id))), 0n);
+  assert.deepEqual((await s.ledger.statement(ACCT.user(u.id))).map((e) => e.kind).reverse(), ["deposit", "withdrawal-hold", "withdrawal-fee", "withdrawal-refund", "withdrawal-fee-refund"]);
+  assert.ok((await s.ledger.audit()).ok);
 });
 
 test("withdrawal fee (estimate): live EIP-1559 fee data x 21000 gas x (1 + margin), cached briefly, capped by the player's maxFee", async () => {
   const s = await stack({ economy: { withdrawalFee: { mode: "estimate", fixed: 0n, marginBps: 2500 } } });
   await s.fundTreasury(5);
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "1");
   const priced = (gwei) => { s.chain.feeData = async () => ({ maxFeePerGas: 80n * GWEI, maxPriorityFeePerGas: 2n * GWEI, expectedFeePerGas: BigInt(gwei) * GWEI }); };
   priced(30);
@@ -696,53 +698,53 @@ test("withdrawal fee (estimate): live EIP-1559 fee data x 21000 gas x (1 + margi
 
   // the player saw the old 30 gwei fee and agreed to at most that: the request is refused, nothing is charged
   await assert.rejects(s.wallet.withdrawals.request({ userId: u.id, to: u.address, amount: ETH("0.1"), maxFee: expected(30) }), { code: "FEE_CHANGED", status: 409, extra: { fee: expected(60).toString(), maxFee: expected(30).toString() } });
-  assert.equal(s.bal(u), ETH(1));
-  assert.equal(s.db.get("SELECT COUNT(*) AS n FROM withdrawals").n, 0);
+  assert.equal((await s.bal(u)), ETH(1));
+  assert.equal((await s.db.get("SELECT COUNT(*) AS n FROM withdrawals")).n, 0);
 
   const w = await s.wallet.withdrawals.request({ userId: u.id, to: u.address, amount: ETH("0.1"), maxFee: expected(60) });
   assert.equal(w.fee, expected(60).toString());
-  assert.equal(s.bal(u), ETH(1) - ETH("0.1") - expected(60));
-  assert.equal(s.ledger.balance(ACCT.gas), expected(60));
+  assert.equal((await s.bal(u)), ETH(1) - ETH("0.1") - expected(60));
+  assert.equal((await s.ledger.balance(ACCT.gas)), expected(60));
   await s.wallet.withdrawals.pass();
   await s.finish();
   assert.equal(await H.provider.getBalance(u.address), ETH("0.1"));
-  assert.ok(s.ledger.audit().ok);
+  assert.ok((await s.ledger.audit()).ok);
 
   // if fee data cannot be read, the request is refused with a retryable 503 rather than charging a guess
   s.clock.t += 16000;
   s.chain.feeData = async () => { throw new Error("connect ECONNREFUSED"); };
   await assert.rejects(s.wallet.withdrawals.request({ userId: u.id, to: u.address, amount: ETH("0.1") }), { code: "FEE_UNAVAILABLE", status: 503 });
-  assert.ok(s.ledger.audit().ok);
+  assert.ok((await s.ledger.audit()).ok);
 });
 
 test("the withdrawal needs balance for amount + fee, and the daily cap counts the amount only", async () => {
   const s = await stack({ economy: { ...FEE_FIXED, dailyWithdrawalCap: ETH("0.5") } });
   await s.fundTreasury(5);
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "0.5");
   await assert.rejects(s.wallet.withdrawals.request({ userId: u.id, to: u.address, amount: ETH("0.5") }), {
     code: "INSUFFICIENT_FUNDS", status: 402, extra: { amount: ETH("0.5").toString(), fee: ETH("0.01").toString(), total: ETH("0.51").toString() },
   });
-  assert.equal(s.bal(u), ETH("0.5"));
-  assert.equal(s.db.get("SELECT COUNT(*) AS n FROM withdrawals").n, 0, "a refused request leaves no row");
+  assert.equal((await s.bal(u)), ETH("0.5"));
+  assert.equal((await s.db.get("SELECT COUNT(*) AS n FROM withdrawals")).n, 0, "a refused request leaves no row");
   await s.deposit(u, "0.1");
   const w = await s.wallet.withdrawals.request({ userId: u.id, to: u.address, amount: ETH("0.5") }); // exactly the cap: the 0.01 fee does not count
   assert.equal(w.fee, ETH("0.01").toString());
-  assert.equal(s.bal(u), ETH("0.09"));
+  assert.equal((await s.bal(u)), ETH("0.09"));
   await assert.rejects(s.wallet.withdrawals.request({ userId: u.id, to: u.address, amount: ETH("0.001") }), { code: "DAILY_WITHDRAWAL_CAP" });
-  assert.ok(s.ledger.audit().ok);
+  assert.ok((await s.ledger.audit()).ok);
 });
 
 test("an idempotent retry of a withdrawal with a fee is not charged twice", async () => {
   const s = await stack({ economy: FEE_FIXED });
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "1");
   const a = await s.wallet.withdrawals.request({ userId: u.id, to: u.address, amount: ETH("0.1"), idemKey: "k1" });
   const b = await s.wallet.withdrawals.request({ userId: u.id, to: u.address, amount: ETH("0.1"), idemKey: "k1" });
   assert.equal(b.replay, true);
   assert.equal(b.id, a.id);
-  assert.equal(s.bal(u), ETH("0.89"));
-  assert.equal(s.ledger.balance(ACCT.gas), ETH("0.01"), "one fee");
+  assert.equal((await s.bal(u)), ETH("0.89"));
+  assert.equal((await s.ledger.balance(ACCT.gas)), ETH("0.01"), "one fee");
 });
 
 test("withdrawal fee defaults: fixed and zero outside mainnet, estimate on mainnet", () => {
@@ -759,7 +761,7 @@ test("withdrawal fee defaults: fixed and zero outside mainnet, estimate on mainn
 test("solvency compares treasury + unswept deposit balances with ledger liabilities", async () => {
   const s = await stack();
   await s.fundTreasury(2);
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "1"); // sits unswept at the deposit address
   const sol = await s.wallet.solvency();
   assert.equal(sol.treasuryBalance, ETH(2).toString());
@@ -775,10 +777,10 @@ test("solvency compares treasury + unswept deposit balances with ledger liabilit
 
 test("insolvency is reported and logged as a loud ERROR on every check", async () => {
   const s = await stack();
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "0.5");
   // the ledger now owes 5 ETH that is not on-chain (a bug, a hack, or a hot wallet that was drained)
-  s.ledger.post({ kind: "deposit", ref: "phantom", uniq: "phantom:1", entries: [[ACCT.chain, -ETH(5)], [ACCT.user(u.id), ETH(5)]] });
+  await s.ledger.post({ kind: "deposit", ref: "phantom", uniq: "phantom:1", entries: [[ACCT.chain, -ETH(5)], [ACCT.user(u.id), ETH(5)]] });
   const sol = await s.wallet.solvency();
   assert.equal(sol.insolvent, true);
   assert.equal(sol.solvent, false);
@@ -793,13 +795,13 @@ test("insolvency is reported and logged as a loud ERROR on every check", async (
 test("a deficit no larger than the withdrawals in flight is not insolvency (the money has left, the escrow has not yet been released)", async () => {
   const s = await stack({ chain: { sweepMinWei: 0n } });
   await s.fundTreasury("0.01");
-  const u = s.mkUser();
+  const u = (await s.mkUser());
   await s.deposit(u, "1");
   await s.wallet.sweeper.pass();
   await s.wallet.sweeper.pass(); // the deposit now sits in the treasury
   const w = await s.wallet.withdrawals.request({ userId: u.id, to: u.address, amount: ETH("0.9") });
   await s.wallet.withdrawals.pass(); // paid on-chain, but not `confirmations` deep: still escrowed in the ledger
-  assert.equal(s.wd(w.id).status, "broadcast");
+  assert.equal((await s.wd(w.id)).status, "broadcast");
   const mid = await s.wallet.solvency();
   assert.ok(BigInt(mid.surplus) < 0n, "the chain really is below the ledger for now");
   assert.equal(mid.inFlightWithdrawals, ETH("0.9").toString());
@@ -815,8 +817,8 @@ test("a deficit no larger than the withdrawals in flight is not insolvency (the 
 
 test("the background solvency monitor logs INSOLVENT without anyone calling the admin API", async () => {
   const s = await stack({ chain: { solvencyCheckMs: 60 } });
-  const u = s.mkUser();
-  s.ledger.post({ kind: "deposit", ref: "phantom", uniq: "phantom:2", entries: [[ACCT.chain, -ETH(1)], [ACCT.user(u.id), ETH(1)]] });
+  const u = (await s.mkUser());
+  await s.ledger.post({ kind: "deposit", ref: "phantom", uniq: "phantom:2", entries: [[ACCT.chain, -ETH(1)], [ACCT.user(u.id), ETH(1)]] });
   s.wallet.start();
   try {
     for (let i = 0; i < 100 && !s.logs.some(([lvl, m]) => lvl === "error" && /INSOLVENT/.test(m)); i++) await new Promise((r) => setTimeout(r, 50));

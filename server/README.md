@@ -11,20 +11,36 @@ Backend for real **player-vs-player** skill games with **crypto wallets**, on a 
 
 > **Real money is an explicit opt-in.** The server refuses to start on a mainnet chain id (Ethereum 1, Base 8453) unless `NETWORK=mainnet` is set, and refuses to start on a testnet when it is. Without the opt-in only test networks run (Sepolia, Hoodi, Base/Arbitrum/OP Sepolia, Polygon Amoy, local Hardhat/Anvil). Keys are held by the server (custodial, hot wallet) with no HSM and no KYC: read [Running on mainnet](#running-on-mainnet) before using real funds.
 
-Node 22.13+, no build step. State is one SQLite file (`node:sqlite`), one server process.
+Node 22.13+, no build step. State is in Postgres (Supabase in production), one server process.
 
 ## Try it
 
 ```bash
 cd server
 npm install
+npm run db           # local Postgres in Docker (once; it keeps running)
 npm run dev          # local chain + server + a local faucet → http://localhost:8787/play/
 ```
 
 Open `/play/` in two browsers (or one normal and one private window), connect a browser wallet such as MetaMask (each window needs its own account), press **Add 1 test ETH**, pick a game and a stake, create a lobby in one and open its invite link (or enter its code) in the other. The page plays the real game packs from `../src/games`.
 
 Other scripts: `npm run chain` starts just the local chain; `npm start` runs the server alone against `RPC_URL`.
-Tests: `npm test` (about 2 minutes, includes real Chromium and a real local chain).
+Tests: `npm test` (about 4 minutes, includes real Chromium and a real local chain). They need the Postgres from `npm run db`
+(or `TEST_DATABASE_URL`); every test app gets its own throwaway `t_…` schema, so they never touch the tables of a real deployment.
+
+### Database
+
+Postgres 13+, set by `DATABASE_URL` (required in production). On Supabase: **Connect → Session pooler**, and use that string
+as is. The server creates and upgrades its tables itself at startup (`src/db/schema.js`, recorded in `schema_migrations`), and
+switches on row level security for every table, so Supabase's REST API (the anon key) sees nothing; the server connects as the
+tables' owner and is not affected. Amounts are decimal `TEXT`, never numeric columns. `DB_SCHEMA` puts the tables in a schema
+other than `public`; `DB_POOL_MAX` (default 5) caps the connections.
+
+Concurrency: the services were written for a synchronous database, so the Postgres layer (`src/db/index.js`) keeps that
+guarantee. Every operation that reads state and then acts on it runs under one process-wide lock (`db.exclusive`), every money
+movement runs in a transaction on one dedicated connection (`db.tx`, nested calls are savepoints), each transaction also takes a
+Postgres advisory lock (two server processes, e.g. during a deploy, can never move money at the same time), and ledger balance
+rows are read `FOR UPDATE`.
 
 ### Against Sepolia (or another testnet)
 
@@ -59,10 +75,10 @@ All settings are environment variables; see [`.env.example`](.env.example). Prod
 | `ALLOWED_ORIGINS` | your front end's origin(s), e.g. `https://duel.example`: https only, no path, never `*` |
 | `PUBLIC_DOMAIN` | your public host name, e.g. `duel.example` (not localhost, no scheme, no port) |
 | `TRUST_PROXY` | `true` on Render (it sits behind Render's proxy; this makes rate limits use the real client IP). Set `false` only if the server is directly exposed. It must be set explicitly |
-| `DB_PATH` | a path on a **persistent disk**, e.g. `/var/data/duel.db`. The SQLite file is the ledger: losing it loses everyone's balances |
+| `DATABASE_URL` | your Postgres connection string (Supabase: Connect → Session pooler). The database is the ledger: back it up (Supabase does daily backups on paid plans) |
 | `ADMIN_TOKEN` | 24+ random characters (`openssl rand -hex 24`). Enables `/v1/admin/audit` and `/v1/admin/solvency`. Not enforced at startup, but run without it only if you accept being blind to insolvency except through the logs |
 
-Start command `npm start`. Also set `HOST=0.0.0.0` (Render needs the server to listen on all interfaces; `PORT` is provided by Render). Anything missing makes startup fail with a message that lists every problem at once. Single instance only (SQLite, in-memory timers): do not scale to more than one.
+Start command `npm start`. Also set `HOST=0.0.0.0` (Render needs the server to listen on all interfaces; `PORT` is provided by Render). Anything missing makes startup fail with a message that lists every problem at once. Single instance only (in-memory lobby state and timers): do not scale to more than one.
 
 ### Mainnet defaults
 
@@ -108,7 +124,7 @@ Gas is real money on L1. Every fee below comes from the node's EIP-1559 fee data
                                        ▼
    Auth ─ Users ─ Responsible play ─ MatchService (invite lobbies, matches, Elo) ─ Catalog (game packs)
                                        │
-                                    Ledger  (double-entry, exact wei, SQLite)
+                                    Ledger  (double-entry, exact wei, Postgres)
                                        │
    WalletService ─ DepositWatcher · Sweeper · Withdrawals ── JSON-RPC ── EVM network (mainnet only with NETWORK=mainnet)
 ```
@@ -127,7 +143,7 @@ Gas is real money on L1. Every fee below comes from the node's EIP-1559 fee data
 
 ### Money
 
-Every amount is an integer number of **wei**, held as `BigInt` in memory and decimal `TEXT` in SQLite; JSON carries decimal strings. Nothing is ever a JS `Number`.
+Every amount is an integer number of **wei**, held as `BigInt` in memory and decimal `TEXT` in the database; JSON carries decimal strings. Nothing is ever a JS `Number`.
 
 The ledger is double-entry: each transaction's entries sum to exactly zero, and only `external:chain` may go negative, so no player or escrow can be overdrawn. `GET /v1/admin/audit` re-derives every balance from the entries.
 
@@ -191,7 +207,7 @@ There is **no public matchmaking**: no queue, no random opponent, no list or sea
 5. The host starts with `POST /v1/lobbies/:code/start` (host only, 403 `LOBBY_NOT_HOST`; at least 2 players, else 409 `LOBBY_NOT_ENOUGH_PLAYERS`; 403 `AGE_NOT_CONFIRMED` if the stake is above 0 and the host has not attested). The lobby also **starts by itself the moment it reaches `LOBBY_MAX_PLAYERS`**; that last join answers `{lobby, match}`. On start every member's ticket moves into one N-seat match, everyone gets `match.found`, and the lobby ends in state `matched` with `matchId`. Ready, countdown, play and settlement follow the normal rules above.
 6. The host can `DELETE /v1/lobbies/:code`; the lobby then closes and **every member is refunded**. It expires the same way after `LOBBY_TTL_MS` (default 30 minutes; joining does not extend it). Everyone gets `lobby.closed` followed by `wallet.updated`.
 
-Races: node:sqlite is synchronous and a join runs start to finish without an `await`, so two joins can never interleave: the capacity check and the roster insert happen together, a lobby cannot be overfilled, and a join that loses a race to a start, a cancel or the last free seat sees `LOBBY_CLOSED` / `LOBBY_FULL` before any of its money moves. Closing, expiry and starting are compare-and-set on the host ticket's state inside one transaction with all the stake movements, so nobody is refunded or charged twice. Restarts: **open lobbies are restored with their guests** from the `tickets` table (same escrow, same roster and order, busy flags and expiry timer re-armed for the time left); a lobby already past its expiry is closed on boot and its host and every guest refunded once. A match that was found but not started when the server went down is voided and refunded, as for any match.
+Races: every lobby and match operation runs under the database layer's process-wide lock (`db.exclusive`), so two joins can never interleave: the capacity check and the roster insert happen together, a lobby cannot be overfilled, and a join that loses a race to a start, a cancel or the last free seat sees `LOBBY_CLOSED` / `LOBBY_FULL` before any of its money moves. Closing, expiry and starting are compare-and-set on the host ticket's state inside one transaction with all the stake movements, so nobody is refunded or charged twice. Restarts: **open lobbies are restored with their guests** from the `tickets` table (same escrow, same roster and order, busy flags and expiry timer re-armed for the time left); a lobby already past its expiry is closed on boot and its host and every guest refunded once. A match that was found but not started when the server went down is voided and refunded, as for any match.
 
 ### Responsible play (enforced server-side)
 
@@ -258,7 +274,7 @@ What is **not** solved, by design of this prototype:
 1. **Scores are reported by the player's own client.** The server picks the seed and the clock, delivers the seed once to a single socket, enforces deadlines and flags scores over 3× the strongest bot on that seed (`/v1/admin/flags`; advisory, it never changes a result). A modified client can still lie or run a solver. Real-money play needs server-side replay/verification of each game.
 2. **Custodial keys in one process** protected only by the mnemonic. Production would use a KMS/HSM, cold storage, hot-wallet limits and dual control.
 3. **Sybil/collusion.** Anyone can create wallets; two accounts can throw matches to each other (the 10% fee makes it costly, not impossible). No KYC or geo verification.
-4. **Single instance.** SQLite and in-memory timers; no horizontal scaling. Rate limits are per process.
+4. **Single instance.** Lobby state and timers live in memory; no horizontal scaling. Rate limits are per process.
 5. Login supports normal (EOA) wallets only, not EIP-1271 smart-contract wallets. Player display names are user-supplied text; clients must escape them.
 
 ## Testing
@@ -267,13 +283,13 @@ What is **not** solved, by design of this prototype:
 
 | Suite | Covers |
 |---|---|
-| `ledger`, `rules` | balance exactness beyond 2^53, atomicity, overdraft, idempotency, audit tamper detection, Elo (1v1 and pairwise), N-player result rules, catalog |
+| `ledger`, `rules` | balance exactness beyond 2^53, atomicity, overdraft, idempotency, racing debits, audit tamper detection, Elo (1v1 and pairwise), N-player result rules, catalog |
 | `auth`, `responsible` | signatures, replay, expiry, bans, loss-limit delays, 18+ attestation |
 | `wallet.chain` | **real local EVM node:** confirmations, restart safety, gas-aware sweeps, minimum deposit, withdrawals and their network fee (ledger audit clean), crash and failure paths, refunds, solvency, the chain-id guard (fake chain ids: mainnet needs the opt-in, testnets are refused under it) |
 | `mainnet.config` | every `NETWORK=mainnet` requirement, mainnet vs test defaults, secrets out of logs and JSON, a mainnet server against a fake RPC, no faucet |
-| `invite-only` | the queue and the activity endpoint are gone (WS unknown command, HTTP 404), no player search, 18+ gating of staked create/join/start but not free play, the age migration on old databases |
+| `invite-only` | the queue and the activity endpoint are gone (WS unknown command, HTTP 404), no player search, 18+ gating of staked create/join/start but not free play, the schema and a restart over it |
 | `matches`, `matchmaking` | every outcome and its exact arithmetic, escrow, no-shows, seed delivery, races, restart recovery |
-| `lobbies` | invite lobbies of 2-10: capacity and races, join/leave/start/close/expiry refunds, roster events, restart recovery, old-database upgrade |
+| `lobbies` | invite lobbies of 2-10: capacity and races, join/leave/start/close/expiry refunds, roster events, restart recovery, a lobby written by an earlier server |
 | `multiplayer` | 3-10 player matches: single winner, split with remainder, draw, forfeit, deadline, void, pairwise Elo, ledger audit after each |
 | `api` | error shapes, admin, CORS/origin, limits, static-file safety, socket abuse |
 | `e2e` | wallet → on-chain deposit → match → on-chain withdrawal → solvency |

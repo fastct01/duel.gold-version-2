@@ -1,10 +1,7 @@
 /* Admission rules for staking, no-shows, seed delivery, races and crash recovery. Players meet only through invite lobbies. */
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
-import os from "node:os";
-import fs from "node:fs";
-import path from "node:path";
-import { startApp, mETH, ETH, sleep } from "./helpers/app.js";
+import { startApp, mETH, ETH, sleep, testDb, freshSchema } from "./helpers/app.js";
 import { DuelClient } from "../client/duel-client.js";
 import { ACCT } from "../src/ledger.js";
 
@@ -13,7 +10,7 @@ const boot = async (over) => { const h = await startApp(over); apps.push(h); ret
 after(async () => { for (const h of apps) await h.close().catch(() => {}); });
 
 const STAKE = mETH;
-const audit = (h) => assert.deepEqual(h.app.ledger.audit().problems, []);
+const audit = async (h) => assert.deepEqual((await h.app.ledger.audit()).problems, []);
 
 /* ------------------------------------------------------------------ who meets whom */
 
@@ -27,7 +24,7 @@ test("one player cannot be in two lobbies or matches at once, and never meets th
   await assert.rejects(second.createLobby({ game: "aim", stake: String(STAKE) }), { code: "ALREADY_ACTIVE" });
   await assert.rejects(a.client.createLobby({ game: "reaction", stake: "0" }), { code: "ALREADY_ACTIVE" });
   await assert.rejects(a.client.joinLobby(code), { code: "LOBBY_OWN" }, "your own lobby is not an opponent");
-  assert.equal(a.bal(), 100n * mETH - STAKE, "only one stake is held");
+  assert.equal((await a.bal()), 100n * mETH - STAKE, "only one stake is held");
   second.close();
 });
 
@@ -39,8 +36,8 @@ test("staking is refused unless it is allowed: age, loss limit, funds, range, ga
 
   const poor = await h.player({ fund: STAKE - 1n });
   await assert.rejects(host(poor), { code: "INSUFFICIENT_FUNDS" });
-  assert.equal(poor.bal(), STAKE - 1n, "a refused lobby holds nothing");
-  assert.equal(h.app.db.get("SELECT COUNT(*) AS n FROM tickets WHERE user_id = ?", poor.id).n, 0);
+  assert.equal((await poor.bal()), STAKE - 1n, "a refused lobby holds nothing");
+  assert.equal((await h.app.db.get("SELECT COUNT(*) AS n FROM tickets WHERE user_id = ?", poor.id)).n, 0);
 
   const p = await h.player();
   await assert.rejects(host(p, { stake: "1" }), { code: "BAD_STAKE" });
@@ -50,7 +47,7 @@ test("staking is refused unless it is allowed: age, loss limit, funds, range, ga
   await assert.rejects(host(p, { stake: "abc" }), { code: "BAD_AMOUNT" });
   await assert.rejects(host(p, { game: "nope" }), { code: "UNKNOWN_GAME" });
   await assert.rejects(host(p, { game: "chess" }), { code: "GAME_NOT_PVP" });
-  assert.equal(p.bal(), 100n * mETH);
+  assert.equal((await p.bal()), 100n * mETH);
 });
 
 test("the daily loss limit stops staking once losses use it up", async () => {
@@ -83,36 +80,36 @@ test("the daily loss limit stops staking once losses use it up", async () => {
 test("no-show: the match is voided, both refunded, and only the absent player gets a strike; three strikes = a temporary ban from hosting and joining", async () => {
   const h = await boot({ match: { acceptMs: 250 } });
   const a = await h.player(), b = await h.player();
-  const full = [a.bal(), b.bal()];
+  const full = [(await a.bal()), (await b.bal())];
   for (let i = 0; i < 3; i++) {
     const m = await h.pair(a, b);
     await a.client.ready(m.id); // a shows up, b does not
     const [va, vb] = await Promise.all([a.client.waitFor("match.void", null, 3000), b.client.waitFor("match.void", null, 3000)]);
     assert.equal(va.match.reason, "no_show");
-    assert.deepEqual([a.bal(), b.bal()], full, "everyone is refunded");
-    assert.equal(h.app.users.byId(a.id).strikes, 0);
+    assert.deepEqual([(await a.bal()), (await b.bal())], full, "everyone is refunded");
+    assert.equal((await h.app.users.byId(a.id)).strikes, 0);
   }
-  const bRow = h.app.users.byId(b.id);
+  const bRow = (await h.app.users.byId(b.id));
   assert.equal(bRow.strikes, 0, "the third strike resets the counter and applies the ban");
   assert.ok(bRow.queue_ban_until > Date.now());
   await assert.rejects(b.client.createLobby({ game: "reaction", stake: "0" }), { code: "QUEUE_BANNED" });
   const fine = await a.client.createLobby({ game: "reaction", stake: "0" }); // a is unaffected
   await a.client.closeLobby(fine.code);
-  audit(h);
+  await audit(h);
 });
 
 test("declining a match you were paired into voids it, refunds both, and costs a strike", async () => {
   const h = await boot();
   const a = await h.player(), b = await h.player();
-  const full = [a.bal(), b.bal()];
+  const full = [(await a.bal()), (await b.bal())];
   const m = await h.pair(a, b);
   await b.client.forfeit(m.id);
   const [va] = await Promise.all([a.client.waitFor("match.void"), b.client.waitFor("match.void")]);
   assert.equal(va.match.reason, "declined");
-  assert.deepEqual([a.bal(), b.bal()], full);
-  assert.equal(h.app.users.byId(b.id).strikes, 1);
-  assert.equal(h.app.users.byId(a.id).strikes, 0);
-  audit(h);
+  assert.deepEqual([(await a.bal()), (await b.bal())], full);
+  assert.equal((await h.app.users.byId(b.id)).strikes, 1);
+  assert.equal((await h.app.users.byId(a.id)).strikes, 0);
+  await audit(h);
 });
 
 /* ------------------------------------------------------------------ seed delivery and fair play */
@@ -163,7 +160,7 @@ test("a player whose seed never arrived (nobody was connected at the start) can 
   await sleep(50);
   await b.client.ready(m.id);
   await b.client.waitFor("match.start");
-  assert.equal(h.app.db.get("SELECT seed_sent FROM match_players WHERE match_id = ? AND user_id = ?", m.id, a.id).seed_sent, 0);
+  assert.equal((await h.app.db.get("SELECT seed_sent FROM match_players WHERE match_id = ? AND user_id = ?", m.id, a.id)).seed_sent, 0);
 
   const back = new DuelClient({ baseUrl: h.url, address: a.wallet.address, sign: (msg) => a.wallet.signMessage(msg) });
   back.token = a.client.token;
@@ -207,7 +204,7 @@ test("submissions are validated: timing, type, size, duplicates, and strangers",
   await assert.rejects(c.client.forfeit(m.id), { code: "NOT_FOUND" });
   await assert.rejects(a.client.submit(999999, 5), { code: "NOT_FOUND" });
   await a.client.submit(m.id, 5, "x".repeat(10000)); // under the 16 KB frame limit, over the 2000-character detail cap
-  assert.equal(h.app.db.get("SELECT length(detail) AS n FROM match_players WHERE match_id = ? AND user_id = ?", m.id, a.id).n, 2000, "detail is capped");
+  assert.equal((await h.app.db.get("SELECT length(detail) AS n FROM match_players WHERE match_id = ? AND user_id = ?", m.id, a.id)).n, 2000, "detail is capped");
   await assert.rejects(a.client.submit(m.id, 9), { code: "ALREADY_SUBMITTED" });
   await b.client.submit(m.id, 1);
 
@@ -221,21 +218,21 @@ test("submissions are validated: timing, type, size, duplicates, and strangers",
 test("racing a submit, a forfeit and the deadline settles the match exactly once", async () => {
   const h = await boot({ match: { durationScale: 0.001, graceMs: 60 } });
   const a = await h.player(), b = await h.player();
-  const start = a.bal() + b.bal();
+  const start = (await a.bal()) + (await b.bal());
   const m = await h.pair(a, b);
   await h.begin(a, b, m.id);
   await Promise.allSettled([a.client.submit(m.id, 10), b.client.submit(m.id, 20), b.client.forfeit(m.id), a.client.forfeit(m.id)]);
   await sleep(300);
-  const settles = h.app.db.get("SELECT COUNT(*) AS n FROM ledger_tx WHERE uniq IN (?, ?)", `match-settle:${m.id}`, `match-refund:${m.id}`).n;
+  const settles = (await h.app.db.get("SELECT COUNT(*) AS n FROM ledger_tx WHERE uniq IN (?, ?)", `match-settle:${m.id}`, `match-refund:${m.id}`)).n;
   assert.equal(settles, 1, "one settlement, however the events interleaved");
-  assert.equal(h.app.ledger.balance(ACCT.match(m.id)), 0n);
-  assert.equal(a.bal() + b.bal() + h.house(), start, "no money created or destroyed");
+  assert.equal((await h.app.ledger.balance(ACCT.match(m.id))), 0n);
+  assert.equal((await a.bal()) + (await b.bal()) + (await h.house()), start, "no money created or destroyed");
   // the rating side of a settlement must also happen exactly once (a second pass would double-count it)
-  const rows = h.app.db.all("SELECT user_id, rating, wins + losses + draws AS played FROM ratings ORDER BY user_id");
+  const rows = (await h.app.db.all("SELECT user_id, rating, wins + losses + draws AS played FROM ratings ORDER BY user_id"));
   assert.deepEqual(rows.map((r) => r.played), [1, 1], "each player has exactly one rated game");
   assert.equal(rows[0].rating + rows[1].rating, 2400, "rating points are conserved");
   assert.ok([1188, 1212].includes(rows[0].rating), `a single ±12 step, not compounded (got ${rows[0].rating})`);
-  audit(h);
+  await audit(h);
 });
 
 test("a submission that arrives after the deadline is refused even if the settle timer has not fired yet", async () => {
@@ -243,9 +240,9 @@ test("a submission that arrives after the deadline is refused even if the settle
   const a = await h.player(), b = await h.player();
   const m = await h.pair(a, b);
   await h.begin(a, b, m.id);
-  h.app.db.run("UPDATE matches SET submit_deadline = ? WHERE id = ?", Date.now() - 1, m.id); // the deadline has now passed
+  await h.app.db.run("UPDATE matches SET submit_deadline = ? WHERE id = ?", Date.now() - 1, m.id); // the deadline has now passed
   await assert.rejects(a.client.submit(m.id, 5), { code: "TOO_LATE" });
-  assert.equal(h.app.db.get("SELECT score FROM match_players WHERE match_id = ? AND user_id = ?", m.id, a.id).score, null, "nothing was recorded");
+  assert.equal((await h.app.db.get("SELECT score FROM match_players WHERE match_id = ? AND user_id = ?", m.id, a.id)).score, null, "nothing was recorded");
   await a.client.forfeit(m.id); // clean up: settles by forfeit
 });
 
@@ -259,7 +256,7 @@ test("an implausibly high score is flagged for review but does not change the re
   const [ra] = await Promise.all([a.client.waitFor("match.result"), b.client.waitFor("match.result")]);
   assert.equal(ra.match.result, "win", "advisory only: the result stands");
   await h.app.matches.flagsSettled();
-  const flags = h.app.matches.flagged();
+  const flags = (await h.app.matches.flagged());
   assert.equal(flags.length, 1);
   assert.equal(flags[0].user_id, a.id);
   assert.match(flags[0].flag, /3× the strongest bot/);
@@ -268,38 +265,37 @@ test("an implausibly high score is flagged for review but does not change the re
 /* ------------------------------------------------------------------ crash recovery */
 
 test("after a restart: tickets left over from the retired public queue are refunded, unstarted matches voided, running matches still finish", async () => {
-  const file = path.join(os.tmpdir(), `duel-recovery-${process.pid}-${Date.now()}.db`);
+  const shared = freshSchema(); // one database across the "crash"
   const slow = { match: { durationScale: 0.01, graceMs: 400 } }; // darts: 100 s × 0.01 × 1.5 + 0.4 s ≈ 1.9 s deadline
-  const h1 = await startApp({ dbPath: file, ...slow });
+  const h1 = await startApp({ db: testDb(shared, { keep: true }), ...slow });
   const [q, f1, f2, r1, r2] = [await h1.player(), await h1.player(), await h1.player(), await h1.player(), await h1.player()];
-  const funds = new Map([q, f1, f2, r1, r2].map((p) => [p.id, p.bal()]));
+  const funds = new Map(await Promise.all([q, f1, f2, r1, r2].map(async (p) => [p.id, await p.bal()])));
 
   // a ticket as an older version (with a public queue) left it: queued, not a lobby, its stake in escrow. Nothing can ever match it now.
-  const old = Number(h1.app.db.run("INSERT INTO tickets (user_id, game, stake, code, rating, state, created_at) VALUES (?, 'aim', ?, NULL, 1200, 'queued', ?)", q.id, String(STAKE), Date.now()).lastInsertRowid);
-  h1.app.ledger.transfer(ACCT.user(q.id), ACCT.ticket(old), STAKE, { kind: "stake-hold", ref: old, uniq: `ticket-hold:${old}` });
-  assert.equal(h1.app.ledger.balance(ACCT.user(q.id)), funds.get(q.id) - STAKE);
+  const old = Number((await h1.app.db.run("INSERT INTO tickets (user_id, game, stake, code, rating, state, created_at) VALUES (?, 'aim', ?, NULL, 1200, 'queued', ?) RETURNING id", q.id, String(STAKE), Date.now())).lastInsertRowid);
+  await h1.app.ledger.transfer(ACCT.user(q.id), ACCT.ticket(old), STAKE, { kind: "stake-hold", ref: old, uniq: `ticket-hold:${old}` });
+  assert.equal((await h1.app.ledger.balance(ACCT.user(q.id))), funds.get(q.id) - STAKE);
   const found = await h1.pair(f1, f2, { game: "reaction" }); // found, nobody ready
   const running = await h1.pair(r1, r2, { game: "darts" });
   await h1.begin(r1, r2, running.id);
   await r1.client.submit(running.id, 700); // r2 never does
   await h1.close(); // "crash": no settlement happens on the way down
 
-  const h2 = await startApp({ dbPath: file, ...slow });
+  const h2 = await startApp({ db: testDb(shared), ...slow });
   apps.push(h2);
   const at = h2.app;
-  assert.equal(at.db.get("SELECT state FROM tickets WHERE user_id = ?", q.id).state, "cancelled");
-  assert.equal(at.ledger.balance(ACCT.user(q.id)), funds.get(q.id), "the queued stake came back");
-  assert.equal(at.db.get("SELECT state, reason FROM matches WHERE id = ?", found.id).reason, "server_restart");
-  assert.equal(at.ledger.balance(ACCT.user(f1.id)), funds.get(f1.id));
-  assert.equal(at.ledger.balance(ACCT.user(f2.id)), funds.get(f2.id));
+  assert.equal((await at.db.get("SELECT state FROM tickets WHERE user_id = ?", q.id)).state, "cancelled");
+  assert.equal((await at.ledger.balance(ACCT.user(q.id))), funds.get(q.id), "the queued stake came back");
+  assert.equal((await at.db.get("SELECT state, reason FROM matches WHERE id = ?", found.id)).reason, "server_restart");
+  assert.equal((await at.ledger.balance(ACCT.user(f1.id))), funds.get(f1.id));
+  assert.equal((await at.ledger.balance(ACCT.user(f2.id))), funds.get(f2.id));
 
   // the recovered deadline timer settles the running match: r1 had submitted, r2 had not
   const row = () => at.db.get("SELECT state, outcome, reason, winner_seat FROM matches WHERE id = ?", running.id);
-  for (let t = Date.now(); row().state !== "settled" && Date.now() - t < 6000;) await sleep(100);
-  const done = row();
+  for (let t = Date.now(); (await row()).state !== "settled" && Date.now() - t < 6000;) await sleep(100);
+  const done = await row();
   assert.deepEqual({ ...done }, { state: "settled", outcome: "win", reason: "timeout", winner_seat: 0 });
-  assert.ok(at.ledger.balance(ACCT.user(r1.id)) > funds.get(r1.id));
-  assert.equal(at.ledger.balance(ACCT.user(r2.id)), funds.get(r2.id) - STAKE);
-  assert.deepEqual(at.ledger.audit().problems, []);
-  fs.rmSync(file, { force: true }); fs.rmSync(file + "-wal", { force: true }); fs.rmSync(file + "-shm", { force: true });
+  assert.ok((await at.ledger.balance(ACCT.user(r1.id))) > funds.get(r1.id));
+  assert.equal((await at.ledger.balance(ACCT.user(r2.id))), funds.get(r2.id) - STAKE);
+  assert.deepEqual((await at.ledger.audit()).problems, []);
 });

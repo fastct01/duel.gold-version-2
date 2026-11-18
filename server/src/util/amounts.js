@@ -1,4 +1,4 @@
-/* Money is always integer wei held as BigInt in memory and as decimal TEXT in SQLite.
+/* Money is always integer wei held as BigInt in memory and as decimal TEXT in the database.
    JS Numbers never touch an amount: they lose precision above 2^53 (about 0.009 ETH in wei). */
 import { formatEther } from "ethers";
 import { bad } from "./errors.js";

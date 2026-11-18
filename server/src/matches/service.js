@@ -21,6 +21,9 @@
 
    Every transition is a compare-and-set on the match state inside a DB transaction together with its ledger movement, so
    a timer, a submit and a forfeit racing each other can settle a match only once and can never create or lose money.
+   On top of that, every public operation that changes something, and every timer, runs inside db.exclusive() — one
+   process-wide lock (see db/index.js) — so the in-memory maps below and the rows they mirror are never seen half-updated
+   by another operation, exactly as when the database was synchronous.
 
    Trust model: the server picks the seed and the clock, but the SCORE is reported by the player's own client. A modified
    client can lie. Mitigations here are the once-only seed delivery, hard deadlines, sanity bounds, and an advisory flag
@@ -51,10 +54,13 @@ export class MatchService {
     this.pendingFlags = new Set();
   }
 
+  /* run one operation under the process-wide lock */
+  #op(fn) { return this.db.exclusive(fn); }
+
   /* ------------------------------------------------------------ lifecycle */
 
   start() {
-    this.recover();
+    return this.#op(() => this.recover());
   }
 
   stop() {
@@ -64,48 +70,53 @@ export class MatchService {
 
   /* After a restart: open lobbies are restored, matches that never started are voided, running matches get their deadline
      timer back. Money is never stranded because escrow is in the ledger, not in memory. */
-  recover() {
+  async recover() {
     /* A ticket that is neither a lobby nor in one can only be left over from a database written when a public queue existed
        (tickets that sat in a queue). Nothing can ever match it now, so its stake goes back instead of staying in escrow. */
-    for (const t of this.db.all("SELECT * FROM tickets WHERE state = 'queued' AND lobby_code IS NULL AND lobby_ticket_id IS NULL")) {
-      this.#cancelTicketRow(t, "cancelled");
+    for (const t of await this.db.all("SELECT * FROM tickets WHERE state = 'queued' AND lobby_code IS NULL AND lobby_ticket_id IS NULL")) {
+      await this.#cancelTicketRow(t, "cancelled");
     }
     /* A guest still waiting in a lobby that is no longer open cannot normally exist (a lobby and its guests close in one
        transaction); if one ever does, the stake goes back rather than staying stranded. */
-    for (const g of this.db.all(
+    for (const g of await this.db.all(
       `SELECT g.* FROM tickets g WHERE g.state = 'queued' AND g.lobby_ticket_id IS NOT NULL
           AND NOT EXISTS (SELECT 1 FROM tickets h WHERE h.id = g.lobby_ticket_id AND h.state = 'queued')`)) {
-      this.#cancelTicketRow(g, "cancelled");
+      await this.#cancelTicketRow(g, "cancelled");
     }
     /* Open lobbies survive a restart together with everyone waiting in them (the invite link keeps working): same
        escrow, same roster, expiry timer re-armed for the time left. A lobby already past its expiry is closed now and
        every member is refunded. Nothing is refunded twice: closing is a compare-and-set on the ticket state. */
-    for (const t of this.db.all("SELECT * FROM tickets WHERE state = 'queued' AND lobby_code IS NOT NULL")) {
+    for (const t of await this.db.all("SELECT * FROM tickets WHERE state = 'queued' AND lobby_code IS NOT NULL")) {
       const left = t.created_at + this.cfg.match.lobbyTtlMs - this.now();
-      if (left <= 0) { this.#closeLobbyTicket(t.id, "expired"); continue; }
-      for (const r of [t, ...this.db.all("SELECT * FROM tickets WHERE lobby_ticket_id = ? AND state = 'queued' ORDER BY id", t.id)]) {
+      if (left <= 0) { await this.#closeLobbyTicket(t.id, "expired"); continue; }
+      for (const r of [t, ...(await this.db.all("SELECT * FROM tickets WHERE lobby_ticket_id = ? AND state = 'queued' ORDER BY id", t.id))]) {
         const ticket = this.#ticketOf(r);
         this.tickets.set(ticket.id, ticket);
         this.busy.set(ticket.userId, { kind: "lobby", id: t.id, ticketId: ticket.id, role: r.id === t.id ? "host" : "guest" });
       }
       this.#arm(`expire:${t.id}`, left, () => this.#closeLobbyTicket(t.id, "expired"));
     }
-    for (const m of this.db.all("SELECT * FROM matches WHERE state = 'found'")) {
-      this.#voidFound(m.id, "server_restart", []);
+    for (const m of await this.db.all("SELECT * FROM matches WHERE state = 'found'")) {
+      await this.#voidFound(m.id, "server_restart", []);
     }
-    for (const m of this.db.all("SELECT * FROM matches WHERE state = 'playing'")) {
-      for (const p of this.#players(m.id)) this.busy.set(p.user_id, { kind: "match", id: m.id });
+    for (const m of await this.db.all("SELECT * FROM matches WHERE state = 'playing'")) {
+      for (const p of await this.#players(m.id)) this.busy.set(p.user_id, { kind: "match", id: m.id });
       this.#arm(`deadline:${m.id}`, Math.max(0, m.submit_deadline - this.now()), () => this.#deadline(m.id));
     }
     if (this.busy.size) this.log.info("recovered running matches", { players: this.busy.size });
   }
 
+  /* A timer fires outside whatever operation armed it (db.detach) and then queues for the lock like any other operation.
+     If it was disarmed or re-armed while it waited, it does nothing. */
   #arm(key, ms, fn) {
     this.#disarm(key);
-    const t = setTimeout(() => {
-      this.timers.delete(key);
-      try { fn(); } catch (e) { this.log.error("match timer failed", { key, error: e }); }
-    }, ms);
+    const t = this.db.detach(() => setTimeout(() => {
+      this.#op(async () => {
+        if (this.timers.get(key) !== t) return;
+        this.timers.delete(key);
+        await fn();
+      }).catch((e) => this.log.error("match timer failed", { key, error: e }));
+    }, ms));
     t.unref?.();
     this.timers.set(key, t);
   }
@@ -116,8 +127,8 @@ export class MatchService {
 
   /* ------------------------------------------------------------ ratings */
 
-  rating(userId, game) {
-    const r = this.db.get("SELECT rating FROM ratings WHERE user_id = ? AND game = ?", userId, game);
+  async rating(userId, game) {
+    const r = await this.db.get("SELECT rating FROM ratings WHERE user_id = ? AND game = ?", userId, game);
     return r ? r.rating : START_RATING;
   }
 
@@ -125,13 +136,13 @@ export class MatchService {
     return this.db.all("SELECT game, rating, wins, losses, draws, best FROM ratings WHERE user_id = ? ORDER BY game", userId);
   }
 
-  leaderboard(game, limit = 20) {
-    return this.db.all(
+  async leaderboard(game, limit = 20) {
+    const rows = await this.db.all(
       `SELECT r.rating, r.wins, r.losses, r.draws, u.id AS user_id, u.display_name, u.address
          FROM ratings r JOIN users u ON u.id = r.user_id
         WHERE r.game = ? AND (r.wins + r.losses + r.draws) > 0
-        ORDER BY r.rating DESC, r.wins DESC, u.id LIMIT ?`, game, limit)
-      .map((r, i) => ({ rank: i + 1, player: this.users.publicView({ id: r.user_id, display_name: r.display_name, address: r.address }), rating: r.rating, wins: r.wins, losses: r.losses, draws: r.draws }));
+        ORDER BY r.rating DESC, r.wins DESC, u.id LIMIT ?`, game, limit);
+    return rows.map((r, i) => ({ rank: i + 1, player: this.users.publicView({ id: r.user_id, display_name: r.display_name, address: r.address }), rating: r.rating, wins: r.wins, losses: r.losses, draws: r.draws }));
   }
 
   /* ------------------------------------------------------------ admission */
@@ -149,8 +160,8 @@ export class MatchService {
   }
 
   /* account-level gates shared by hosting and joining */
-  #assertMayPlay(userId) {
-    const user = this.users.require(userId);
+  async #assertMayPlay(userId) {
+    const user = await this.users.require(userId);
     if (user.banned) throw forbidden("ACCOUNT_BANNED", "This account is suspended.");
     if (user.queue_ban_until > this.now()) throw new AppError("QUEUE_BANNED", "You skipped too many matches. Try again shortly.", 403, { until: user.queue_ban_until });
     if (this.busy.has(userId)) {
@@ -162,30 +173,32 @@ export class MatchService {
 
   /* DB half of cancelling a ticket (lobby host or guest): state change + refund in one transaction */
   #cancelTicketRow(row, state) {
-    this.db.tx(() => {
-      const c = this.db.run("UPDATE tickets SET state = ?, closed_at = ? WHERE id = ? AND state = 'queued'", state, this.now(), row.id).changes;
+    return this.db.tx(async () => {
+      const c = (await this.db.run("UPDATE tickets SET state = ?, closed_at = ? WHERE id = ? AND state = 'queued'", state, this.now(), row.id)).changes;
       if (!c) return;
       const stake = big(row.stake);
-      if (stake > 0n) this.ledger.transfer(ACCT.ticket(row.id), ACCT.user(row.user_id), stake, { kind: "stake-release", ref: row.id, uniq: `ticket-release:${row.id}` });
+      if (stake > 0n) await this.ledger.transfer(ACCT.ticket(row.id), ACCT.user(row.user_id), stake, { kind: "stake-release", ref: row.id, uniq: `ticket-release:${row.id}` });
     });
   }
 
   /* ------------------------------------------------------------ invite-only lobbies */
 
-  #newLobbyCode() {
+  async #newLobbyCode() {
     for (let i = 0; i < 20; i++) {
       let c = "";
       for (let j = 0; j < LOBBY_CODE_LEN; j++) c += LOBBY_ALPHABET[crypto.randomInt(LOBBY_ALPHABET.length)];
-      if (!this.db.get("SELECT 1 AS x FROM tickets WHERE lobby_code = ?", c)) return c;
+      if (!(await this.db.get("SELECT 1 AS x FROM tickets WHERE lobby_code = ?", c))) return c;
     }
     throw new Error("could not allocate a lobby code");
   }
 
-  #lobbyRow(code) {
+  async #lobbyRow(code) {
     const c = typeof code === "string" ? code.trim().toUpperCase() : "";
     if (c.length !== LOBBY_CODE_LEN || ![...c].every((ch) => LOBBY_ALPHABET.includes(ch))) return null;
-    return this.db.get("SELECT * FROM tickets WHERE lobby_code = ?", c) || null;
+    return (await this.db.get("SELECT * FROM tickets WHERE lobby_code = ?", c)) || null;
   }
+
+  #ticketRow(id) { return this.db.get("SELECT * FROM tickets WHERE id = ?", id); }
 
   /* in-memory form of a ticket row */
   #ticketOf(r) {
@@ -205,9 +218,10 @@ export class MatchService {
 
   /* The lobby as one person sees it. Public (no viewer, or a viewer who is not a member): names only, never a user id or
      an address. Member view (host and guests): adds `role` and, per player, `you` and a short address as `avatar`. */
-  #lobbyView(row, viewerId = null, members = this.#lobbyMembers(row)) {
+  async #lobbyView(row, viewerId = null, members = null) {
+    members ??= await this.#lobbyMembers(row);
     const g = this.catalog.get(row.game);
-    const host = members.find((m) => m.ticket_id === row.id) || this.users.byId(row.user_id);
+    const host = members.find((m) => m.ticket_id === row.id) || (await this.users.byId(row.user_id));
     const stake = big(row.stake), count = members.length, pot = stake * BigInt(count);
     const { payout } = splitPot(pot, this.cfg.economy.feeBps);
     const state = row.state === "queued" ? "open" : row.state === "matched" ? "matched" : "closed";
@@ -231,8 +245,9 @@ export class MatchService {
   }
 
   /* tell every member, each with their own view */
-  #notifyLobby(row, type, members = this.#lobbyMembers(row)) {
-    for (const m of members) this.hub.notify(m.user_id, { type, lobby: this.#lobbyView(row, m.user_id, members) });
+  async #notifyLobby(row, type, members = null) {
+    members ??= await this.#lobbyMembers(row);
+    for (const m of members) this.hub.notify(m.user_id, { type, lobby: await this.#lobbyView(row, m.user_id, members) });
   }
 
   /* forget a lobby ticket (host or guest) in memory; the player is free again */
@@ -244,169 +259,179 @@ export class MatchService {
   }
 
   createLobby(userId, { game, stake } = {}) {
-    const { stakeWei } = this.#parseGameStake(game, stake);
-    this.#assertMayPlay(userId);
-    this.responsible.assertCanStake(userId, stakeWei, 0n);
-    const rating = this.rating(userId, game);
-    const code = this.#newLobbyCode();
-    const ticket = this.db.tx(() => {
-      const at = this.now();
-      const id = Number(this.db.run("INSERT INTO tickets (user_id, game, stake, code, lobby_code, rating, state, created_at) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?)",
-        userId, game, toStr(stakeWei), code, code, rating, at).lastInsertRowid);
-      if (stakeWei > 0n) this.ledger.transfer(ACCT.user(userId), ACCT.ticket(id), stakeWei, { kind: "stake-hold", ref: id, uniq: `ticket-hold:${id}` });
-      return { id, userId, game, stake: stakeWei, code, lobbyCode: code, rating, at };
+    return this.#op(async () => {
+      const { stakeWei } = this.#parseGameStake(game, stake);
+      await this.#assertMayPlay(userId);
+      await this.responsible.assertCanStake(userId, stakeWei, 0n);
+      const rating = await this.rating(userId, game);
+      const code = await this.#newLobbyCode();
+      const ticket = await this.db.tx(async () => {
+        const at = this.now();
+        const id = Number((await this.db.run("INSERT INTO tickets (user_id, game, stake, code, lobby_code, rating, state, created_at) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?) RETURNING id",
+          userId, game, toStr(stakeWei), code, code, rating, at)).lastInsertRowid);
+        if (stakeWei > 0n) await this.ledger.transfer(ACCT.user(userId), ACCT.ticket(id), stakeWei, { kind: "stake-hold", ref: id, uniq: `ticket-hold:${id}` });
+        return { id, userId, game, stake: stakeWei, code, lobbyCode: code, rating, at };
+      });
+      /* in the ticket map (stakeAtRisk): the only way into this lobby is its code */
+      this.tickets.set(ticket.id, ticket);
+      this.busy.set(userId, { kind: "lobby", id: ticket.id, ticketId: ticket.id, role: "host" });
+      this.#arm(`expire:${ticket.id}`, this.cfg.match.lobbyTtlMs, () => this.#closeLobbyTicket(ticket.id, "expired"));
+      const lobby = await this.#lobbyView(await this.#ticketRow(ticket.id), userId);
+      this.hub.notify(userId, { type: "lobby.created", lobby });
+      this.hub.notify(userId, { type: "wallet.updated", reason: "stake-held" });
+      this.log.info("lobby created", { ticketId: ticket.id, game, stake: toStr(stakeWei) });
+      return lobby;
     });
-    /* in the ticket map (stakeAtRisk, sync): the only way into this lobby is its code */
-    this.tickets.set(ticket.id, ticket);
-    this.busy.set(userId, { kind: "lobby", id: ticket.id, ticketId: ticket.id, role: "host" });
-    this.#arm(`expire:${ticket.id}`, this.cfg.match.lobbyTtlMs, () => this.#closeLobbyTicket(ticket.id, "expired"));
-    const lobby = this.#lobbyView(this.db.get("SELECT * FROM tickets WHERE id = ?", ticket.id), userId);
-    this.hub.notify(userId, { type: "lobby.created", lobby });
-    this.hub.notify(userId, { type: "wallet.updated", reason: "stake-held" });
-    this.log.info("lobby created", { ticketId: ticket.id, game, stake: toStr(stakeWei) });
-    return lobby;
   }
 
   /* public view, for anyone with the link */
-  getLobby(code) {
-    const row = this.#lobbyRow(code);
+  async getLobby(code) {
+    const row = await this.#lobbyRow(code);
     if (!row) throw new AppError("LOBBY_NOT_FOUND", "This invite link is not valid.", 404);
     return this.#lobbyView(row);
   }
 
   /* Host closes: with a code, that lobby (must be theirs); without, their open lobby. Everyone inside is refunded. */
   closeLobby(userId, code) {
-    let row;
-    if (code == null || code === "") {
-      const b = this.busy.get(userId);
-      row = b && b.kind === "lobby" ? this.db.get("SELECT * FROM tickets WHERE id = ?", b.id) : null;
-      if (!row) throw new AppError("LOBBY_NOT_FOUND", "You have no open lobby.", 404);
-    } else {
-      row = this.#lobbyRow(code);
-      if (!row) throw new AppError("LOBBY_NOT_FOUND", "This invite link is not valid.", 404);
-    }
-    if (row.user_id !== userId) throw forbidden("LOBBY_NOT_HOST", "Only the host can close this lobby.");
-    if (row.state === "matched") throw conflict("LOBBY_CLOSED", "This lobby has already started.");
-    if (row.state === "queued") this.#closeLobbyTicket(row.id, "cancelled");
-    return this.#lobbyView(this.db.get("SELECT * FROM tickets WHERE id = ?", row.id), userId);
+    return this.#op(async () => {
+      let row;
+      if (code == null || code === "") {
+        const b = this.busy.get(userId);
+        row = b && b.kind === "lobby" ? await this.#ticketRow(b.id) : null;
+        if (!row) throw new AppError("LOBBY_NOT_FOUND", "You have no open lobby.", 404);
+      } else {
+        row = await this.#lobbyRow(code);
+        if (!row) throw new AppError("LOBBY_NOT_FOUND", "This invite link is not valid.", 404);
+      }
+      if (row.user_id !== userId) throw forbidden("LOBBY_NOT_HOST", "Only the host can close this lobby.");
+      if (row.state === "matched") throw conflict("LOBBY_CLOSED", "This lobby has already started.");
+      if (row.state === "queued") await this.#closeLobbyTicket(row.id, "cancelled");
+      return this.#lobbyView(await this.#ticketRow(row.id), userId);
+    });
   }
 
   /* Cancel or expire an open lobby: the host's ticket and every waiting guest's ticket change state and are refunded in
      ONE transaction, compare-and-set on the host ticket's state. Then every member hears lobby.closed + wallet.updated. */
-  #closeLobbyTicket(ticketId, state) {
-    const row = this.db.get("SELECT * FROM tickets WHERE id = ?", ticketId);
+  async #closeLobbyTicket(ticketId, state) {
+    const row = await this.#ticketRow(ticketId);
     if (!row || row.state !== "queued" || row.lobby_code == null) return;
-    const guests = this.db.all("SELECT * FROM tickets WHERE lobby_ticket_id = ? AND state = 'queued' ORDER BY id", ticketId);
-    const members = this.#lobbyMembers(row); // read before the state change
-    this.db.tx(() => { for (const t of [row, ...guests]) this.#cancelTicketRow(t, state); });
+    const guests = await this.db.all("SELECT * FROM tickets WHERE lobby_ticket_id = ? AND state = 'queued' ORDER BY id", ticketId);
+    const members = await this.#lobbyMembers(row); // read before the state change
+    await this.db.tx(async () => { for (const t of [row, ...guests]) await this.#cancelTicketRow(t, state); });
     for (const t of [row, ...guests]) this.#dropLobbyTicket(ticketId, t.user_id, t.id);
-    const closed = this.db.get("SELECT * FROM tickets WHERE id = ?", ticketId);
+    const closed = await this.#ticketRow(ticketId);
     for (const m of members) {
-      this.hub.notify(m.user_id, { type: "lobby.closed", lobby: this.#lobbyView(closed, m.user_id, members) });
+      this.hub.notify(m.user_id, { type: "lobby.closed", lobby: await this.#lobbyView(closed, m.user_id, members) });
       this.hub.notify(m.user_id, { type: "wallet.updated", reason: "stake-released" });
     }
     this.log.info("lobby closed", { ticketId, reason: state, players: members.length });
   }
 
   /* Guest joins. The stake goes into escrow and the guest onto the roster, nothing more: the match starts when the host
-     says so, or at once if this join fills the lobby. Everything below runs synchronously (node:sqlite, no awaits), so two
-     joins can never interleave: the lobby cannot be overfilled, and a lobby closed or started a moment earlier is seen as
-     such before any of this player's money moves. Returns { lobby } or, when this join filled it, { lobby, match }. */
+     says so, or at once if this join fills the lobby. The whole join holds the process-wide lock, so two joins can never
+     interleave: the lobby cannot be overfilled, and a lobby closed or started a moment earlier is seen as such before any
+     of this player's money moves. Returns { lobby } or, when this join filled it, { lobby, match }. */
   joinLobby(userId, code) {
-    const row = this.#lobbyRow(code);
-    if (!row) throw new AppError("LOBBY_NOT_FOUND", "This invite link is not valid.", 404);
-    if (row.user_id === userId) throw conflict("LOBBY_OWN", "This is your own lobby. Send the invite link to a friend.");
-    const max = this.cfg.match.lobbyMaxPlayers;
-    const members = this.#lobbyMembers(row);
-    if ((row.state === "queued" || row.state === "matched") && members.some((m) => m.user_id === userId)) throw conflict("LOBBY_ALREADY_IN", "You are already in this lobby.");
-    if (row.state === "matched" && members.length >= max) throw conflict("LOBBY_FULL", "This lobby is full.", { maxPlayers: max });
-    if (row.state !== "queued" || !this.tickets.has(row.id)) throw conflict("LOBBY_CLOSED", "This lobby is no longer open.");
-    if (members.length >= max) throw conflict("LOBBY_FULL", "This lobby is full.", { maxPlayers: max });
-    const { stakeWei } = this.#parseGameStake(row.game, row.stake);
-    this.#assertMayPlay(userId);
-    this.responsible.assertCanStake(userId, stakeWei, 0n);
+    return this.#op(async () => {
+      const row = await this.#lobbyRow(code);
+      if (!row) throw new AppError("LOBBY_NOT_FOUND", "This invite link is not valid.", 404);
+      if (row.user_id === userId) throw conflict("LOBBY_OWN", "This is your own lobby. Send the invite link to a friend.");
+      const max = this.cfg.match.lobbyMaxPlayers;
+      const members = await this.#lobbyMembers(row);
+      if ((row.state === "queued" || row.state === "matched") && members.some((m) => m.user_id === userId)) throw conflict("LOBBY_ALREADY_IN", "You are already in this lobby.");
+      if (row.state === "matched" && members.length >= max) throw conflict("LOBBY_FULL", "This lobby is full.", { maxPlayers: max });
+      if (row.state !== "queued" || !this.tickets.has(row.id)) throw conflict("LOBBY_CLOSED", "This lobby is no longer open.");
+      if (members.length >= max) throw conflict("LOBBY_FULL", "This lobby is full.", { maxPlayers: max });
+      const { stakeWei } = this.#parseGameStake(row.game, row.stake);
+      await this.#assertMayPlay(userId);
+      await this.responsible.assertCanStake(userId, stakeWei, 0n);
 
-    const rating = this.rating(userId, row.game);
-    /* the hold and the ticket insert share one transaction: if it throws, nothing was charged */
-    const guest = this.db.tx(() => {
-      const id = Number(this.db.run("INSERT INTO tickets (user_id, game, stake, code, lobby_ticket_id, rating, state, created_at) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?)",
-        userId, row.game, toStr(stakeWei), row.lobby_code, row.id, rating, this.now()).lastInsertRowid);
-      if (stakeWei > 0n) this.ledger.transfer(ACCT.user(userId), ACCT.ticket(id), stakeWei, { kind: "stake-hold", ref: id, uniq: `ticket-hold:${id}` });
-      return { id, userId, game: row.game, stake: stakeWei, code: row.lobby_code, lobbyCode: null, rating, at: this.now() };
+      const rating = await this.rating(userId, row.game);
+      /* the hold and the ticket insert share one transaction: if it throws, nothing was charged */
+      const guest = await this.db.tx(async () => {
+        const id = Number((await this.db.run("INSERT INTO tickets (user_id, game, stake, code, lobby_ticket_id, rating, state, created_at) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?) RETURNING id",
+          userId, row.game, toStr(stakeWei), row.lobby_code, row.id, rating, this.now())).lastInsertRowid);
+        if (stakeWei > 0n) await this.ledger.transfer(ACCT.user(userId), ACCT.ticket(id), stakeWei, { kind: "stake-hold", ref: id, uniq: `ticket-hold:${id}` });
+        return { id, userId, game: row.game, stake: stakeWei, code: row.lobby_code, lobbyCode: null, rating, at: this.now() };
+      });
+      this.tickets.set(guest.id, guest);
+      this.busy.set(userId, { kind: "lobby", id: row.id, ticketId: guest.id, role: "guest" });
+      this.hub.notify(userId, { type: "wallet.updated", reason: "stake-held" });
+      const roster = await this.#lobbyMembers(row);
+      await this.#notifyLobby(row, "lobby.updated", roster);
+      this.log.info("lobby joined", { ticketId: row.id, guestTicketId: guest.id, players: roster.length });
+
+      if (roster.length >= max) {
+        try { await this.#startLobby(row); }
+        catch (e) { this.log.error("lobby auto-start failed; the host can still start it", { ticketId: row.id, error: e }); } // everything rolled back
+      }
+      const now = await this.#ticketRow(row.id);
+      return {
+        lobby: await this.#lobbyView(now, userId),
+        ...(now.state === "matched" ? { match: await this.matchView(now.match_id, userId) } : {}),
+      };
     });
-    this.tickets.set(guest.id, guest);
-    this.busy.set(userId, { kind: "lobby", id: row.id, ticketId: guest.id, role: "guest" });
-    this.hub.notify(userId, { type: "wallet.updated", reason: "stake-held" });
-    const roster = this.#lobbyMembers(row);
-    this.#notifyLobby(row, "lobby.updated", roster);
-    this.log.info("lobby joined", { ticketId: row.id, guestTicketId: guest.id, players: roster.length });
-
-    if (roster.length >= max) {
-      try { this.#startLobby(row); }
-      catch (e) { this.log.error("lobby auto-start failed; the host can still start it", { ticketId: row.id, error: e }); } // everything rolled back
-    }
-    const now = this.db.get("SELECT * FROM tickets WHERE id = ?", row.id);
-    return {
-      lobby: this.#lobbyView(now, userId),
-      ...(now.state === "matched" ? { match: this.matchView(now.match_id, userId) } : {}),
-    };
   }
 
   /* A guest leaves before the start: the stake comes back, the others see the new roster. The leaver gets lobby.closed
      (and the HTTP answer) with a public view of the lobby marked closed/"left" — for them it is over; it stays open for the rest. */
   leaveLobby(userId, code) {
-    const row = this.#lobbyRow(code);
-    if (!row) throw new AppError("LOBBY_NOT_FOUND", "This invite link is not valid.", 404);
-    if (row.user_id === userId) throw conflict("LOBBY_HOST_LEAVE", "Cancel the lobby instead.");
-    if (row.state !== "queued" || !this.tickets.has(row.id)) throw conflict("LOBBY_CLOSED", "This lobby is no longer open.");
-    const g = this.db.get("SELECT * FROM tickets WHERE lobby_ticket_id = ? AND user_id = ? AND state = 'queued'", row.id, userId);
-    if (!g) throw conflict("LOBBY_NOT_IN", "You are not in this lobby.");
-    this.#cancelTicketRow(g, "left");
-    this.#dropLobbyTicket(row.id, userId, g.id);
-    const roster = this.#lobbyMembers(row);
-    const lobby = { ...this.#lobbyView(row, null, roster), state: "closed", closedReason: "left" };
-    this.hub.notify(userId, { type: "lobby.closed", lobby });
-    this.hub.notify(userId, { type: "wallet.updated", reason: "stake-released" });
-    this.#notifyLobby(row, "lobby.updated", roster);
-    this.log.info("lobby left", { ticketId: row.id, guestTicketId: g.id, players: roster.length });
-    return lobby;
+    return this.#op(async () => {
+      const row = await this.#lobbyRow(code);
+      if (!row) throw new AppError("LOBBY_NOT_FOUND", "This invite link is not valid.", 404);
+      if (row.user_id === userId) throw conflict("LOBBY_HOST_LEAVE", "Cancel the lobby instead.");
+      if (row.state !== "queued" || !this.tickets.has(row.id)) throw conflict("LOBBY_CLOSED", "This lobby is no longer open.");
+      const g = await this.db.get("SELECT * FROM tickets WHERE lobby_ticket_id = ? AND user_id = ? AND state = 'queued'", row.id, userId);
+      if (!g) throw conflict("LOBBY_NOT_IN", "You are not in this lobby.");
+      await this.#cancelTicketRow(g, "left");
+      this.#dropLobbyTicket(row.id, userId, g.id);
+      const roster = await this.#lobbyMembers(row);
+      const lobby = { ...(await this.#lobbyView(row, null, roster)), state: "closed", closedReason: "left" };
+      this.hub.notify(userId, { type: "lobby.closed", lobby });
+      this.hub.notify(userId, { type: "wallet.updated", reason: "stake-released" });
+      await this.#notifyLobby(row, "lobby.updated", roster);
+      this.log.info("lobby left", { ticketId: row.id, guestTicketId: g.id, players: roster.length });
+      return lobby;
+    });
   }
 
   /* The host starts the match with whoever is in. Returns the host's view of the match. */
   startLobby(userId, code) {
-    const row = this.#lobbyRow(code);
-    if (!row) throw new AppError("LOBBY_NOT_FOUND", "This invite link is not valid.", 404);
-    if (row.user_id !== userId) throw forbidden("LOBBY_NOT_HOST", "Only the host can start this lobby.");
-    this.responsible.assertAdult(userId, big(row.stake)); // staked lobbies need the 18+ attestation here too
-    if (row.state !== "queued" || !this.tickets.has(row.id)) throw conflict("LOBBY_CLOSED", row.state === "matched" ? "This lobby has already started." : "This lobby is no longer open.");
-    const count = this.#lobbyMembers(row).length;
-    if (count < LOBBY_MIN_PLAYERS) throw conflict("LOBBY_NOT_ENOUGH_PLAYERS", "Wait for at least one more player before starting.", { minPlayers: LOBBY_MIN_PLAYERS, playerCount: count });
-    return this.matchView(this.#startLobby(row), userId);
+    return this.#op(async () => {
+      const row = await this.#lobbyRow(code);
+      if (!row) throw new AppError("LOBBY_NOT_FOUND", "This invite link is not valid.", 404);
+      if (row.user_id !== userId) throw forbidden("LOBBY_NOT_HOST", "Only the host can start this lobby.");
+      await this.responsible.assertAdult(userId, big(row.stake)); // staked lobbies need the 18+ attestation here too
+      if (row.state !== "queued" || !this.tickets.has(row.id)) throw conflict("LOBBY_CLOSED", row.state === "matched" ? "This lobby has already started." : "This lobby is no longer open.");
+      const count = (await this.#lobbyMembers(row)).length;
+      if (count < LOBBY_MIN_PLAYERS) throw conflict("LOBBY_NOT_ENOUGH_PLAYERS", "Wait for at least one more player before starting.", { minPlayers: LOBBY_MIN_PLAYERS, playerCount: count });
+      return this.matchView(await this.#startLobby(row), userId);
+    });
   }
 
   /* every member's ticket → one match, host in seat 0, guests in join order. Returns the match id. */
-  #startLobby(row) {
-    const rows = [row, ...this.db.all("SELECT * FROM tickets WHERE lobby_ticket_id = ? AND state = 'queued' ORDER BY id", row.id)];
+  async #startLobby(row) {
+    const rows = [row, ...(await this.db.all("SELECT * FROM tickets WHERE lobby_ticket_id = ? AND state = 'queued' ORDER BY id", row.id))];
     return this.#createMatch(rows.map((r) => this.tickets.get(r.id) || this.#ticketOf(r)));
   }
 
   /* ------------------------------------------------------------ match creation */
 
   /* tickets in seat order; all must be queued and share game and stake. The stakes move into the match escrow. */
-  #createMatch(tickets) {
+  async #createMatch(tickets) {
     const stake = tickets[0].stake;
     const pot = stake * BigInt(tickets.length);
     const { fee } = splitPot(pot, this.cfg.economy.feeBps);
     const readyDeadline = this.now() + this.cfg.match.acceptMs;
-    const mid = this.db.tx(() => {
-      const id = Number(this.db.run("INSERT INTO matches (game, stake, pot, fee, state, code, created_at, ready_deadline) VALUES (?, ?, ?, ?, 'found', ?, ?, ?)",
-        tickets[0].game, toStr(stake), toStr(pot), toStr(fee), tickets[0].code, this.now(), readyDeadline).lastInsertRowid);
-      tickets.forEach((t, seat) => {
-        this.db.run("INSERT INTO match_players (match_id, seat, user_id, ticket_id, rating_before) VALUES (?, ?, ?, ?, ?)", id, seat, t.userId, t.id, t.rating);
-        const c = this.db.run("UPDATE tickets SET state = 'matched', closed_at = ?, match_id = ? WHERE id = ? AND state = 'queued'", this.now(), id, t.id).changes;
+    const mid = await this.db.tx(async () => {
+      const id = Number((await this.db.run("INSERT INTO matches (game, stake, pot, fee, state, code, created_at, ready_deadline) VALUES (?, ?, ?, ?, 'found', ?, ?, ?) RETURNING id",
+        tickets[0].game, toStr(stake), toStr(pot), toStr(fee), tickets[0].code, this.now(), readyDeadline)).lastInsertRowid);
+      for (const [seat, t] of tickets.entries()) {
+        await this.db.run("INSERT INTO match_players (match_id, seat, user_id, ticket_id, rating_before) VALUES (?, ?, ?, ?, ?)", id, seat, t.userId, t.id, t.rating);
+        const c = (await this.db.run("UPDATE tickets SET state = 'matched', closed_at = ?, match_id = ? WHERE id = ? AND state = 'queued'", this.now(), id, t.id)).changes;
         if (!c) throw new Error(`ticket ${t.id} was not queued`);
-        if (stake > 0n) this.ledger.transfer(ACCT.ticket(t.id), ACCT.match(id), stake, { kind: "stake-lock", ref: id, uniq: `ticket-lock:${t.id}` });
-      });
+        if (stake > 0n) await this.ledger.transfer(ACCT.ticket(t.id), ACCT.match(id), stake, { kind: "stake-lock", ref: id, uniq: `ticket-lock:${t.id}` });
+      }
       return id;
     });
     for (const t of tickets) {
@@ -417,7 +442,7 @@ export class MatchService {
     this.#arm(`ready:${mid}`, this.cfg.match.acceptMs, () => this.#readyTimeout(mid));
     this.log.info("match found", { matchId: mid, game: tickets[0].game, stake: toStr(stake), players: tickets.map((t) => t.userId) });
     for (const t of tickets) {
-      this.hub.notify(t.userId, { type: "match.found", match: this.matchView(mid, t.userId) });
+      this.hub.notify(t.userId, { type: "match.found", match: await this.matchView(mid, t.userId) });
     }
     return mid;
   }
@@ -425,124 +450,130 @@ export class MatchService {
   /* ------------------------------------------------------------ ready → start */
 
   ready(userId, matchId, connId = null) {
-    const m = this.#matchFor(userId, matchId);
-    const seat = this.#seat(m, userId);
-    if (m.state === "found") {
-      if (this.now() > m.ready_deadline) throw conflict("READY_EXPIRED", "The time to accept this match has passed.");
-      this.db.run("UPDATE match_players SET ready_at = COALESCE(ready_at, ?) WHERE match_id = ? AND seat = ?", this.now(), matchId, seat);
-      this.readyConn.set(`${matchId}:${seat}`, connId);
-      const ps = this.#players(matchId);
-      this.#tellOthers(ps, seat, { type: "match.opponent_ready", matchId, seat });
-      if (ps.every((p) => p.ready_at != null)) this.#start(matchId);
-      return { matchId, state: this.db.get("SELECT state FROM matches WHERE id = ?", matchId).state };
-    }
-    if (m.state === "playing") {
-      // a player whose seed never reached a socket may ask once more, as long as the game is still running
-      const p = this.#players(matchId)[seat];
-      if (p.forfeited) throw conflict("FORFEITED", "You forfeited this match.");
-      if (p.seed_sent) throw conflict("SEED_ALREADY_SENT", "The challenge was already delivered to you and cannot be sent again.");
-      if (this.now() > m.submit_deadline) throw conflict("MATCH_OVER", "This match is over.");
-      const delivered = this.#deliverSeed(m, userId, seat, connId);
-      return { matchId, state: "playing", delivered };
-    }
-    throw conflict("MATCH_OVER", "This match is over.");
+    return this.#op(async () => {
+      const m = await this.#matchFor(userId, matchId);
+      const seat = await this.#seat(m, userId);
+      if (m.state === "found") {
+        if (this.now() > m.ready_deadline) throw conflict("READY_EXPIRED", "The time to accept this match has passed.");
+        await this.db.run("UPDATE match_players SET ready_at = COALESCE(ready_at, ?) WHERE match_id = ? AND seat = ?", this.now(), m.id, seat);
+        this.readyConn.set(`${m.id}:${seat}`, connId);
+        const ps = await this.#players(m.id);
+        this.#tellOthers(ps, seat, { type: "match.opponent_ready", matchId: m.id, seat });
+        if (ps.every((p) => p.ready_at != null)) await this.#start(m.id);
+        return { matchId: m.id, state: (await this.db.get("SELECT state FROM matches WHERE id = ?", m.id)).state };
+      }
+      if (m.state === "playing") {
+        // a player whose seed never reached a socket may ask once more, as long as the game is still running
+        const p = (await this.#players(m.id))[seat];
+        if (p.forfeited) throw conflict("FORFEITED", "You forfeited this match.");
+        if (p.seed_sent) throw conflict("SEED_ALREADY_SENT", "The challenge was already delivered to you and cannot be sent again.");
+        if (this.now() > m.submit_deadline) throw conflict("MATCH_OVER", "This match is over.");
+        const delivered = await this.#deliverSeed(m, userId, seat, connId);
+        return { matchId: m.id, state: "playing", delivered };
+      }
+      throw conflict("MATCH_OVER", "This match is over.");
+    });
   }
 
   #startMessage(m, withSeed) {
     return { type: "match.start", matchId: m.id, game: m.game, startAt: m.start_at, submitDeadline: m.submit_deadline, serverNow: this.now(), seed: withSeed ? m.seed : null };
   }
 
-  #start(matchId) {
-    const g = this.catalog.get(this.db.get("SELECT game FROM matches WHERE id = ?", matchId).game);
+  async #start(matchId) {
+    const g = this.catalog.get((await this.db.get("SELECT game FROM matches WHERE id = ?", matchId)).game);
     const seed = crypto.randomInt(100000, 1_000_000_000);
     const startAt = this.now() + this.cfg.match.countdownMs;
     const window = Math.round(g.maxMs * this.cfg.match.durationScale * this.cfg.match.durationFactor);
     const deadline = startAt + window + this.cfg.match.graceMs;
-    const started = this.db.run("UPDATE matches SET state = 'playing', seed = ?, start_at = ?, submit_deadline = ? WHERE id = ? AND state = 'found'", seed, startAt, deadline, matchId).changes;
+    const started = (await this.db.run("UPDATE matches SET state = 'playing', seed = ?, start_at = ?, submit_deadline = ? WHERE id = ? AND state = 'found'", seed, startAt, deadline, matchId)).changes;
     if (!started) return;
     this.#disarm(`ready:${matchId}`);
     this.#arm(`deadline:${matchId}`, deadline - this.now(), () => this.#deadline(matchId));
-    const m = this.db.get("SELECT * FROM matches WHERE id = ?", matchId);
+    const m = await this.db.get("SELECT * FROM matches WHERE id = ?", matchId);
     this.log.info("match started", { matchId, game: m.game, startAt, deadline });
-    for (const p of this.#players(matchId)) {
+    for (const p of await this.#players(matchId)) {
       const preferred = this.readyConn.get(`${matchId}:${p.seat}`);
       this.readyConn.delete(`${matchId}:${p.seat}`);
-      this.#deliverSeed(m, p.user_id, p.seat, preferred);
+      await this.#deliverSeed(m, p.user_id, p.seat, preferred);
     }
   }
 
   /* The seed goes to exactly ONE socket per player — the one that said ready, or else any open one — and is never
      re-sent once delivered. This stops a second tab from previewing a puzzle and a reload from replaying it.
      Every other socket of the same player hears that the match started, without the seed. */
-  #deliverSeed(m, userId, seat, preferred) {
+  async #deliverSeed(m, userId, seat, preferred) {
     const conns = this.hub.connections(userId);
     const conn = conns.includes(preferred) ? preferred : conns[0];
     if (conn == null) return false; // nobody connected: seed_sent stays 0, the player may ask again via ready()
     if (!this.hub.notify(userId, this.#startMessage(m, true), { conn })) return false;
-    this.db.run("UPDATE match_players SET seed_sent = 1 WHERE match_id = ? AND seat = ?", m.id, seat);
+    await this.db.run("UPDATE match_players SET seed_sent = 1 WHERE match_id = ? AND seat = ?", m.id, seat);
     if (conns.length > 1) this.hub.notify(userId, this.#startMessage(m, false), { except: conn });
     return true;
   }
 
   /* ------------------------------------------------------------ playing */
 
-  /* live score for the other players' race bars. Display only; never used for settlement. */
-  progress(userId, matchId, score) {
-    const m = this.#matchFor(userId, matchId);
+  /* live score for the other players' race bars. Display only; never used for settlement, so no lock. */
+  async progress(userId, matchId, score) {
+    const m = await this.#matchFor(userId, matchId);
     if (m.state !== "playing" || this.now() < m.start_at || !Number.isFinite(score)) return;
-    const seat = this.#seat(m, userId);
-    const key = `${matchId}:${seat}`;
+    const seat = await this.#seat(m, userId);
+    const key = `${m.id}:${seat}`;
     const last = this.progressAt.get(key) || 0;
     if (this.now() - last < PROGRESS_MIN_GAP_MS) return;
-    const ps = this.#players(matchId);
-    if (ps[seat].forfeited) return;
     this.progressAt.set(key, this.now());
-    this.#tellOthers(ps, seat, { type: "match.opponent_progress", matchId, seat, score });
+    const ps = await this.#players(m.id);
+    if (ps[seat].forfeited) return;
+    this.#tellOthers(ps, seat, { type: "match.opponent_progress", matchId: m.id, seat, score });
   }
 
   submit(userId, matchId, { score, detail } = {}) {
-    const m = this.#matchFor(userId, matchId);
-    if (m.state !== "playing") throw conflict("MATCH_NOT_PLAYING", "This match is not being played.");
-    const seat = this.#seat(m, userId);
-    const now = this.now();
-    if (now < m.start_at - 250) throw conflict("TOO_EARLY", "The match has not started yet.");
-    if (now > m.submit_deadline) throw conflict("TOO_LATE", "The submission deadline has passed.");
-    if (typeof score !== "number" || !Number.isFinite(score) || Math.abs(score) > this.cfg.match.maxScore) throw bad("BAD_SCORE", "score must be a finite number.");
-    const text = detail == null ? null : String(detail).slice(0, MAX_DETAIL);
+    return this.#op(async () => {
+      const m = await this.#matchFor(userId, matchId);
+      if (m.state !== "playing") throw conflict("MATCH_NOT_PLAYING", "This match is not being played.");
+      const seat = await this.#seat(m, userId);
+      const now = this.now();
+      if (now < m.start_at - 250) throw conflict("TOO_EARLY", "The match has not started yet.");
+      if (now > m.submit_deadline) throw conflict("TOO_LATE", "The submission deadline has passed.");
+      if (typeof score !== "number" || !Number.isFinite(score) || Math.abs(score) > this.cfg.match.maxScore) throw bad("BAD_SCORE", "score must be a finite number.");
+      const text = detail == null ? null : String(detail).slice(0, MAX_DETAIL);
 
-    const own = this.#players(matchId)[seat];
-    if (own.forfeited) throw conflict("FORFEITED", "You forfeited this match.");
-    if (own.score != null) throw conflict("ALREADY_SUBMITTED", "You already submitted a result for this match.");
-    this.db.run("UPDATE match_players SET score = ?, detail = ?, submitted_at = ? WHERE match_id = ? AND seat = ? AND score IS NULL", score, text, now, matchId, seat);
-    this.#tellOthers(this.#players(matchId), seat, { type: "match.opponent_finished", matchId, seat });
-    this.#settleIfDone(matchId);
-    return { matchId, accepted: true };
+      const own = (await this.#players(m.id))[seat];
+      if (own.forfeited) throw conflict("FORFEITED", "You forfeited this match.");
+      if (own.score != null) throw conflict("ALREADY_SUBMITTED", "You already submitted a result for this match.");
+      await this.db.run("UPDATE match_players SET score = ?, detail = ?, submitted_at = ? WHERE match_id = ? AND seat = ? AND score IS NULL", score, text, now, m.id, seat);
+      this.#tellOthers(await this.#players(m.id), seat, { type: "match.opponent_finished", matchId: m.id, seat });
+      await this.#settleIfDone(m.id);
+      return { matchId: m.id, accepted: true };
+    });
   }
 
   forfeit(userId, matchId) {
-    const m = this.#matchFor(userId, matchId);
-    const seat = this.#seat(m, userId);
-    if (m.state === "found") {
-      // declining a match you were paired into wastes the other players' time: counts like a no-show, and voids the match for all
-      this.#voidFound(matchId, "declined", [seat]);
-      return { matchId, state: "void" };
-    }
-    if (m.state !== "playing") throw conflict("MATCH_OVER", "This match is over.");
-    if (this.#players(matchId)[seat].forfeited) return { matchId, state: "playing" }; // already out; the match goes on without them
-    this.db.run("UPDATE match_players SET forfeited = 1 WHERE match_id = ? AND seat = ?", matchId, seat);
-    this.#settleIfDone(matchId);
-    const state = this.db.get("SELECT state FROM matches WHERE id = ?", matchId).state;
-    // the match goes on: tell the others who dropped out (when it ended instead, they get match.result)
-    if (state === "playing") this.#tellOthers(this.#players(matchId), seat, { type: "match.opponent_forfeited", matchId, seat });
-    return { matchId, state };
+    return this.#op(async () => {
+      const m = await this.#matchFor(userId, matchId);
+      const seat = await this.#seat(m, userId);
+      if (m.state === "found") {
+        // declining a match you were paired into wastes the other players' time: counts like a no-show, and voids the match for all
+        await this.#voidFound(m.id, "declined", [seat]);
+        return { matchId: m.id, state: "void" };
+      }
+      if (m.state !== "playing") throw conflict("MATCH_OVER", "This match is over.");
+      if ((await this.#players(m.id))[seat].forfeited) return { matchId: m.id, state: "playing" }; // already out; the match goes on without them
+      await this.db.run("UPDATE match_players SET forfeited = 1 WHERE match_id = ? AND seat = ?", m.id, seat);
+      await this.#settleIfDone(m.id);
+      const state = (await this.db.get("SELECT state FROM matches WHERE id = ?", m.id)).state;
+      // the match goes on: tell the others who dropped out (when it ended instead, they get match.result)
+      if (state === "playing") this.#tellOthers(await this.#players(m.id), seat, { type: "match.opponent_forfeited", matchId: m.id, seat });
+      return { matchId: m.id, state };
+    });
   }
 
   /* Settle the moment nothing can change any more: forfeits left at most one player standing, or every player still
      standing has submitted. Otherwise the deadline timer settles it. */
-  #settleIfDone(matchId) {
-    const ps = this.#players(matchId);
+  async #settleIfDone(matchId) {
+    const ps = await this.#players(matchId);
     const standing = ps.filter((p) => !p.forfeited);
-    if ((standing.length < ps.length && standing.length <= 1) || standing.every((p) => p.score != null)) this.#settle(matchId);
+    if ((standing.length < ps.length && standing.length <= 1) || standing.every((p) => p.score != null)) await this.#settle(matchId);
   }
 
   /* one event to every player except the one it is about */
@@ -551,51 +582,51 @@ export class MatchService {
   }
 
   #deadline(matchId) {
-    this.#settle(matchId);
+    return this.#settle(matchId);
   }
 
-  #readyTimeout(matchId) {
-    const late = this.#players(matchId).filter((p) => p.ready_at == null).map((p) => p.seat);
-    this.#voidFound(matchId, "no_show", late);
+  async #readyTimeout(matchId) {
+    const late = (await this.#players(matchId)).filter((p) => p.ready_at == null).map((p) => p.seat);
+    await this.#voidFound(matchId, "no_show", late);
   }
 
   /* found → void: refund everyone, strike whoever did not show up */
-  #voidFound(matchId, reason, strikeSeats) {
-    const done = this.db.tx(() => {
-      const c = this.db.run("UPDATE matches SET state = 'void', outcome = 'void', reason = ?, settled_at = ? WHERE id = ? AND state = 'found'", reason, this.now(), matchId).changes;
+  async #voidFound(matchId, reason, strikeSeats) {
+    const done = await this.db.tx(async () => {
+      const c = (await this.db.run("UPDATE matches SET state = 'void', outcome = 'void', reason = ?, settled_at = ? WHERE id = ? AND state = 'found'", reason, this.now(), matchId)).changes;
       if (!c) return false;
-      this.#refund(matchId);
-      const ps = this.#players(matchId);
-      for (const p of ps) this.db.run("UPDATE match_players SET rating_after = rating_before WHERE match_id = ? AND seat = ?", matchId, p.seat);
-      for (const seat of strikeSeats) this.#strike(ps[seat].user_id);
+      await this.#refund(matchId);
+      const ps = await this.#players(matchId);
+      for (const p of ps) await this.db.run("UPDATE match_players SET rating_after = rating_before WHERE match_id = ? AND seat = ?", matchId, p.seat);
+      for (const seat of strikeSeats) await this.#strike(ps[seat].user_id);
       return true;
     });
     if (!done) return;
     this.#disarm(`ready:${matchId}`);
-    this.#finish(matchId);
+    await this.#finish(matchId);
     this.log.info("match voided before start", { matchId, reason });
   }
 
-  #strike(userId) {
-    const u = this.users.byId(userId);
+  async #strike(userId) {
+    const u = await this.users.byId(userId);
     const m = this.cfg.match;
     const strikes = (this.now() - u.last_strike_at > m.strikeDecayMs ? 0 : u.strikes) + 1;
     if (strikes >= m.strikesBeforeBan) {
-      this.db.run("UPDATE users SET strikes = 0, last_strike_at = ?, queue_ban_until = ? WHERE id = ?", this.now(), this.now() + m.banMs, userId);
+      await this.db.run("UPDATE users SET strikes = 0, last_strike_at = ?, queue_ban_until = ? WHERE id = ?", this.now(), this.now() + m.banMs, userId);
     } else {
-      this.db.run("UPDATE users SET strikes = ?, last_strike_at = ? WHERE id = ?", strikes, this.now(), userId);
+      await this.db.run("UPDATE users SET strikes = ?, last_strike_at = ? WHERE id = ?", strikes, this.now(), userId);
     }
   }
 
   /* ------------------------------------------------------------ settlement */
 
   /* everybody's stake back out of the match escrow */
-  #refund(matchId) {
-    const m = this.db.get("SELECT * FROM matches WHERE id = ?", matchId);
+  async #refund(matchId) {
+    const m = await this.db.get("SELECT * FROM matches WHERE id = ?", matchId);
     const stake = big(m.stake);
     if (stake === 0n) return;
-    const ps = this.#players(matchId);
-    this.ledger.post({
+    const ps = await this.#players(matchId);
+    await this.ledger.post({
       kind: "match-refund", ref: matchId, uniq: `match-refund:${matchId}`,
       entries: [[ACCT.match(matchId), -(stake * BigInt(ps.length))], ...ps.map((p) => [ACCT.user(p.user_id), stake])],
     });
@@ -604,11 +635,11 @@ export class MatchService {
   /* Decide the result (standings.js), move the money, rate the players: one transaction, compare-and-set on the state.
      Money: a win pays the winners an equal share each of pot − fee (integer division); the fee and the wei that did not
      divide go to the house, so the entries always sum to zero. A draw or a void match refunds every stake, no fee. */
-  #settle(matchId) {
-    const settled = this.db.tx(() => {
-      const m = this.db.get("SELECT * FROM matches WHERE id = ?", matchId);
+  async #settle(matchId) {
+    const settled = await this.db.tx(async () => {
+      const m = await this.db.get("SELECT * FROM matches WHERE id = ? FOR UPDATE", matchId);
       if (!m || m.state !== "playing") return false; // somebody else already settled it
-      const ps = this.#players(matchId);
+      const ps = await this.#players(matchId);
       const stake = big(m.stake), pot = big(m.pot);
       const { outcome, why, winners } = decide(ps);
       const won = new Set(winners);
@@ -616,11 +647,11 @@ export class MatchService {
       // ---- money
       const share = outcome === "win" ? splitPot(pot, this.cfg.economy.feeBps).payout / BigInt(winners.length) : 0n;
       const houseTake = outcome === "win" ? pot - share * BigInt(winners.length) : 0n; // fee + remainder
-      if (outcome !== "win") this.#refund(matchId);
+      if (outcome !== "win") await this.#refund(matchId);
       else if (stake > 0n) {
         const entries = [[ACCT.match(matchId), -pot], ...winners.map((seat) => [ACCT.user(ps[seat].user_id), share])];
         if (houseTake > 0n) entries.push([ACCT.house, houseTake]);
-        this.ledger.post({ kind: "match-settle", ref: matchId, uniq: `match-settle:${matchId}`, entries });
+        await this.ledger.post({ kind: "match-settle", ref: matchId, uniq: `match-settle:${matchId}`, entries });
       }
 
       // ---- ratings (a void match changes nobody's rating)
@@ -629,65 +660,68 @@ export class MatchService {
       if (outcome !== "void") {
         const d = pairwiseDeltas(before, standings(ps, why));
         after = before.map((r, i) => r + d[i]);
-        ps.forEach((p, seat) => {
+        for (const [seat, p] of ps.entries()) {
           const result = outcome === "draw" ? "draws" : won.has(seat) ? "wins" : "losses";
-          this.db.run("INSERT OR IGNORE INTO ratings (user_id, game, rating, updated_at) VALUES (?, ?, ?, ?)", p.user_id, m.game, START_RATING, this.now());
-          this.db.run(`UPDATE ratings SET rating = ?, ${result} = ${result} + 1, best = CASE WHEN ? IS NULL THEN best WHEN best IS NULL OR ? > best THEN ? ELSE best END, updated_at = ?
-                        WHERE user_id = ? AND game = ?`, after[seat], p.score, p.score, p.score, this.now(), p.user_id, m.game);
-        });
+          await this.db.run("INSERT INTO ratings (user_id, game, rating, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT (user_id, game) DO NOTHING", p.user_id, m.game, START_RATING, this.now());
+          await this.db.run(`UPDATE ratings SET rating = ?, ${result} = ${result} + 1,
+                               best = CASE WHEN CAST(? AS DOUBLE PRECISION) IS NULL THEN best
+                                           WHEN best IS NULL OR CAST(? AS DOUBLE PRECISION) > best THEN CAST(? AS DOUBLE PRECISION) ELSE best END,
+                               updated_at = ?
+                             WHERE user_id = ? AND game = ?`, after[seat], p.score, p.score, p.score, this.now(), p.user_id, m.game);
+        }
       }
 
       // ---- per-player result + daily net for the loss limit
-      ps.forEach((p, seat) => {
+      for (const [seat, p] of ps.entries()) {
         const got = outcome === "win" ? (won.has(seat) ? share : 0n) : stake; // draw/void: own stake back
-        this.db.run("UPDATE match_players SET rating_after = ?, payout = ? WHERE match_id = ? AND seat = ?", after[seat], toStr(stake > 0n ? got : 0n), matchId, seat);
-        if (stake > 0n && outcome !== "void") this.responsible.recordNet(p.user_id, got - stake);
-      });
+        await this.db.run("UPDATE match_players SET rating_after = ?, payout = ? WHERE match_id = ? AND seat = ?", after[seat], toStr(stake > 0n ? got : 0n), matchId, seat);
+        if (stake > 0n && outcome !== "void") await this.responsible.recordNet(p.user_id, got - stake);
+      }
 
       const state = outcome === "void" ? "void" : "settled";
-      this.db.run("UPDATE matches SET state = ?, outcome = ?, reason = ?, fee = ?, winner_seat = ?, settled_at = ? WHERE id = ?",
+      await this.db.run("UPDATE matches SET state = ?, outcome = ?, reason = ?, fee = ?, winner_seat = ?, settled_at = ? WHERE id = ?",
         state, outcome, why, toStr(houseTake), winners.length ? winners[0] : null, this.now(), matchId);
       return true;
     });
     if (!settled) return;
     this.#disarm(`deadline:${matchId}`);
-    this.#finish(matchId);
-    const m = this.db.get("SELECT * FROM matches WHERE id = ?", matchId);
+    await this.#finish(matchId);
+    const m = await this.db.get("SELECT * FROM matches WHERE id = ?", matchId);
     this.log.info("match settled", { matchId, outcome: m.outcome, reason: m.reason, winnerSeat: m.winner_seat });
     this.#scheduleFlagCheck(matchId);
   }
 
   /* after a match reaches a final state: free the players and tell them */
-  #finish(matchId) {
-    for (const p of this.#players(matchId)) {
+  async #finish(matchId) {
+    for (const p of await this.#players(matchId)) {
       const b = this.busy.get(p.user_id);
       if (b && b.kind === "match" && b.id === matchId) this.busy.delete(p.user_id);
       this.readyConn.delete(`${matchId}:${p.seat}`);
       this.progressAt.delete(`${matchId}:${p.seat}`);
-      const v = this.matchView(matchId, p.user_id);
+      const v = await this.matchView(matchId, p.user_id);
       this.hub.notify(p.user_id, { type: v.state === "void" ? "match.void" : "match.result", match: v });
       this.hub.notify(p.user_id, { type: "wallet.updated", reason: "match-settled", matchId });
     }
   }
 
-  /* advisory: flag a score that is far beyond the strongest bot on the same seed. Off the hot path. */
+  /* advisory: flag a score that is far beyond the strongest bot on the same seed. Off the hot path, outside the lock. */
   #scheduleFlagCheck(matchId) {
-    const p = new Promise((resolve) => setImmediate(() => {
+    const p = this.db.detach(() => new Promise((resolve) => setImmediate(async () => {
       try {
-        const m = this.db.get("SELECT * FROM matches WHERE id = ?", matchId);
+        const m = await this.db.get("SELECT * FROM matches WHERE id = ?", matchId);
         const g = m && this.catalog.get(m.game);
         if (!g || m.seed == null) return;
-        for (const p of this.#players(matchId)) {
+        for (const p of await this.#players(matchId)) {
           if (p.score == null) continue;
           const why = this.catalog.plausibility(g, m.seed, p.score);
           if (why) {
-            this.db.run("UPDATE match_players SET flag = ? WHERE match_id = ? AND seat = ?", why, matchId, p.seat);
+            await this.db.run("UPDATE match_players SET flag = ? WHERE match_id = ? AND seat = ?", why, matchId, p.seat);
             this.log.warn("implausible score flagged for review", { matchId, userId: p.user_id, reason: why });
           }
         }
       } catch (e) { this.log.error("flag check failed", { matchId, error: e }); }
       finally { resolve(); }
-    }));
+    })));
     this.pendingFlags.add(p);
     p.finally(() => this.pendingFlags.delete(p));
   }
@@ -709,21 +743,21 @@ export class MatchService {
         WHERE mp.match_id = ? ORDER BY mp.seat`, matchId);
   }
 
-  #matchFor(userId, matchId) {
+  async #matchFor(userId, matchId) {
     const id = Number(matchId);
-    const m = Number.isInteger(id) ? this.db.get("SELECT * FROM matches WHERE id = ?", id) : null;
-    if (!m || !this.db.get("SELECT 1 AS x FROM match_players WHERE match_id = ? AND user_id = ?", id, userId)) throw notFound("No such match.");
+    const m = Number.isSafeInteger(id) && id > 0 ? await this.db.get("SELECT * FROM matches WHERE id = ?", id) : null;
+    if (!m || !(await this.db.get("SELECT 1 AS x FROM match_players WHERE match_id = ? AND user_id = ?", id, userId))) throw notFound("No such match.");
     return m;
   }
-  #seat(m, userId) {
-    return this.db.get("SELECT seat FROM match_players WHERE match_id = ? AND user_id = ?", m.id, userId).seat;
+  async #seat(m, userId) {
+    return (await this.db.get("SELECT seat FROM match_players WHERE match_id = ? AND user_id = ?", m.id, userId)).seat;
   }
 
   /* One match as seen by one of its players. `opponent` is kept for 1v1 clients (the first other player by seat);
      `players` lists everybody by seat. Scores of the others, ratingAfter, payout and place are revealed once the match is over. */
-  matchView(matchId, viewerId) {
-    const m = this.db.get("SELECT * FROM matches WHERE id = ?", matchId);
-    const ps = this.#players(matchId);
+  async matchView(matchId, viewerId) {
+    const m = await this.db.get("SELECT * FROM matches WHERE id = ?", matchId);
+    const ps = await this.#players(matchId);
     const me = ps.find((p) => p.user_id === viewerId);
     const opp = ps.find((p) => p.user_id !== viewerId);
     const final = m.state === "settled" || m.state === "void";
@@ -757,36 +791,39 @@ export class MatchService {
   }
 
   /* what a (re)connecting client needs to pick up where it left off. Never contains a seed. */
-  sync(userId) {
+  async sync(userId) {
     const b = this.busy.get(userId);
     if (!b) return { active: null };
     if (b.kind === "lobby") {
-      const row = this.db.get("SELECT * FROM tickets WHERE id = ?", b.id);
-      return { active: row ? { kind: "lobby", lobby: this.#lobbyView(row, userId) } : null };
+      const row = await this.#ticketRow(b.id);
+      return { active: row ? { kind: "lobby", lobby: await this.#lobbyView(row, userId) } : null };
     }
-    return { active: { kind: "match", match: this.matchView(b.id, userId) } };
+    return { active: { kind: "match", match: await this.matchView(b.id, userId) } };
   }
 
   active(userId) { return this.busy.get(userId) || null; }
 
   /* the stake this player currently has in escrow (their ticket in an open lobby, or an unfinished match) */
-  stakeAtRisk(userId) {
+  async stakeAtRisk(userId) {
     const b = this.busy.get(userId);
     if (!b) return 0n;
     if (b.kind === "lobby") { const t = this.tickets.get(b.ticketId ?? b.id); return t ? t.stake : 0n; }
-    return big(this.db.get("SELECT stake FROM matches WHERE id = ?", b.id).stake);
+    const m = await this.db.get("SELECT stake FROM matches WHERE id = ?", b.id);
+    return m ? big(m.stake) : 0n;
   }
 
-  history(userId, { limit = 20, before = null } = {}) {
-    const rows = this.db.all(
+  async history(userId, { limit = 20, before = null } = {}) {
+    const rows = await this.db.all(
       `SELECT m.id FROM matches m JOIN match_players mp ON mp.match_id = m.id
         WHERE mp.user_id = ? AND m.state IN ('settled','void') ${before ? "AND m.id < ?" : ""}
         ORDER BY m.id DESC LIMIT ?`, ...(before ? [userId, before, limit] : [userId, limit]));
-    return rows.map((r) => this.matchView(r.id, userId));
+    const out = [];
+    for (const r of rows) out.push(await this.matchView(r.id, userId));
+    return out;
   }
 
-  get(userId, matchId) {
-    const m = this.#matchFor(userId, matchId);
+  async get(userId, matchId) {
+    const m = await this.#matchFor(userId, matchId);
     return this.matchView(m.id, userId);
   }
 }

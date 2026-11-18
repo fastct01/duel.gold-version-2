@@ -39,7 +39,9 @@ export class WalletService {
     if (chain.realMoney) {
       log.warn("real-money mode: the HD_MNEMONIC controls every deposit address and the treasury. Keep the treasury small and sweep surplus to cold storage.", { treasury: keys.treasury().address });
     }
-    return new WalletService({ db, ledger, cfg, log, bus, chain, keys, now });
+    const service = new WalletService({ db, ledger, cfg, log, bus, chain, keys, now });
+    await service.deposits.init();
+    return service;
   }
 
   require() {
@@ -86,23 +88,23 @@ export class WalletService {
   network() { return this.enabled ? this.chain.meta.network : "local"; }
 
   /* the minimum-deposit rule as the player sees it: min, what is waiting below it, and what is still missing */
-  depositState(userId) {
+  async depositState(userId) {
     const min = this.cfg.economy.minDeposit;
-    const pending = this.enabled ? this.deposits.pendingForUser(userId) : 0n;
+    const pending = this.enabled ? await this.deposits.pendingForUser(userId) : 0n;
     const remaining = pending > 0n && min > pending ? min - pending : 0n; // more needed to release the waiting deposits; 0 when none wait
     return { min: toStr(min), pending: toStr(pending), remaining: toStr(remaining), confirmations: this.cfg.chain.confirmations };
   }
 
-  depositAddress(userId) {
+  async depositAddress(userId) {
     this.require();
     return this.deposits.addressFor(userId);
   }
 
-  balances(userId) {
+  async balances(userId) {
     return {
-      available: toStr(this.ledger.balance(ACCT.user(userId))),
-      pendingWithdrawal: this.enabled ? toStr(this.withdrawals.pendingTotal(userId)) : "0",
-      pendingDeposit: this.enabled ? toStr(this.deposits.pendingForUser(userId)) : "0", // seen on-chain, below the minimum deposit, not credited yet
+      available: toStr(await this.ledger.balance(ACCT.user(userId))),
+      pendingWithdrawal: this.enabled ? toStr(await this.withdrawals.pendingTotal(userId)) : "0",
+      pendingDeposit: this.enabled ? toStr(await this.deposits.pendingForUser(userId)) : "0", // seen on-chain, below the minimum deposit, not credited yet
     };
   }
 
@@ -124,19 +126,19 @@ export class WalletService {
      Anything beyond that logs an ERROR ("INSOLVENT") on every check. Costs one RPC call per address that ever received a deposit. */
   async solvency() {
     this.require();
-    const audit = this.ledger.audit();
+    const audit = await this.ledger.audit();
     const { provider } = this.chain;
     const treasuryAddress = this.keys.treasury().address;
     const treasury = await provider.getBalance(treasuryAddress);
-    const addrs = this.db.all("SELECT DISTINCT address FROM deposits").map((r) => r.address);
+    const addrs = (await this.db.all("SELECT DISTINCT address FROM deposits")).map((r) => r.address);
     let deposits = 0n;
     for (let i = 0; i < addrs.length; i += 8) {
       const part = await Promise.all(addrs.slice(i, i + 8).map((a) => provider.getBalance(a)));
       for (const b of part) deposits += b;
     }
     const liabilities = big(audit.liabilities);
-    const pendingDeposits = this.db.all("SELECT amount FROM deposits WHERE status = 'pending'").reduce((t, r) => t + big(r.amount), 0n);
-    const inFlight = this.db.all("SELECT amount FROM withdrawals WHERE status IN ('signed','broadcast')").reduce((t, r) => t + big(r.amount), 0n);
+    const pendingDeposits = (await this.db.all("SELECT amount FROM deposits WHERE status = 'pending'")).reduce((t, r) => t + big(r.amount), 0n);
+    const inFlight = (await this.db.all("SELECT amount FROM withdrawals WHERE status IN ('signed','broadcast')")).reduce((t, r) => t + big(r.amount), 0n);
     const assets = treasury + deposits;
     const surplus = assets - liabilities - pendingDeposits;
     const deficit = surplus < 0n ? -surplus : 0n;

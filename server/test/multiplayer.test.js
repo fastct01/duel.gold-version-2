@@ -14,18 +14,20 @@ const START = 100n * mETH;
 const GAME = "reaction";
 const nm = (i) => `Player ${i}`;
 const crew = async (h, n, opts = {}) => { const g = []; for (let i = 0; i < n; i++) g.push(await h.player({ name: nm(i), ...opts })); return g; };
-const audit = (h) => assert.deepEqual(h.app.ledger.audit().problems, []);
+const audit = async (h) => assert.deepEqual((await h.app.ledger.audit()).problems, []);
 /* nothing is created or lost: what the players hold plus the house is what they started with, and no escrow is left */
-const conserved = (h, ps, each = START) => {
-  assert.equal(ps.reduce((a, p) => a + p.bal(), 0n) + h.house(), each * BigInt(ps.length));
-  const left = h.app.db.all("SELECT id, balance FROM accounts WHERE id LIKE 'escrow:%' AND balance != '0'");
+const conserved = async (h, ps, each = START) => {
+  let total = await h.house();
+  for (const p of ps) total += await p.bal();
+  assert.equal(total, each * BigInt(ps.length));
+  const left = (await h.app.db.all("SELECT id, balance FROM accounts WHERE id LIKE 'escrow:%' AND balance != '0'"));
   assert.deepEqual(left, [], "no money left in any escrow");
-  audit(h);
+  await audit(h);
 };
 const results = (ps, type = "match.result") => Promise.all(ps.map((p) => p.client.waitFor(type, null, 6000)));
 const rating = (h, p) => h.app.db.get("SELECT rating, wins, losses, draws FROM ratings WHERE user_id = ? AND game = ?", p.id, GAME);
-const record = (h, p) => { const r = rating(h, p); return r && [r.rating, r.wins, r.losses, r.draws]; };
-const net = (h, p) => h.app.db.get("SELECT net FROM player_day WHERE user_id = ?", p.id)?.net ?? null;
+const record = async (h, p) => { const r = await rating(h, p); return r && [r.rating, r.wins, r.losses, r.draws]; };
+const net = async (h, p) => (await h.app.db.get("SELECT net FROM player_day WHERE user_id = ?", p.id))?.net ?? null;
 const submitAll = (h, id, ps, scores) => Promise.all(ps.map((p, i) => (scores[i] == null ? null : p.client.submit(id, scores[i]))));
 const seedRating = (h, p, r) => h.app.db.run("INSERT INTO ratings (user_id, game, rating, updated_at) VALUES (?, ?, ?, ?)", p.id, GAME, r, Date.now());
 
@@ -37,7 +39,7 @@ test("3 players: the highest score takes the whole payout, ratings follow pairwi
   const m = await h.lobbyMatch(g);
   assert.equal(m.match.pot, "3000000000000000");
   assert.equal(m.match.winnerPayout, "2700000000000000");
-  assert.equal(h.app.ledger.balance(ACCT.match(m.id)), 3n * STAKE);
+  assert.equal((await h.app.ledger.balance(ACCT.match(m.id))), 3n * STAKE);
   await h.beginAll(g, m.id);
 
   // who hears what: every player gets the seat of each other player, nobody gets their own
@@ -91,19 +93,19 @@ test("3 players: the highest score takes the whole payout, ratings follow pairwi
   // 1200 each: seat 0 beats both (+12 +12)/2 = +12, seat 1 loses one and wins one = 0, seat 2 loses both = -12
   assert.deepEqual(r0.match.players.map((p) => [p.ratingBefore, p.ratingAfter]), [[1200, 1212], [1200, 1200], [1200, 1188]]);
   assert.deepEqual([r0.match.you.ratingAfter, r1.match.you.ratingAfter, r2.match.you.ratingAfter], [1212, 1200, 1188]);
-  assert.deepEqual(g.map((p) => record(h, p)), [[1212, 1, 0, 0], [1200, 0, 1, 0], [1188, 0, 1, 0]]);
+  assert.deepEqual((await Promise.all(g.map((p) => record(h, p)))), [[1212, 1, 0, 0], [1200, 0, 1, 0], [1188, 0, 1, 0]]);
 
-  assert.equal(g[0].bal(), START - STAKE + 2_700_000_000_000_000n);
-  assert.equal(g[1].bal(), START - STAKE);
-  assert.equal(g[2].bal(), START - STAKE);
-  assert.equal(h.house(), 300_000_000_000_000n);
+  assert.equal((await g[0].bal()), START - STAKE + 2_700_000_000_000_000n);
+  assert.equal((await g[1].bal()), START - STAKE);
+  assert.equal((await g[2].bal()), START - STAKE);
+  assert.equal((await h.house()), 300_000_000_000_000n);
   // the loss limit's daily net sees every seat
-  assert.deepEqual(g.map((p) => net(h, p)), ["1700000000000000", "-1000000000000000", "-1000000000000000"]);
-  assert.deepEqual(g.map((p) => h.app.responsible.lossToday(p.id)), [0n, STAKE, STAKE]);
+  assert.deepEqual((await Promise.all(g.map((p) => net(h, p)))), ["1700000000000000", "-1000000000000000", "-1000000000000000"]);
+  assert.deepEqual((await Promise.all(g.map((p) => h.app.responsible.lossToday(p.id)))), [0n, STAKE, STAKE]);
   for (const p of g) assert.equal((await p.client.api("GET", "/v1/me")).active, null, "everyone is free again");
-  const row = h.app.db.get("SELECT outcome, winner_seat, state FROM matches WHERE id = ?", m.id);
+  const row = (await h.app.db.get("SELECT outcome, winner_seat, state FROM matches WHERE id = ?", m.id));
   assert.deepEqual({ ...row }, { outcome: "win", winner_seat: 0, state: "settled" });
-  conserved(h, g);
+  await conserved(h, g);
 });
 
 test("4 players, a 2-way tie at the top: the winners split the payout and the odd wei goes to the house", async () => {
@@ -123,16 +125,16 @@ test("4 players, a 2-way tie at the top: the winners split the payout and the od
   assert.deepEqual(rs[3].match.players.map((p) => p.place), [1, 1, 3, 4], "ties share a place");
   assert.equal(rs[0].match.fee, "4000000000002", "fee + the wei that did not divide");
   assert.equal(rs[0].match.winnerPayout, "36000000000003");
-  assert.equal(g[0].bal(), START - stake + 18_000_000_000_001n);
-  assert.equal(g[1].bal(), START - stake + 18_000_000_000_001n);
-  assert.equal(g[2].bal(), START - stake);
-  assert.equal(g[3].bal(), START - stake);
-  assert.equal(h.house(), 4_000_000_000_002n);
+  assert.equal((await g[0].bal()), START - stake + 18_000_000_000_001n);
+  assert.equal((await g[1].bal()), START - stake + 18_000_000_000_001n);
+  assert.equal((await g[2].bal()), START - stake);
+  assert.equal((await g[3].bal()), START - stake);
+  assert.equal((await h.house()), 4_000_000_000_002n);
   // pairwise: the two winners draw each other (0) and beat both others (+12 each) → (0+12+12)/3 = +8; 2 beats 3
-  assert.deepEqual(g.map((p) => record(h, p)), [[1208, 1, 0, 0], [1208, 1, 0, 0], [1196, 0, 1, 0], [1188, 0, 1, 0]]);
-  assert.deepEqual(g.map((p) => net(h, p)), ["8000000000000", "8000000000000", "-10000000000001", "-10000000000001"]);
-  assert.equal(h.app.db.get("SELECT winner_seat FROM matches WHERE id = ?", m.id).winner_seat, 0);
-  conserved(h, g);
+  assert.deepEqual((await Promise.all(g.map((p) => record(h, p)))), [[1208, 1, 0, 0], [1208, 1, 0, 0], [1196, 0, 1, 0], [1188, 0, 1, 0]]);
+  assert.deepEqual((await Promise.all(g.map((p) => net(h, p)))), ["8000000000000", "8000000000000", "-10000000000001", "-10000000000001"]);
+  assert.equal((await h.app.db.get("SELECT winner_seat FROM matches WHERE id = ?", m.id)).winner_seat, 0);
+  await conserved(h, g);
 });
 
 test("a 3-way split leaves a remainder too, and the ledger entries always sum to zero", async () => {
@@ -145,13 +147,13 @@ test("a 3-way split leaves a remainder too, and the ledger entries always sum to
   const rs = await results(g);
   assert.equal(rs[0].match.reason, "timeout");
   assert.deepEqual(rs[3].match.players.map((p) => p.payout), ["12000000000002", "12000000000002", "12000000000002", "0"]);
-  assert.equal(h.house(), 4_000_000_000_002n, "fee 4_000_000_000_001 + 1 leftover wei");
+  assert.equal((await h.house()), 4_000_000_000_002n, "fee 4_000_000_000_001 + 1 leftover wei");
   assert.deepEqual(rs.map((r) => r.match.result), ["win", "win", "win", "loss"]);
-  const tx = h.app.db.get("SELECT id FROM ledger_tx WHERE kind = 'match-settle' AND ref = ?", String(m.id));
-  const sum = h.app.db.all("SELECT amount FROM ledger_entries WHERE tx_id = ?", tx.id).reduce((a, e) => a + BigInt(e.amount), 0n);
+  const tx = (await h.app.db.get("SELECT id FROM ledger_tx WHERE kind = 'match-settle' AND ref = ?", String(m.id)));
+  const sum = (await h.app.db.all("SELECT amount FROM ledger_entries WHERE tx_id = ?", tx.id)).reduce((a, e) => a + BigInt(e.amount), 0n);
   assert.equal(sum, 0n);
-  assert.equal(h.app.db.get("SELECT COUNT(*) AS n FROM ledger_entries WHERE tx_id = ?", tx.id).n, 5, "escrow, 3 winners, house");
-  conserved(h, g);
+  assert.equal((await h.app.db.get("SELECT COUNT(*) AS n FROM ledger_entries WHERE tx_id = ?", tx.id)).n, 5, "escrow, 3 winners, house");
+  await conserved(h, g);
 });
 
 test("everyone submits the same score, nobody forfeited: a draw, full refund, no fee", async () => {
@@ -169,34 +171,34 @@ test("everyone submits the same score, nobody forfeited: a draw, full refund, no
       assert.equal(r.match.you.place, 1);
       assert.equal(r.match.you.ratingAfter, 1200, "equal ratings, equal result: nobody moves");
       assert.ok(r.match.players.every((p) => p.place === 1 && p.payout === String(STAKE) && p.score === 250));
-      assert.equal(g[k].bal(), START);
+      assert.equal((await g[k].bal()), START);
     }
-    assert.equal(h.house(), 0n);
+    assert.equal((await h.house()), 0n);
     assert.equal(rs[0].match.fee, "0");
-    assert.deepEqual(g.map((p) => record(h, p)), g.map(() => [1200, 0, 0, 1]), "a draw is counted for everyone");
-    assert.deepEqual(g.map((p) => net(h, p)), g.map(() => null));
-    assert.equal(h.app.db.get("SELECT winner_seat FROM matches WHERE id = ?", m.id).winner_seat, null);
-    conserved(h, g);
+    assert.deepEqual((await Promise.all(g.map((p) => record(h, p)))), g.map(() => [1200, 0, 0, 1]), "a draw is counted for everyone");
+    assert.deepEqual((await Promise.all(g.map((p) => net(h, p)))), g.map(() => null));
+    assert.equal((await h.app.db.get("SELECT winner_seat FROM matches WHERE id = ?", m.id)).winner_seat, null);
+    await conserved(h, g);
   }
 });
 
 test("a draw between players of different strength still moves ratings (pairwise draw)", async () => {
   const h = await boot();
   const g = await crew(h, 3);
-  [1400, 1200, 1000].forEach((r, i) => seedRating(h, g[i], r));
+  [1400, 1200, 1000].forEach(async (r, i) => (await seedRating(h, g[i], r)));
   const m = await h.lobbyMatch(g, { stake: 0n });
   await h.beginAll(g, m.id);
   await submitAll(h, m.id, g, [5, 5, 5]);
   await results(g);
   // draw pairs: (1400,1200) E=.7597 → round(24*(.5-.7597)) = -6; (1400,1000) E=.9091 → -10; (1200,1000) E=.7597 → -6
   // seat 0: (-6 -10)/2 = -8; seat 1: (+6 -6)/2 = 0; seat 2: (+10 +6)/2 = +8
-  assert.deepEqual(g.map((p) => record(h, p)), [[1392, 0, 0, 1], [1200, 0, 0, 1], [1008, 0, 0, 1]]);
+  assert.deepEqual((await Promise.all(g.map((p) => record(h, p)))), [[1392, 0, 0, 1], [1200, 0, 0, 1], [1008, 0, 0, 1]]);
 });
 
 test("pairwise Elo with different ratings: N=3 follows the pair-by-pair rule, rounded half away from zero", async () => {
   const h = await boot();
   const g = await crew(h, 3);
-  [1300, 1200, 1100].forEach((r, i) => seedRating(h, g[i], r));
+  [1300, 1200, 1100].forEach(async (r, i) => (await seedRating(h, g[i], r)));
   const m = await h.lobbyMatch(g, { stake: 0n });
   assert.deepEqual(m.match.players.map((p) => p.ratingBefore), [1300, 1200, 1100]);
   await h.beginAll(g, m.id);
@@ -208,9 +210,9 @@ test("pairwise Elo with different ratings: N=3 follows the pair-by-pair rule, ro
   // seat0: (-15+6)/2 = -4.5 → -5   seat1: (+15+9)/2 = +12   seat2: (-6-9)/2 = -7.5 → -8
   assert.deepEqual(r0.match.players.map((p) => p.ratingAfter), [1295, 1212, 1092]);
   assert.deepEqual(r0.match.players.map((p) => p.place), [2, 1, 3]);
-  assert.deepEqual(g.map((p) => record(h, p)), [[1295, 0, 1, 0], [1212, 1, 0, 0], [1092, 0, 1, 0]]);
-  assert.equal(h.app.db.get("SELECT winner_seat FROM matches WHERE id = ?", m.id).winner_seat, 1);
-  audit(h);
+  assert.deepEqual((await Promise.all(g.map((p) => record(h, p)))), [[1295, 0, 1, 0], [1212, 1, 0, 0], [1092, 0, 1, 0]]);
+  assert.equal((await h.app.db.get("SELECT winner_seat FROM matches WHERE id = ?", m.id)).winner_seat, 1);
+  await audit(h);
 });
 
 /* ------------------------------------------------------------------ forfeits */
@@ -248,12 +250,12 @@ test("3 players, one forfeits: the match goes on, the others are told, and it se
   assert.equal(rs[0].match.reason, "scores");
   assert.deepEqual(rs[1].match.players.map((p) => [p.forfeited, p.place, p.payout]), [[false, 1, "2700000000000000"], [true, 3, "0"], [false, 2, "0"]]);
   // the forfeiter counts as having nothing: loses to both, who split 900 > 500 → [+12, -12 forfeit, 0]
-  assert.deepEqual(g.map((p) => record(h, p)), [[1212, 1, 0, 0], [1188, 0, 1, 0], [1200, 0, 1, 0]]);
-  assert.equal(g[0].bal(), START - STAKE + 2_700_000_000_000_000n);
-  assert.equal(g[1].bal(), START - STAKE);
-  assert.equal(g[2].bal(), START - STAKE);
+  assert.deepEqual((await Promise.all(g.map((p) => record(h, p)))), [[1212, 1, 0, 0], [1188, 0, 1, 0], [1200, 0, 1, 0]]);
+  assert.equal((await g[0].bal()), START - STAKE + 2_700_000_000_000_000n);
+  assert.equal((await g[1].bal()), START - STAKE);
+  assert.equal((await g[2].bal()), START - STAKE);
   for (const p of g) assert.equal((await p.client.api("GET", "/v1/me")).active, null);
-  conserved(h, g);
+  await conserved(h, g);
 });
 
 test("a forfeiter with the best score still loses; the best of the others wins", async () => {
@@ -267,8 +269,8 @@ test("a forfeiter with the best score still loses; the best of the others wins",
   await g[2].client.submit(m.id, 200);
   const rs = await results(g);
   assert.deepEqual(rs.map((r) => r.match.result), ["loss", "loss", "win"]);
-  assert.equal(g[2].bal(), START - STAKE + 2_700_000_000_000_000n);
-  conserved(h, g);
+  assert.equal((await g[2].bal()), START - STAKE + 2_700_000_000_000_000n);
+  await conserved(h, g);
 });
 
 test("when forfeits leave one player standing they win at once, without a score", async () => {
@@ -284,10 +286,10 @@ test("when forfeits leave one player standing they win at once, without a score"
   assert.equal(rs[0].match.reason, "forfeit");
   assert.deepEqual(rs[0].match.players.map((p) => p.place), [1, 2, 2], "the two forfeiters share second place");
   // standing player beats both (+12 +12)/2, the two forfeiters draw each other: (-12 + 0)/2 = -6
-  assert.deepEqual(g.map((p) => record(h, p)), [[1212, 1, 0, 0], [1194, 0, 1, 0], [1194, 0, 1, 0]]);
-  assert.equal(g[0].bal(), START - STAKE + 2_700_000_000_000_000n);
-  assert.equal(h.house(), 300_000_000_000_000n);
-  conserved(h, g);
+  assert.deepEqual((await Promise.all(g.map((p) => record(h, p)))), [[1212, 1, 0, 0], [1194, 0, 1, 0], [1194, 0, 1, 0]]);
+  assert.equal((await g[0].bal()), START - STAKE + 2_700_000_000_000_000n);
+  assert.equal((await h.house()), 300_000_000_000_000n);
+  await conserved(h, g);
 });
 
 test("a forfeit after everybody else has submitted settles immediately", async () => {
@@ -303,7 +305,7 @@ test("a forfeit after everybody else has submitted settles immediately", async (
   const rs = await results(g);
   assert.deepEqual(rs.map((r) => r.match.result), ["win", "loss", "loss"]);
   assert.equal(g[0].client.peek("match.opponent_forfeited").length, 0, "the match ended, so the result is the news");
-  conserved(h, g);
+  await conserved(h, g);
 });
 
 test("a forfeit in a 2-player lobby match ends it straight away, as in a 1v1", async () => {
@@ -315,9 +317,9 @@ test("a forfeit in a 2-player lobby match ends it straight away, as in a 1v1", a
   const [a, b] = await results(g);
   assert.deepEqual([a.match.result, b.match.result, a.match.reason], ["win", "loss", "forfeit"]);
   assert.equal(g[0].client.peek("match.opponent_forfeited").length, 0);
-  assert.equal(g[0].bal(), START - STAKE + 1_800_000_000_000_000n);
-  assert.deepEqual(g.map((p) => record(h, p)), [[1212, 1, 0, 0], [1188, 0, 1, 0]]);
-  conserved(h, g);
+  assert.equal((await g[0].bal()), START - STAKE + 1_800_000_000_000_000n);
+  assert.deepEqual((await Promise.all(g.map((p) => record(h, p)))), [[1212, 1, 0, 0], [1188, 0, 1, 0]]);
+  await conserved(h, g);
 });
 
 /* ------------------------------------------------------------------ deadline */
@@ -335,10 +337,10 @@ test("4 players, two never submit: they lose at the deadline and the others are 
   assert.deepEqual(rs[2].match.players.map((p) => [p.finished, p.score, p.place, p.payout]), [
     [true, 900, 1, "3600000000000000"], [true, 500, 2, "0"], [false, null, 3, "0"], [false, null, 3, "0"]]);
   // seat 0 beats all three: 36/3 = +12; seat 1: -12 +12 +12 = +4; seats 2 and 3: -12 -12 +0 (they draw each other) = -8
-  assert.deepEqual(g.map((p) => record(h, p)), [[1212, 1, 0, 0], [1204, 0, 1, 0], [1192, 0, 1, 0], [1192, 0, 1, 0]]);
-  assert.equal(g[0].bal(), START - STAKE + 3_600_000_000_000_000n);
-  assert.equal(h.house(), 400_000_000_000_000n);
-  conserved(h, g);
+  assert.deepEqual((await Promise.all(g.map((p) => record(h, p)))), [[1212, 1, 0, 0], [1204, 0, 1, 0], [1192, 0, 1, 0], [1192, 0, 1, 0]]);
+  assert.equal((await g[0].bal()), START - STAKE + 3_600_000_000_000_000n);
+  assert.equal((await h.house()), 400_000_000_000_000n);
+  await conserved(h, g);
 });
 
 test("3 players, only one submits: that player wins the deadline", async () => {
@@ -349,9 +351,9 @@ test("3 players, only one submits: that player wins the deadline", async () => {
   await g[1].client.submit(m.id, 1);
   const rs = await results(g);
   assert.deepEqual(rs.map((r) => r.match.result), ["loss", "win", "loss"]);
-  assert.equal(g[1].bal(), START - STAKE + 2_700_000_000_000_000n);
-  assert.deepEqual(g.map((p) => record(h, p)), [[1194, 0, 1, 0], [1212, 1, 0, 0], [1194, 0, 1, 0]]);
-  conserved(h, g);
+  assert.equal((await g[1].bal()), START - STAKE + 2_700_000_000_000_000n);
+  assert.deepEqual((await Promise.all(g.map((p) => record(h, p)))), [[1194, 0, 1, 0], [1212, 1, 0, 0], [1194, 0, 1, 0]]);
+  await conserved(h, g);
 });
 
 test("4 players, nobody submits: the match is void, everybody is refunded, nobody is rated", async () => {
@@ -362,10 +364,10 @@ test("4 players, nobody submits: the match is void, everybody is refunded, nobod
   const vs = await results(g, "match.void");
   for (const v of vs) { assert.equal(v.match.result, "void"); assert.equal(v.match.reason, "no_result"); assert.equal(v.match.state, "void"); }
   assert.deepEqual(vs[0].match.players.map((p) => [p.place, p.ratingAfter]), g.map(() => [null, 1200]));
-  g.forEach((p) => assert.equal(p.bal(), START));
-  assert.equal(h.app.db.get("SELECT COUNT(*) AS n FROM ratings").n, 0);
-  assert.equal(h.app.db.get("SELECT COUNT(*) AS n FROM player_day").n, 0);
-  conserved(h, g);
+  for (const p of g) assert.equal((await p.bal()), START);
+  assert.equal((await h.app.db.get("SELECT COUNT(*) AS n FROM ratings")).n, 0);
+  assert.equal((await h.app.db.get("SELECT COUNT(*) AS n FROM player_day")).n, 0);
+  await conserved(h, g);
 });
 
 test("one forfeits and the others never submit: nobody has a result, so it is void and refunded", async () => {
@@ -376,9 +378,9 @@ test("one forfeits and the others never submit: nobody has a result, so it is vo
   await g[0].client.forfeit(m.id);
   const vs = await results(g, "match.void");
   assert.equal(vs[1].match.reason, "no_result");
-  g.forEach((p) => assert.equal(p.bal(), START));
-  assert.equal(h.app.db.get("SELECT COUNT(*) AS n FROM ratings").n, 0);
-  conserved(h, g);
+  for (const p of g) assert.equal((await p.bal()), START);
+  assert.equal((await h.app.db.get("SELECT COUNT(*) AS n FROM ratings")).n, 0);
+  await conserved(h, g);
 });
 
 /* ------------------------------------------------------------------ shapes, edge cases */
@@ -393,16 +395,16 @@ test("a full 10-player match plays out; auto-started lobby, one winner among ten
   const rs = await results(g);
   assert.deepEqual(rs.map((r) => r.match.result), [...Array(9).fill("loss"), "win"]);
   assert.deepEqual(rs[0].match.players.map((p) => p.place), [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
-  assert.equal(g[9].bal(), START - STAKE + 9_000_000_000_000_000n); // pot 10 mETH, 90%
-  assert.equal(h.house(), 1_000_000_000_000_000n);
+  assert.equal((await g[9].bal()), START - STAKE + 9_000_000_000_000_000n); // pot 10 mETH, 90%
+  assert.equal((await h.house()), 1_000_000_000_000_000n);
   // seat 9 wins all nine pairs: 9 x 12 / 9 = +12; seat 0 loses all nine: -12; the middle moves by the rank gap
   const ratings = rs[0].match.players.map((p) => p.ratingAfter);
   assert.equal(ratings[9], 1212);
   assert.equal(ratings[0], 1188);
   assert.deepEqual(ratings, [...ratings].sort((a, b) => a - b), "ratings are ordered like the finish");
-  assert.equal(h.app.db.get("SELECT SUM(wins) AS w, SUM(losses) AS l FROM ratings").w, 1);
-  assert.equal(h.app.db.get("SELECT SUM(wins) AS w, SUM(losses) AS l FROM ratings").l, 9);
-  conserved(h, g);
+  assert.equal((await h.app.db.get("SELECT SUM(wins) AS w, SUM(losses) AS l FROM ratings")).w, 1);
+  assert.equal((await h.app.db.get("SELECT SUM(wins) AS w, SUM(losses) AS l FROM ratings")).l, 9);
+  await conserved(h, g);
 });
 
 test("free (stake 0) lobbies of 3 move no money but still rate everyone", async () => {
@@ -415,9 +417,9 @@ test("free (stake 0) lobbies of 3 move no money but still rate everyone", async 
   const rs = await results(g);
   assert.deepEqual(rs.map((r) => r.match.result), ["loss", "loss", "win"]);
   assert.deepEqual(rs[0].match.players.map((p) => p.payout), ["0", "0", "0"]);
-  assert.deepEqual(g.map((p) => record(h, p)), [[1188, 0, 1, 0], [1200, 0, 1, 0], [1212, 1, 0, 0]]);
-  assert.equal(h.app.db.get("SELECT COUNT(*) AS n FROM ledger_tx WHERE kind LIKE 'match%' OR kind LIKE 'stake%'").n, 0);
-  audit(h);
+  assert.deepEqual((await Promise.all(g.map((p) => record(h, p)))), [[1188, 0, 1, 0], [1200, 0, 1, 0], [1212, 1, 0, 0]]);
+  assert.equal((await h.app.db.get("SELECT COUNT(*) AS n FROM ledger_tx WHERE kind LIKE 'match%' OR kind LIKE 'stake%'")).n, 0);
+  await audit(h);
 });
 
 test("a 2-player lobby match is exactly a 1v1: same money, same ±12, `opponent` and `players` agree", async () => {
@@ -437,8 +439,8 @@ test("a 2-player lobby match is exactly a 1v1: same money, same ±12, `opponent`
   assert.equal(a.match.opponent.score, 3900);
   assert.equal(a.match.opponent.name, a.match.players[1].name);
   assert.equal(b.match.opponent.name, b.match.players[0].name);
-  assert.equal(h.house(), 200_000_000_000_000n);
-  conserved(h, g);
+  assert.equal((await h.house()), 200_000_000_000_000n);
+  await conserved(h, g);
 });
 
 test("a two-player lobby match reports exactly two players in `players`", async () => {
@@ -453,8 +455,8 @@ test("a two-player lobby match reports exactly two players in `players`", async 
   await a.client.submit(m.id, 2);
   await b.client.submit(m.id, 1);
   await Promise.all([a.client.waitFor("match.result"), b.client.waitFor("match.result")]);
-  assert.equal(c.bal(), START);
-  conserved(h, [a, b, c]);
+  assert.equal((await c.bal()), START);
+  await conserved(h, [a, b, c]);
 });
 
 test("match history and detail include every player, and only members can read them", async () => {
@@ -474,7 +476,7 @@ test("match history and detail include every player, and only members can read t
   assert.deepEqual(one.players.map((p) => p.place), [1, 2, 3]);
   await assert.rejects(outsider.client.api("GET", `/v1/matches/${m.id}`), { code: "NOT_FOUND", status: 404 });
   assert.ok(!JSON.stringify(one).includes(g[0].address.slice(2, 12)), "no full address in anything a player sees");
-  audit(h);
+  await audit(h);
 });
 
 test("players can go again right after a lobby match, in a new lobby with different people", async () => {
@@ -490,5 +492,5 @@ test("players can go again right after a lobby match, in a new lobby with differ
   await h.beginAll([g[2], g[0], g[3]], m2.id);
   await submitAll(h, m2.id, [g[2], g[0], g[3]], [1, 2, 3]);
   await results([g[2], g[0], g[3]]);
-  conserved(h, g);
+  await conserved(h, g);
 });

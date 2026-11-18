@@ -110,7 +110,7 @@ export class Router {
           if (!ok) throw new AppError("UNAUTHORIZED", "Admin token required.", 401);
         } else {
           const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
-          if (token) user = this.auth.authenticate(token);
+          if (token) user = await this.auth.authenticate(token);
           if (opts.auth && !user) throw new AppError("UNAUTHORIZED", "Sign in first.", 401);
         }
         const limitKey = user ? `u:${user.id}` : `ip:${ip}`;

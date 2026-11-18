@@ -64,11 +64,11 @@ export class Withdrawals {
       explorerUrl: r.tx_hash && this.chain.meta.explorer ? `${this.chain.meta.explorer}/tx/${r.tx_hash}` : null,
     };
   }
-  list(userId, limit = 20) {
-    return this.db.all("SELECT * FROM withdrawals WHERE user_id = ? ORDER BY id DESC LIMIT ?", userId, limit).map((r) => this.view(r));
+  async list(userId, limit = 20) {
+    return (await this.db.all("SELECT * FROM withdrawals WHERE user_id = ? ORDER BY id DESC LIMIT ?", userId, limit)).map((r) => this.view(r));
   }
-  pendingTotal(userId) {
-    return this.db.all(`SELECT amount FROM withdrawals WHERE user_id = ? AND status IN ('queued','signed','broadcast')`, userId)
+  async pendingTotal(userId) {
+    return (await this.db.all(`SELECT amount FROM withdrawals WHERE user_id = ? AND status IN ('queued','signed','broadcast')`, userId))
       .reduce((s, r) => s + big(r.amount), 0n);
   }
 
@@ -86,29 +86,29 @@ export class Withdrawals {
       throw conflict("FEE_CHANGED", "The network fee went up since you looked. Review it and try again.", { fee: toStr(fee), maxFee: toStr(maxFee) });
     }
 
-    const out = this.db.tx(() => {
+    const out = await this.db.tx(async () => {
       if (idemKey) {
-        const prior = this.db.get("SELECT * FROM withdrawals WHERE user_id = ? AND idem_key = ?", userId, idemKey);
+        const prior = await this.db.get("SELECT * FROM withdrawals WHERE user_id = ? AND idem_key = ?", userId, idemKey);
         if (prior) {
           if (big(prior.amount) !== amount) throw conflict("IDEMPOTENCY_MISMATCH", "That Idempotency-Key was already used with a different amount.");
           return { row: prior, replay: true };
         }
       }
       const since = this.now() - DAY;
-      const recent = this.db.all("SELECT amount FROM withdrawals WHERE user_id = ? AND created_at > ? AND status != 'failed'", userId, since)
+      const recent = (await this.db.all("SELECT amount FROM withdrawals WHERE user_id = ? AND created_at > ? AND status != 'failed'", userId, since))
         .reduce((s, r) => s + big(r.amount), 0n);
       if (recent + amount > e.dailyWithdrawalCap) {
         throw new AppError("DAILY_WITHDRAWAL_CAP", "That would exceed your rolling 24-hour withdrawal limit.", 403, { cap: toStr(e.dailyWithdrawalCap), used: toStr(recent) });
       }
-      if (this.ledger.balance(ACCT.user(userId)) < amount + fee) {
+      if ((await this.ledger.balance(ACCT.user(userId))) < amount + fee) {
         throw new AppError("INSUFFICIENT_FUNDS", "Not enough balance: a withdrawal needs the amount plus the network fee.", 402, { amount: toStr(amount), fee: toStr(fee), total: toStr(amount + fee) });
       }
-      const id = Number(this.db.run(
-        "INSERT INTO withdrawals (user_id, to_address, amount, fee, status, idem_key, created_at, updated_at) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?)",
-        userId, to, toStr(amount), toStr(fee), idemKey, this.now(), this.now()).lastInsertRowid);
-      this.ledger.transfer(ACCT.user(userId), ACCT.withdrawal(id), amount, { kind: "withdrawal-hold", ref: id, uniq: `wd-hold:${id}` });
-      if (fee > 0n) this.ledger.transfer(ACCT.user(userId), ACCT.gas, fee, { kind: "withdrawal-fee", ref: id, uniq: `wd-fee:${id}`, memo: `network fee (${quote.mode})` });
-      return { row: this.db.get("SELECT * FROM withdrawals WHERE id = ?", id), replay: false };
+      const id = Number((await this.db.run(
+        "INSERT INTO withdrawals (user_id, to_address, amount, fee, status, idem_key, created_at, updated_at) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?) RETURNING id",
+        userId, to, toStr(amount), toStr(fee), idemKey, this.now(), this.now())).lastInsertRowid);
+      await this.ledger.transfer(ACCT.user(userId), ACCT.withdrawal(id), amount, { kind: "withdrawal-hold", ref: id, uniq: `wd-hold:${id}` });
+      if (fee > 0n) await this.ledger.transfer(ACCT.user(userId), ACCT.gas, fee, { kind: "withdrawal-fee", ref: id, uniq: `wd-fee:${id}`, memo: `network fee (${quote.mode})` });
+      return { row: await this.db.get("SELECT * FROM withdrawals WHERE id = ?", id), replay: false };
     });
     if (!out.replay) {
       this.bus.notify(userId, { type: "wallet.updated", reason: "withdrawal-requested", withdrawalId: out.row.id });
@@ -123,11 +123,11 @@ export class Withdrawals {
      so a request that arrives mid-pass is never left until the next timer tick. */
   pass() {
     if (this.current) { this.rerun = true; return this.current; }
-    this.current = (async () => {
+    this.current = this.db.detach(async () => {
       try {
         do { this.rerun = false; await this.#once(); } while (this.rerun);
       } finally { this.current = null; }
-    })();
+    });
     return this.current;
   }
 
@@ -142,7 +142,7 @@ export class Withdrawals {
   }
 
   async #signQueued() {
-    const queued = this.db.all("SELECT * FROM withdrawals WHERE status = 'queued' ORDER BY id");
+    const queued = await this.db.all("SELECT * FROM withdrawals WHERE status = 'queued' ORDER BY id");
     if (!queued.length) { this.underfunded = false; return; }
     const { provider, chainId } = this.chain;
     const treasury = this.keys.treasury();
@@ -157,7 +157,7 @@ export class Withdrawals {
       if (available < amount + gasCost) {
         if (!this.underfunded) this.log.warn("treasury cannot cover the next withdrawal; it stays queued until the treasury is funded", { treasury: treasury.address, need: toStr(amount + gasCost), have: toStr(available) });
         this.underfunded = true;
-        this.db.run("UPDATE withdrawals SET error = 'treasury_underfunded', updated_at = ? WHERE id = ? AND status = 'queued'", this.now(), row.id);
+        await this.db.run("UPDATE withdrawals SET error = 'treasury_underfunded', updated_at = ? WHERE id = ? AND status = 'queued'", this.now(), row.id);
         return; // keep FIFO order
       }
       this.underfunded = false;
@@ -165,14 +165,14 @@ export class Withdrawals {
       const raw = await treasury.signTransaction({ type: 2, chainId, nonce, to: row.to_address, value: amount, gasLimit: TRANSFER_GAS, maxFeePerGas, maxPriorityFeePerGas });
       const hash = Transaction.from(raw).hash;
       // durable BEFORE broadcast
-      const changed = this.db.run("UPDATE withdrawals SET status = 'signed', nonce = ?, tx_hash = ?, raw_tx = ?, error = NULL, updated_at = ? WHERE id = ? AND status = 'queued'",
-        nonce, hash, raw, this.now(), row.id).changes;
+      const changed = (await this.db.run("UPDATE withdrawals SET status = 'signed', nonce = ?, tx_hash = ?, raw_tx = ?, error = NULL, updated_at = ? WHERE id = ? AND status = 'queued'",
+        nonce, hash, raw, this.now(), row.id)).changes;
       if (!changed) continue;
       available -= amount + gasCost;
       const res = await broadcast(provider, raw);
       if (res.ok || res.nonceUsed) {
         // nonceUsed: our tx or a foreign one holds this nonce — #trackBroadcast settles which by receipt
-        this.db.run("UPDATE withdrawals SET status = 'broadcast', broadcast_at = ?, updated_at = ? WHERE id = ?", this.now(), this.now(), row.id);
+        await this.db.run("UPDATE withdrawals SET status = 'broadcast', broadcast_at = ?, updated_at = ? WHERE id = ?", this.now(), this.now(), row.id);
         this.log.info("withdrawal broadcast", { id: row.id, userId: row.user_id, txHash: hash, nonce });
         this.bus.notify(row.user_id, { type: "wallet.updated", reason: "withdrawal-broadcast", withdrawalId: row.id, txHash: hash });
       } else {
@@ -187,7 +187,7 @@ export class Withdrawals {
   async #resendSigned() {
     let stuck = false;
     const { provider } = this.chain;
-    for (const row of this.db.all("SELECT * FROM withdrawals WHERE status = 'signed' ORDER BY id")) {
+    for (const row of await this.db.all("SELECT * FROM withdrawals WHERE status = 'signed' ORDER BY id")) {
       // a broadcast call can fail after the node accepted the tx, so look for a receipt before sending again
       let sent = !!(await provider.getTransactionReceipt(row.tx_hash));
       if (!sent) {
@@ -195,14 +195,14 @@ export class Withdrawals {
         sent = res.ok || !!res.nonceUsed;
         if (!sent) this.log.warn("signed withdrawal still cannot be broadcast", { id: row.id, error: res.error });
       }
-      if (sent) this.db.run("UPDATE withdrawals SET status = 'broadcast', broadcast_at = ?, updated_at = ? WHERE id = ? AND status = 'signed'", this.now(), this.now(), row.id);
+      if (sent) await this.db.run("UPDATE withdrawals SET status = 'broadcast', broadcast_at = ?, updated_at = ? WHERE id = ? AND status = 'signed'", this.now(), this.now(), row.id);
       else { stuck = true; break; }
     }
     return stuck;
   }
 
   async #trackBroadcast() {
-    const rows = this.db.all("SELECT * FROM withdrawals WHERE status = 'broadcast' ORDER BY id");
+    const rows = await this.db.all("SELECT * FROM withdrawals WHERE status = 'broadcast' ORDER BY id");
     if (!rows.length) return;
     const { provider } = this.chain;
     const head = await provider.getBlockNumber();
@@ -211,8 +211,8 @@ export class Withdrawals {
       const receipt = await provider.getTransactionReceipt(row.tx_hash);
       if (receipt) {
         if (head - receipt.blockNumber + 1 < this.cfg.chain.confirmations) continue; // mined, waiting for depth
-        if (receipt.status === 1) this.#finalize(row, receipt.blockNumber);
-        else this.#fail(row, "reverted on-chain");
+        if (receipt.status === 1) await this.#finalize(row, receipt.blockNumber);
+        else await this.#fail(row, "reverted on-chain");
         continue;
       }
       const age = this.now() - (row.broadcast_at ?? row.updated_at);
@@ -221,18 +221,18 @@ export class Withdrawals {
       if (latest > row.nonce && age > 2 * this.cfg.chain.rebroadcastAfterMs) {
         // the nonce is spent; if our hash is still unknown to the node it can never mine
         const [again, known] = await Promise.all([provider.getTransactionReceipt(row.tx_hash), provider.getTransaction(row.tx_hash)]);
-        if (!again && !known) this.#fail(row, "transaction was dropped or replaced");
+        if (!again && !known) await this.#fail(row, "transaction was dropped or replaced");
       } else {
         await broadcast(provider, row.raw_tx);
       }
     }
   }
 
-  #finalize(row, blockNumber) {
-    const done = this.db.tx(() => {
-      const c = this.db.run("UPDATE withdrawals SET status = 'confirmed', block_number = ?, error = NULL, updated_at = ? WHERE id = ? AND status = 'broadcast'", blockNumber, this.now(), row.id).changes;
+  async #finalize(row, blockNumber) {
+    const done = await this.db.tx(async () => {
+      const c = (await this.db.run("UPDATE withdrawals SET status = 'confirmed', block_number = ?, error = NULL, updated_at = ? WHERE id = ? AND status = 'broadcast'", blockNumber, this.now(), row.id)).changes;
       if (!c) return false;
-      this.ledger.transfer(ACCT.withdrawal(row.id), ACCT.chain, big(row.amount), { kind: "withdrawal", ref: row.id, uniq: `wd-final:${row.id}`, memo: row.tx_hash });
+      await this.ledger.transfer(ACCT.withdrawal(row.id), ACCT.chain, big(row.amount), { kind: "withdrawal", ref: row.id, uniq: `wd-final:${row.id}`, memo: row.tx_hash });
       return true;
     });
     if (done) {
@@ -241,13 +241,13 @@ export class Withdrawals {
     }
   }
 
-  #fail(row, reason) {
-    const done = this.db.tx(() => {
-      const c = this.db.run(`UPDATE withdrawals SET status = 'failed', error = ?, updated_at = ? WHERE id = ? AND status IN ('queued','signed','broadcast')`, reason, this.now(), row.id).changes;
+  async #fail(row, reason) {
+    const done = await this.db.tx(async () => {
+      const c = (await this.db.run(`UPDATE withdrawals SET status = 'failed', error = ?, updated_at = ? WHERE id = ? AND status IN ('queued','signed','broadcast')`, reason, this.now(), row.id)).changes;
       if (!c) return false;
-      this.ledger.transfer(ACCT.withdrawal(row.id), ACCT.user(row.user_id), big(row.amount), { kind: "withdrawal-refund", ref: row.id, uniq: `wd-refund:${row.id}`, memo: reason });
+      await this.ledger.transfer(ACCT.withdrawal(row.id), ACCT.user(row.user_id), big(row.amount), { kind: "withdrawal-refund", ref: row.id, uniq: `wd-refund:${row.id}`, memo: reason });
       const fee = big(row.fee ?? "0");
-      if (fee > 0n) this.ledger.transfer(ACCT.gas, ACCT.user(row.user_id), fee, { kind: "withdrawal-fee-refund", ref: row.id, uniq: `wd-fee-refund:${row.id}`, memo: reason });
+      if (fee > 0n) await this.ledger.transfer(ACCT.gas, ACCT.user(row.user_id), fee, { kind: "withdrawal-fee-refund", ref: row.id, uniq: `wd-fee-refund:${row.id}`, memo: reason });
       return true;
     });
     if (done) {

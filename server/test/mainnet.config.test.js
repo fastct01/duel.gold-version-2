@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { HDNodeWallet } from "ethers";
 import { loadConfig, SERVER_ROOT } from "../src/config.js";
 import { createApp } from "../src/app.js";
+import { testDb } from "./helpers/app.js";
 
 const ETH = 10n ** 18n;
 const MNEMONIC = HDNodeWallet.createRandom().mnemonic.phrase;
@@ -234,7 +235,7 @@ async function bootMainnet(chainId, env = {}) {
   const config = loadConfig({
     ...GOOD, RPC_URL: `http://127.0.0.1:${node.address().port}/v2/SECRETAPIKEY`, PORT: "0", HOST: "127.0.0.1", LOG_LEVEL: "debug",
     ADMIN_TOKEN: "mainnet-admin-token-0123456789ab", ...env,
-  }, { dbPath: ":memory:", chain: { pollMs: 50, solvencyCheckMs: 0 } });
+  }, { db: testDb(), chain: { pollMs: 50, solvencyCheckMs: 0 } });
   const app = await createApp(config);
   apps.push(app);
   return app;
@@ -294,7 +295,7 @@ test("startup refuses a mainnet RPC without the opt-in, and a testnet or local R
   // ... and when CHAIN_ID was left out, the chain guard still catches the mainnet RPC
   const node = await fakeNode(1);
   servers.push(node);
-  const cfg = loadConfig({ NODE_ENV: "production", HD_MNEMONIC: MNEMONIC, ALLOWED_ORIGINS: "https://duel.example", RPC_URL: `http://127.0.0.1:${node.address().port}`, PORT: "0" }, { dbPath: ":memory:" });
+  const cfg = loadConfig({ NODE_ENV: "production", HD_MNEMONIC: MNEMONIC, ALLOWED_ORIGINS: "https://duel.example", RPC_URL: `http://127.0.0.1:${node.address().port}`, PORT: "0" }, { db: testDb() });
   await assert.rejects(createApp(cfg), /MAINNET.*NETWORK=mainnet is not set/s);
 
   for (const [id, what] of [[11155111, "test network"], [84532, "test network"], [31337, "local development chain"]]) {
@@ -307,7 +308,7 @@ test("startup refuses a mainnet RPC without the opt-in, and a testnet or local R
 test("a deployment with a plain, non-mainnet config still starts on a testnet RPC (no opt-in needed there)", async () => {
   const node = await fakeNode(11155111);
   servers.push(node);
-  const cfg = loadConfig({ NODE_ENV: "test", RPC_URL: `http://127.0.0.1:${node.address().port}`, PORT: "0", HOST: "127.0.0.1", LOG_LEVEL: "silent", HD_MNEMONIC: MNEMONIC }, { dbPath: ":memory:" });
+  const cfg = loadConfig({ NODE_ENV: "test", RPC_URL: `http://127.0.0.1:${node.address().port}`, PORT: "0", HOST: "127.0.0.1", LOG_LEVEL: "silent", HD_MNEMONIC: MNEMONIC }, { db: testDb() });
   const app = await createApp(cfg);
   apps.push(app);
   await app.start();
@@ -317,7 +318,7 @@ test("a deployment with a plain, non-mainnet config still starts on a testnet RP
 });
 
 test("without a wallet the server reports network local and no real money", async () => {
-  const cfg = loadConfig({ NODE_ENV: "test", PORT: "0", HOST: "127.0.0.1", LOG_LEVEL: "silent" }, { dbPath: ":memory:", chain: { rpcUrl: "" } });
+  const cfg = loadConfig({ NODE_ENV: "test", PORT: "0", HOST: "127.0.0.1", LOG_LEVEL: "silent" }, { db: testDb(), chain: { rpcUrl: "" } });
   const app = await createApp(cfg);
   apps.push(app);
   await app.start();

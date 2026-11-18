@@ -54,10 +54,17 @@ export class Gateway {
   }
 
   #accept(ws, ip) {
-    const conn = { id: crypto.randomBytes(6).toString("hex"), ws, ip, userId: null, token: null, alive: true };
+    // queue: each connection's messages are handled one after another, in the order they arrived
+    const conn = { id: crypto.randomBytes(6).toString("hex"), ws, ip, userId: null, token: null, alive: true, queue: Promise.resolve() };
     this.conns.add(conn);
     ws.on("pong", () => { conn.alive = true; });
-    ws.on("message", (data, isBinary) => this.#onMessage(conn, data, isBinary));
+    ws.on("message", (data, isBinary) => {
+      // checked on arrival, so a flood is cut off before it can pile up in the queue
+      if (isBinary) return ws.close(1003, "text only");
+      if (!this.limiter.take(conn.id)) return ws.close(4008, "rate limit");
+      conn.queue = conn.queue.then(() => this.#onMessage(conn, data))
+        .catch((e) => this.log.error("ws message failed", { conn: conn.id, error: e }));
+    });
     ws.on("close", () => this.#onClose(conn));
     ws.on("error", (e) => this.log.debug("ws error", { conn: conn.id, error: String(e.message || e) }));
     conn.authTimer = setTimeout(() => { if (!conn.userId) ws.close(4001, "auth timeout"); }, AUTH_TIMEOUT_MS);
@@ -101,9 +108,9 @@ export class Gateway {
     }
   }
 
-  #onMessage(conn, data, isBinary) {
-    if (isBinary) return conn.ws.close(1003, "text only");
-    if (!this.limiter.take(conn.id)) return conn.ws.close(4008, "rate limit");
+  /* A message that was already queued when the socket closed is still handled (a forfeit sent just before closing the tab
+     must count); replies to a closed socket are simply dropped. */
+  async #onMessage(conn, data) {
     let msg;
     try { msg = JSON.parse(data.toString("utf8")); } catch { return this.#raw(conn, { type: "ack", ok: false, error: { code: "BAD_JSON", message: "Messages must be JSON." } }); }
     if (!msg || typeof msg !== "object" || typeof msg.type !== "string") {
@@ -114,23 +121,24 @@ export class Gateway {
       this.#raw(conn, ok ? { type: "ack", id: msg.id, ok: true, result: payload ?? {} } : { type: "ack", id: msg.id, ok: false, error: payload });
     };
     try {
-      if (msg.type === "auth") return this.#auth(conn, msg, reply);
+      if (msg.type === "auth") return await this.#auth(conn, msg, reply);
       if (!conn.userId) throw new AppError("UNAUTHORIZED", "Send an auth message first.", 401);
       // re-check on every message: logging out, expiry and bans must end live sockets too, not only future REST calls
-      const live = this.auth.authenticate(conn.token);
+      const live = await this.auth.authenticate(conn.token);
       if (!live || live.id !== conn.userId) { reply(false, { code: "SESSION_EXPIRED", message: "Your session ended. Sign in again." }); return conn.ws.close(4003, "session ended"); }
-      reply(true, this.#dispatch(conn, msg));
+      reply(true, await this.#dispatch(conn, msg));
     } catch (e) {
       if (e instanceof AppError) reply(false, { code: e.code, message: e.message, ...(e.extra || {}) });
       else { this.log.error("ws handler failed", { type: msg.type, error: e }); reply(false, { code: "INTERNAL", message: "Something went wrong on our side." }); }
     }
   }
 
-  #auth(conn, msg, reply) {
+  async #auth(conn, msg, reply) {
     if (conn.userId) throw new AppError("ALREADY_AUTHENTICATED", "Already signed in on this connection.", 400);
     const token = typeof msg.token === "string" ? msg.token : "";
-    const user = this.auth.authenticate(token);
+    const user = await this.auth.authenticate(token);
     if (!user) { reply(false, { code: "UNAUTHORIZED", message: "Invalid or expired token." }); return conn.ws.close(4001, "unauthorized"); }
+    if (!this.conns.has(conn)) return; // the socket closed while the token was being checked: nothing to register
     const set = this.byUser.get(user.id) || new Set();
     if (set.size >= MAX_CONNS_PER_USER) { reply(false, { code: "TOO_MANY_CONNECTIONS", message: "Too many open connections for this account." }); return conn.ws.close(4009, "too many connections"); }
     clearTimeout(conn.authTimer);
@@ -139,22 +147,22 @@ export class Gateway {
     set.add(conn);
     this.byUser.set(user.id, set);
     reply(true, { userId: user.id, connectionId: conn.id });
-    this.#raw(conn, { type: "sync", me: this.meView(user) });
+    this.#raw(conn, { type: "sync", me: await this.meView(user) });
   }
 
-  #dispatch(conn, msg) {
+  async #dispatch(conn, msg) {
     const m = this.matches;
     const uid = conn.userId;
     switch (msg.type) {
       case "ping": return { t: msg.t ?? null, serverTime: this.now() };
-      case "sync": return { me: this.meView(this.auth.users.require(uid)) };
-      case "lobby.create": return { lobby: m.createLobby(uid, { game: msg.game, stake: msg.stake }) };
-      case "lobby.close": return { lobby: m.closeLobby(uid, msg.code) };
+      case "sync": return { me: await this.meView(await this.auth.users.require(uid)) };
+      case "lobby.create": return { lobby: await m.createLobby(uid, { game: msg.game, stake: msg.stake }) };
+      case "lobby.close": return { lobby: await m.closeLobby(uid, msg.code) };
       case "lobby.join": return m.joinLobby(uid, msg.code); // { lobby } or, when this join filled the lobby, { lobby, match }
-      case "lobby.leave": return { lobby: m.leaveLobby(uid, msg.code) };
-      case "lobby.start": return { match: m.startLobby(uid, msg.code) };
+      case "lobby.leave": return { lobby: await m.leaveLobby(uid, msg.code) };
+      case "lobby.start": return { match: await m.startLobby(uid, msg.code) };
       case "match.ready": return m.ready(uid, msg.matchId, conn.id);
-      case "match.progress": m.progress(uid, msg.matchId, msg.score); return {};
+      case "match.progress": await m.progress(uid, msg.matchId, msg.score); return {};
       case "match.submit": return m.submit(uid, msg.matchId, { score: msg.score, detail: msg.detail });
       case "match.forfeit": return m.forfeit(uid, msg.matchId);
       default: throw new AppError("UNKNOWN_TYPE", `Unknown message type "${msg.type}".`, 400);

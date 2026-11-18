@@ -3,13 +3,13 @@
    plus a local-only faucet so a fresh browser wallet can get test ETH.
 
      npm run dev                 → http://localhost:8787/play/
+     npm run db                  start the local Postgres first (Docker), once
      npm run dev -- --fresh      wipe the dev database first
      npm run dev -- --port 9000 --chain-port 9545
 
    Exported as startDevStack() so the browser tests can run the very same thing on ephemeral ports.
    The faucet (POST /v1/dev/faucet) exists only here, only on chain ids 31337/1337, and is capped at 1 ETH per call.
    The dev stack is invite-only like production: there is no public queue to switch on. */
-import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -20,6 +20,14 @@ import { bad, forbidden } from "../src/util/errors.js";
 
 const HARDHAT_KEY_0 = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"; // public, local chains only
 const LOCAL_CHAINS = new Set([31337, 1337]);
+
+async function dropSchema(url, schema) {
+  const { default: pg } = await import("pg");
+  const local = /^(localhost|127\.0\.0\.1|::1)$/.test(new URL(url).hostname);
+  const c = new pg.Client({ connectionString: url, ssl: local ? false : { rejectUnauthorized: false } });
+  await c.connect();
+  try { await c.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); } finally { await c.end(); }
+}
 
 async function freePort() {
   const net = await import("node:net");
@@ -43,10 +51,13 @@ export async function startDevStack({ port = 0, chainPort = 0, fresh = false, me
   }
   const faucet = new Wallet(HARDHAT_KEY_0, provider);
 
-  const dbPath = memory ? ":memory:" : path.join(SERVER_ROOT, "data", "dev.db");
-  if (fresh && !memory) for (const f of [dbPath, dbPath + "-wal", dbPath + "-shm"]) fs.rmSync(f, { force: true });
+  /* the dev database is the schema "dev" in DATABASE_URL (default: the local container from `npm run db`); --fresh drops it.
+     memory: a throwaway schema, removed again when the stack stops (the browser tests use this). */
+  const base = loadConfig({ ...process.env, NODE_ENV: "development" });
+  const schema = memory ? `devtmp_${process.pid}_${Date.now().toString(36)}` : "dev";
+  if (fresh && !memory) await dropSchema(base.db.url, schema);
   const config = loadConfig({ NODE_ENV: "development", PORT: String(port), HOST: "127.0.0.1", LOG_LEVEL: quiet ? "silent" : "info" }, {
-    dbPath,
+    db: { ...base.db, schema, dropOnClose: memory },
     keys: memory ? { mnemonic: HDNodeWallet.createRandom().mnemonic.phrase } : {},
     chain: { rpcUrl, confirmations: 1, pollMs: 400, sweepIntervalMs: 2000, withdrawIntervalMs: 500 },
     devFaucet: true,

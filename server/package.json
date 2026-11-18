@@ -12,10 +12,12 @@
     "chain": "node scripts/local-chain.js",
     "test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 \"test/**/*.test.js\"",
     "dev": "node --disable-warning=ExperimentalWarning scripts/dev-stack.js",
-    "build:three": "node scripts/build-three.js"
+    "build:three": "node scripts/build-three.js",
+    "db": "node scripts/local-db.js"
   },
   "dependencies": {
     "ethers": "^6.13.0",
+    "pg": "^8.23.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {

@@ -59,26 +59,26 @@ export class EmailAuth {
   get enabled() { return this.cfg.mail.enabled; }
   #requireOn() { if (!this.enabled) throw forbidden("EMAIL_AUTH_OFF", "Email sign-in is not available on this server. Connect a wallet instead."); }
 
-  byEmail(email) { return this.db.get("SELECT * FROM users WHERE email = ?", email) || null; }
+  async byEmail(email) { return (await this.db.get("SELECT * FROM users WHERE email = ?", email)) || null; }
 
   /* ------------------------------------------------------------ links and mail */
 
-  #newToken(userId, kind, ttlMs) {
+  async #newToken(userId, kind, ttlMs) {
     const token = crypto.randomBytes(32).toString("base64url");
-    this.db.tx(() => {
-      this.db.run("DELETE FROM email_tokens WHERE user_id = ? AND kind = ?", userId, kind); // only the newest link works
-      this.db.run("DELETE FROM email_tokens WHERE expires_at < ?", this.now());
-      this.db.run("INSERT INTO email_tokens (token_hash, user_id, kind, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+    await this.db.tx(async () => {
+      await this.db.run("DELETE FROM email_tokens WHERE user_id = ? AND kind = ?", userId, kind); // only the newest link works
+      await this.db.run("DELETE FROM email_tokens WHERE expires_at < ?", this.now());
+      await this.db.run("INSERT INTO email_tokens (token_hash, user_id, kind, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
         sha256(token), userId, kind, this.now(), this.now() + ttlMs);
     });
     return token;
   }
 
-  #takeToken(token, kind) {
+  /* call inside a transaction: the delete is the claim (single use), and an expired link is refused after it */
+  async #takeToken(token, kind) {
     if (typeof token !== "string" || !/^[A-Za-z0-9_-]{40,60}$/.test(token)) throw bad("BAD_LINK", "That link is not valid. Request a new one.");
-    const row = this.db.get("SELECT * FROM email_tokens WHERE token_hash = ? AND kind = ?", sha256(token), kind);
+    const row = await this.db.get("DELETE FROM email_tokens WHERE token_hash = ? AND kind = ? RETURNING *", sha256(token), kind);
     if (!row) throw new AppError("BAD_LINK", "That link was already used or replaced by a newer one. Request a new one.", 400);
-    this.db.run("DELETE FROM email_tokens WHERE token_hash = ?", row.token_hash); // single use
     if (row.expires_at < this.now()) throw new AppError("LINK_EXPIRED", "That link has expired. Request a new one.", 400);
     return this.users.require(row.user_id);
   }
@@ -101,8 +101,9 @@ export class EmailAuth {
 
   #link(param, token) { return `${this.baseUrl()}/?${param}=${token}`; }
 
+  /* mail sends happen after the database work, never inside a transaction: a slow mail API must not hold the lock */
   async #sendVerify(user) {
-    const token = this.#newToken(user.id, "verify", this.cfg.auth.verifyTtlMs);
+    const token = await this.#newToken(user.id, "verify", this.cfg.auth.verifyTtlMs);
     await this.#mail(user, "Confirm your email for PlayVault", [
       "Confirm your email to finish creating your PlayVault account:", "", this.#link("verify", token), "",
       "The link works once and expires in 24 hours. If you did not sign up, ignore this email: no account is created without it.",
@@ -116,38 +117,40 @@ export class EmailAuth {
     const email = normalizeEmail(rawEmail);
     checkPassword(password);
     const hash = await hashPassword(password);
-    const existing = this.byEmail(email);
-    if (existing && existing.email_verified_at) {
+    const { user, taken } = await this.db.tx(async () => {
+      const existing = await this.byEmail(email);
+      if (existing && existing.email_verified_at) return { user: existing, taken: true };
+      if (existing) {
+        // an unconfirmed sign-up (maybe by someone else): the newest password wins, the link goes to the real inbox
+        await this.db.run("UPDATE users SET password_hash = ? WHERE id = ?", hash, existing.id);
+        return { user: await this.users.byId(existing.id), taken: false };
+      }
+      const name = `Player-${crypto.randomBytes(3).toString("hex")}`;
+      const id = (await this.db.run("INSERT INTO users (address, email, password_hash, display_name, created_at) VALUES (NULL, ?, ?, ?, ?) RETURNING id",
+        email, hash, name, this.now())).lastInsertRowid;
+      return { user: await this.users.byId(Number(id)), taken: false };
+    });
+    if (taken) {
       // the address already has an account: say nothing here, tell the inbox
-      await this.#mail(existing, "Someone tried to sign up with your email", [
+      await this.#mail(user, "Someone tried to sign up with your email", [
         "Someone (maybe you) tried to create a PlayVault account with this email, but you already have one.", "",
         `Sign in at ${this.baseUrl()}/ or, if you forgot your password, use "Forgot password" there.`, "",
         "If this was not you, nothing has changed and you can ignore this email.",
       ]);
       return { ok: true };
     }
-    let user = existing;
-    if (user) {
-      // an unconfirmed sign-up (maybe by someone else): the newest password wins, the link goes to the real inbox
-      this.db.run("UPDATE users SET password_hash = ? WHERE id = ?", hash, user.id);
-    } else {
-      const name = `Player-${crypto.randomBytes(3).toString("hex")}`;
-      const id = this.db.run("INSERT INTO users (address, email, password_hash, display_name, created_at) VALUES (NULL, ?, ?, ?, ?)",
-        email, hash, name, this.now()).lastInsertRowid;
-      user = this.users.byId(Number(id));
-    }
-    await this.#sendVerify(this.users.byId(user.id));
+    await this.#sendVerify(user);
     return { ok: true };
   }
 
   /* the link in the confirmation email: confirms the address and signs in */
-  verify({ token, ip = null }) {
+  async verify({ token, ip = null }) {
     this.#requireOn();
-    return this.db.tx(() => {
-      const user = this.#takeToken(token, "verify");
-      if (!user.email_verified_at) this.db.run("UPDATE users SET email_verified_at = ? WHERE id = ?", this.now(), user.id);
-      const fresh = this.users.byId(user.id);
-      return { ...this.auth.openSession(fresh, ip), user: fresh, created: true };
+    return this.db.tx(async () => {
+      const user = await this.#takeToken(token, "verify");
+      if (!user.email_verified_at) await this.db.run("UPDATE users SET email_verified_at = ? WHERE id = ?", this.now(), user.id);
+      const fresh = await this.users.byId(user.id);
+      return { ...(await this.auth.openSession(fresh, ip)), user: fresh, created: true };
     });
   }
 
@@ -155,22 +158,22 @@ export class EmailAuth {
     this.#requireOn();
     let email;
     try { email = normalizeEmail(rawEmail); } catch { email = null; }
-    const user = email ? this.byEmail(email) : null;
+    const user = email ? await this.byEmail(email) : null;
     const ok = await verifyPassword(password, user && user.password_hash); // always one hash, account or not
     if (!user || !user.password_hash || !ok) throw new AppError("BAD_CREDENTIALS", "Email or password is incorrect.", 401);
     if (!user.email_verified_at) {
       await this.#sendVerify(user);
       throw new AppError("EMAIL_UNVERIFIED", `Confirm your email first: we sent a new link to ${user.email}.`, 403);
     }
-    return { ...this.auth.openSession(user, ip), user, created: false };
+    return { ...(await this.auth.openSession(user, ip)), user, created: false };
   }
 
   async forgot({ email: rawEmail }) {
     this.#requireOn();
     const email = normalizeEmail(rawEmail);
-    const user = this.byEmail(email);
+    const user = await this.byEmail(email);
     if (user && user.password_hash) {
-      const token = this.#newToken(user.id, "reset", this.cfg.auth.resetTtlMs);
+      const token = await this.#newToken(user.id, "reset", this.cfg.auth.resetTtlMs);
       await this.#mail(user, "Reset your PlayVault password", [
         "Choose a new password for your PlayVault account:", "", this.#link("reset", token), "",
         "The link works once and expires in 1 hour. Setting a new password signs you out everywhere else.",
@@ -184,13 +187,13 @@ export class EmailAuth {
     this.#requireOn();
     checkPassword(password);
     const hash = await hashPassword(password);
-    return this.db.tx(() => {
-      const user = this.#takeToken(token, "reset");
+    return this.db.tx(async () => {
+      const user = await this.#takeToken(token, "reset");
       // the link reached the inbox, so the address is confirmed too
-      this.db.run("UPDATE users SET password_hash = ?, email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?", hash, this.now(), user.id);
-      this.auth.endSessions(user.id);
-      const fresh = this.users.byId(user.id);
-      return { ...this.auth.openSession(fresh, ip), user: fresh, created: false };
+      await this.db.run("UPDATE users SET password_hash = ?, email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?", hash, this.now(), user.id);
+      await this.auth.endSessions(user.id);
+      const fresh = await this.users.byId(user.id);
+      return { ...(await this.auth.openSession(fresh, ip)), user: fresh, created: false };
     });
   }
 
@@ -198,11 +201,12 @@ export class EmailAuth {
      sign in to this account, and withdrawals go only there. One wallet per account and one account per wallet. */
   async linkWallet(user, { address, nonce, signature }) {
     if (user.address) throw new AppError("WALLET_LINKED", "This account already has a wallet linked.", 409);
-    const linked = this.db.tx(() => {
-      const signer = this.auth.checkSignature({ address, nonce, signature });
-      const other = this.users.byAddress(signer);
+    const linked = await this.db.tx(async () => {
+      const signer = await this.auth.checkSignature({ address, nonce, signature });
+      const other = await this.users.byAddress(signer);
       if (other) throw new AppError("WALLET_IN_USE", "That wallet already has its own PlayVault account. Sign in with the wallet instead.", 409);
-      this.db.run("UPDATE users SET address = ? WHERE id = ? AND address IS NULL", signer, user.id);
+      const c = await this.db.run("UPDATE users SET address = ? WHERE id = ? AND address IS NULL", signer, user.id);
+      if (!c.changes) throw new AppError("WALLET_LINKED", "This account already has a wallet linked.", 409);
       return this.users.byId(user.id);
     });
     if (linked.email) {

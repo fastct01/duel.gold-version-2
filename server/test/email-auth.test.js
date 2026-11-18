@@ -3,10 +3,8 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { Wallet } from "ethers";
-import { DatabaseSync } from "node:sqlite";
-import { startApp } from "./helpers/app.js";
+import { startApp, openTestDb } from "./helpers/app.js";
 import { DuelClient } from "../client/duel-client.js";
-import { Db } from "../src/db/index.js";
 import { MIGRATIONS } from "../src/db/schema.js";
 
 const apps = [];
@@ -79,7 +77,7 @@ test("answers never reveal whether an email has an account", async () => {
   const before = outbox(h).length;
   assert.deepEqual((await call(h, "POST", "/v1/auth/email/signup", { email: "bo@example.com", password: "another password" })).json, { ok: true });
   assert.match(outbox(h)[before].subject, /tried to sign up/);
-  assert.equal(h.app.db.get("SELECT COUNT(*) AS n FROM users WHERE email = ?", "bo@example.com").n, 1);
+  assert.equal((await h.app.db.get("SELECT COUNT(*) AS n FROM users WHERE email = ?", "bo@example.com")).n, 1);
   assert.equal((await call(h, "POST", "/v1/auth/email/login", { email: "bo@example.com", password: "another password" })).status, 401, "the old password still holds");
 
   // forgot password for an unknown email: same answer, nothing sent
@@ -156,28 +154,18 @@ test("email sign-in can be switched off (production without RESEND_API_KEY): the
   assert.equal(r.json.error.code, "EMAIL_AUTH_OFF");
 });
 
-test("migration 7 keeps every user, session and reference, and lets an account exist without a wallet", () => {
-  const raw = new DatabaseSync(":memory:");
-  raw.exec("PRAGMA foreign_keys = ON");
-  for (let v = 0; v < 6; v++) { // the schema as it was before email accounts
-    if (typeof MIGRATIONS[v] === "function") MIGRATIONS[v](raw); else raw.exec(MIGRATIONS[v]);
-  }
-  raw.exec("PRAGMA user_version = 6");
-  raw.prepare("INSERT INTO users (address, display_name, created_at, loss_limit) VALUES (?, ?, ?, ?)").run("0x" + "ab".repeat(20), "Old timer", 1, "5");
-  raw.prepare("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES ('h', 1, 1, 9)").run();
-  // hand the same connection to Db by pointing it at the database: Db only takes a file, so migrate the raw handle the way Db does
-  const db = Object.create(Db.prototype);
-  db.raw = raw;
-  db.migrate();
-  assert.equal(raw.prepare("PRAGMA user_version").get().user_version, MIGRATIONS.length);
-  const u = raw.prepare("SELECT * FROM users WHERE id = 1").get();
-  assert.equal(u.address, "0x" + "ab".repeat(20));
-  assert.equal(u.display_name, "Old timer");
-  assert.equal(u.loss_limit, "5");
-  assert.equal(u.email, null);
-  assert.equal(raw.prepare("SELECT user_id FROM sessions").get().user_id, 1);
-  raw.prepare("INSERT INTO users (address, email, display_name, created_at) VALUES (NULL, 'x@example.com', 'New', 2)").run();
-  assert.equal(raw.prepare("PRAGMA foreign_key_check").all().length, 0);
-  assert.equal(raw.prepare("PRAGMA foreign_keys").get().foreign_keys, 1, "foreign keys are back on");
-  assert.throws(() => raw.prepare("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES ('z', 999, 1, 9)").run(), /FOREIGN KEY/);
+test("the Postgres schema: an account may exist without a wallet, references are enforced, Supabase's API roles are shut out", async () => {
+  const db = await openTestDb();
+  try {
+    assert.equal(await db.version(), MIGRATIONS.length);
+    await db.migrate(); // a second start applies nothing and changes nothing
+    assert.equal(await db.version(), MIGRATIONS.length);
+    const id = (await db.run("INSERT INTO users (address, email, display_name, created_at) VALUES (NULL, 'x@example.com', 'New', 2) RETURNING id")).lastInsertRowid;
+    assert.equal(typeof id, "number");
+    await db.run("INSERT INTO users (address, display_name, created_at) VALUES (?, 'Wallet', 3)", "0x" + "ab".repeat(20));
+    await assert.rejects(db.run("INSERT INTO users (address, email, display_name, created_at) VALUES (NULL, 'x@example.com', 'Dup', 4)"), /unique/i, "one account per email");
+    await assert.rejects(db.run("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES ('z', 999, 1, 9)"), /foreign key/i);
+    const open = await db.all("SELECT tablename FROM pg_tables WHERE schemaname = current_schema() AND NOT rowsecurity");
+    assert.deepEqual(open.map((r) => r.tablename), [], "row level security is on for every table");
+  } finally { await db.close(); }
 });
