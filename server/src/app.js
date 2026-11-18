@@ -10,6 +10,7 @@ import { Responsible } from "./responsible.js";
 import { Auth } from "./auth.js";
 import { Mailer } from "./mail.js";
 import { EmailAuth } from "./emailAuth.js";
+import { SupabaseAuth } from "./supabaseAuth.js";
 import { WalletService } from "./wallet/index.js";
 import { loadCatalog } from "./games/catalog.js";
 import { MatchService } from "./matches/service.js";
@@ -18,7 +19,7 @@ import { registerRoutes } from "./http/routes.js";
 import { attachStatic } from "./http/static.js";
 import { Gateway } from "./ws/gateway.js";
 
-export async function createApp(config, { now = () => Date.now() } = {}) {
+export async function createApp(config, { now = () => Date.now(), supabaseFetch } = {}) {
   const log = createLogger(config.logLevel);
   const db = await openDb({ ...config.db, log });
   let ledger;
@@ -35,8 +36,11 @@ export async function createApp(config, { now = () => Date.now() } = {}) {
   }
   const auth = new Auth({ db, users, config, chainId: () => (wallet.enabled ? wallet.chain.chainId : 0), now });
   const mailer = new Mailer({ cfg: config, log });
-  const emailAuth = new EmailAuth({ db, users, auth, mailer, config, now, baseUrl: () => config.mail.publicUrl || app.url });
-  if (config.production && !config.mail.enabled) log.warn("email sign-in is off: set RESEND_API_KEY and MAIL_FROM to turn it on");
+  const emailDeps = { db, users, auth, mailer, config, now, baseUrl: () => config.mail.publicUrl || app.url };
+  const emailAuth = config.supabase.url && config.supabase.secretKey
+    ? new SupabaseAuth({ ...emailDeps, supabase: config.supabase, log, fetchImpl: supabaseFetch })
+    : new EmailAuth(emailDeps);
+  if (config.production && !emailAuth.enabled) log.warn("email sign-in is off: set SUPABASE_URL and SUPABASE_SECRET_KEY (or RESEND_API_KEY and MAIL_FROM) to turn it on");
   const catalog = loadCatalog({ gamesDir: config.gamesDir, log });
   const matches = new MatchService({ db, ledger, users, responsible, catalog, cfg: config, log, hub, now });
 

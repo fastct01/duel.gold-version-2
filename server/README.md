@@ -76,6 +76,7 @@ All settings are environment variables; see [`.env.example`](.env.example). Prod
 | `PUBLIC_DOMAIN` | your public host name, e.g. `duel.example` (not localhost, no scheme, no port) |
 | `TRUST_PROXY` | `true` on Render (it sits behind Render's proxy; this makes rate limits use the real client IP). Set `false` only if the server is directly exposed. It must be set explicitly |
 | `DATABASE_URL` | your Postgres connection string (Supabase: Connect → Session pooler). The database is the ledger: back it up (Supabase does daily backups on paid plans) |
+| `SUPABASE_URL`, `SUPABASE_SECRET_KEY` | optional: email + password accounts through Supabase Auth (`https://<ref>.supabase.co` and a secret key from Project Settings → API Keys). Sign-up needs no email; password resets use Supabase's mailer, so set Site URL and Redirect URLs in Authentication → URL Configuration to your public URL. Without them, email accounts use Resend (`RESEND_API_KEY`, `MAIL_FROM`) |
 | `ADMIN_TOKEN` | 24+ random characters (`openssl rand -hex 24`). Enables `/v1/admin/audit` and `/v1/admin/solvency`. Not enforced at startup, but run without it only if you accept being blind to insolvency except through the logs |
 
 Start command `npm start`. Also set `HOST=0.0.0.0` (Render needs the server to listen on all interfaces; `PORT` is provided by Render). Anything missing makes startup fail with a message that lists every problem at once. Single instance only (in-memory lobby state and timers): do not scale to more than one.

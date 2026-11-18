@@ -164,6 +164,14 @@ export function loadConfig(env = process.env, overrides = {}) {
       publicUrl: String(env.PUBLIC_URL || (production ? `https://${env.PUBLIC_DOMAIN || "localhost"}` : "")).replace(/\/+$/, ""),
     },
 
+    /* Email accounts through Supabase Auth (src/supabaseAuth.js) when both are set: the project URL
+       (https://<ref>.supabase.co) and its secret key (Project Settings → API Keys: sb_secret_… or the legacy service_role).
+       Server-only: the key never reaches the page. */
+    supabase: {
+      url: String(env.SUPABASE_URL || "").replace(/\/+$/, ""),
+      secretKey: env.SUPABASE_SECRET_KEY || "",
+    },
+
     rate: {
       authPerMin: int(env.RATE_AUTH_PER_MIN, 20, "RATE_AUTH_PER_MIN", 1),
       apiPerMin: int(env.RATE_API_PER_MIN, 240, "RATE_API_PER_MIN", 1),
@@ -173,7 +181,7 @@ export function loadConfig(env = process.env, overrides = {}) {
 
   merge(cfg, overrides);
   /* Secrets stay out of JSON.stringify(cfg) and console.log(cfg) so a careless log line cannot leak them. */
-  for (const [obj, key] of [[cfg.keys, "mnemonic"], [cfg, "adminToken"]]) {
+  for (const [obj, key] of [[cfg.keys, "mnemonic"], [cfg, "adminToken"], [cfg.supabase, "secretKey"]]) {
     Object.defineProperty(obj, key, { value: obj[key], writable: true, enumerable: false, configurable: true });
   }
   validate(cfg, { trustProxyExplicit: (env.TRUST_PROXY != null && env.TRUST_PROXY !== "") || (overrides && overrides.trustProxy !== undefined), trustProxyRaw: env.TRUST_PROXY });

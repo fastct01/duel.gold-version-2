@@ -85,7 +85,11 @@ export function registerRoutes(r, app) {
   /* email accounts (src/emailAuth.js). signup and forgot answer { ok: true } whether or not the email has an account; the
      links they send come back as verify / reset, which sign the player in. */
   const session = async (s) => ({ token: s.token, expiresAt: s.expiresAt, created: s.created, me: await meView(s.user) });
-  r.post("/v1/auth/email/signup", { limit: "auth" }, ({ body }) => emailAuth.signup({ email: body.email, password: body.password }));
+  /* built-in accounts answer { ok: true } and email a link; Supabase accounts (src/supabaseAuth.js) sign in straight away */
+  r.post("/v1/auth/email/signup", { limit: "auth" }, async ({ body, ip }) => {
+    const out = await emailAuth.signup({ email: body.email, password: body.password, ip });
+    return out && out.token ? session(out) : out;
+  });
   r.post("/v1/auth/email/verify", { limit: "auth" }, async ({ body, ip }) => session(await emailAuth.verify({ token: body.token, ip })));
   r.post("/v1/auth/email/login", { limit: "auth" }, async ({ body, ip }) => session(await emailAuth.login({ email: body.email, password: body.password, ip })));
   r.post("/v1/auth/email/forgot", { limit: "auth" }, ({ body }) => emailAuth.forgot({ email: body.email }));

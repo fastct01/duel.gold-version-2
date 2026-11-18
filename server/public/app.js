@@ -293,7 +293,11 @@ async function emailSubmit(form, kind, e) {
   if (btn) { btn.disabled = true; btn.setAttribute("aria-busy", "true"); }
   try {
     if (kind === "email-signin") await emailSession(await postJSON("/v1/auth/email/login", { email, password }));
-    else if (kind === "email-signup") { await postJSON("/v1/auth/email/signup", { email, password }); S.ui.emailMode = "sent"; S.ui.emailTo = email; render(true); }
+    else if (kind === "email-signup") {
+      const out = await postJSON("/v1/auth/email/signup", { email, password });
+      if (out && out.token) await emailSession(out); // Supabase accounts: signed in at once, no confirmation email
+      else { S.ui.emailMode = "sent"; S.ui.emailTo = email; render(true); }
+    }
     else if (kind === "email-forgot") { await postJSON("/v1/auth/email/forgot", { email }); S.ui.emailMode = "sent-reset"; S.ui.emailTo = email; render(true); }
     else if (kind === "email-reset") await emailSession(await postJSON("/v1/auth/email/reset", { token: S.ui.resetToken, password }));
   } catch (ex) {
@@ -304,9 +308,17 @@ async function emailSubmit(form, kind, e) {
   }
 }
 
-/* ?verify=TOKEN (confirms the email and signs in) and ?reset=TOKEN (opens "choose a new password"), from the links we email;
+/* ?verify=TOKEN (confirms the email and signs in) and ?reset=TOKEN (opens "choose a new password"), from the links we email,
+   or #access_token=…&type=recovery from a Supabase password-reset link (#error_description=… when that link failed);
    the token leaves the address bar at once */
 function readEmailLink() {
+  const h = new URLSearchParams(location.hash.replace(/^#/, ""));
+  if (h.has("access_token") || h.has("error_description")) {
+    try { history.replaceState(null, "", location.pathname + location.search); } catch { /* ignore */ }
+    if (h.get("type") === "recovery" && h.get("access_token")) return { kind: "reset", token: h.get("access_token") };
+    if (h.has("error_description")) S.error = `${h.get("error_description")}. Request a new link.`;
+    return null;
+  }
   const q = new URLSearchParams(location.search);
   const kind = q.has("verify") ? "verify" : q.has("reset") ? "reset" : null;
   if (!kind) return null;

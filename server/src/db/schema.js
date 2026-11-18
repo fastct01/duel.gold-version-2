@@ -224,4 +224,9 @@ export const MIGRATIONS = [
     END LOOP;
   END $$;
   `,
+
+  /* 2 — Supabase Auth: the Supabase user id of an email account (src/supabaseAuth.js) */
+  `
+  ALTER TABLE users ADD COLUMN auth_id TEXT UNIQUE;
+  `,
 ];

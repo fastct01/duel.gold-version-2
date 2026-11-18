@@ -50,11 +50,12 @@ export async function dropSchema(schema) {
   try { await c.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); } finally { await c.end(); }
 }
 
-export async function startApp(overrides = {}) {
+/* deps: extra createApp options (e.g. supabaseFetch, a fake Supabase Auth) */
+export async function startApp(overrides = {}, deps = {}) {
   const cfg = loadConfig({ NODE_ENV: "test", PORT: "0", HOST: "127.0.0.1" }, {
     db: testDb(), chain: { rpcUrl: "" }, ...merge(structuredCloneSafe(FAST), overrides),
   });
-  const app = await createApp(cfg);
+  const app = await createApp(cfg, deps);
   await app.start();
   const players = [];
   const helpers = {
