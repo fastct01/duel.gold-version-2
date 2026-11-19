@@ -41,7 +41,7 @@ export async function createApp(config, { now = () => Date.now(), supabaseFetch 
     ? new SupabaseAuth({ ...emailDeps, supabase: config.supabase, log, fetchImpl: supabaseFetch })
     : new EmailAuth(emailDeps);
   if (config.production && !emailAuth.enabled) log.warn("email sign-in is off: set SUPABASE_URL and SUPABASE_SECRET_KEY (or RESEND_API_KEY and MAIL_FROM) to turn it on");
-  const catalog = loadCatalog({ gamesDir: config.gamesDir, log });
+  const catalog = loadCatalog({ gamesDir: config.gamesDir, log, tableOpts: config.tables });
   const matches = new MatchService({ db, ledger, users, responsible, catalog, cfg: config, log, hub, now });
 
   const app = { config, cfg: config, log, db, ledger, hub, users, responsible, wallet, auth, mailer, emailAuth, catalog, matches };

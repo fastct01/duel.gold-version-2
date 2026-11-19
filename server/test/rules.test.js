@@ -117,15 +117,18 @@ test("game durations are read from the human-readable strings", () => {
   for (const [text, secs] of Object.entries(cases)) assert.equal(parseDurationSeconds(text), secs, JSON.stringify(text));
 });
 
-test("the catalog loads the real game packs: race games are PvP-ready, versus games are not", () => {
+test("the catalog loads the real game packs: race and table games are PvP-ready, versus games are not", () => {
   const cfg = loadConfig({ NODE_ENV: "test" });
   const cat = loadCatalog({ gamesDir: cfg.gamesDir, log: createLogger("silent") });
   const all = cat.list();
-  assert.equal(all.length, 23);
-  assert.equal(all.filter((g) => g.pvp).length, 14);
-  for (const g of all) assert.equal(g.pvp, g.kind === "race", g.id);
-  assert.ok(all.every((g) => g.maxSeconds >= 30 && g.maxSeconds <= 600), "every game has a sane time limit");
-  assert.equal(cat.get("chess").pvp, false);
+  assert.equal(all.length, 24, "22 browser-pack games (the pack's computer chess is replaced) + chess and poker");
+  assert.equal(all.filter((g) => g.pvp).length, 16);
+  for (const g of all) assert.equal(g.pvp, g.kind === "race" || g.kind === "table", g.id);
+  assert.ok(all.filter((g) => g.kind === "race").every((g) => g.maxSeconds >= 30 && g.maxSeconds <= 600), "every race game has a sane time limit");
+  assert.ok(all.filter((g) => g.kind === "table").every((g) => g.maxSeconds >= 600 && g.maxSeconds <= 2 * 3600), "a table game has a hard cap of minutes to hours");
+  assert.equal(cat.get("chess").kind, "table");
+  assert.equal(cat.get("chess").pvp, true);
+  assert.equal(cat.get("four").pvp, false);
   assert.equal(cat.get("nope"), null);
 });
 

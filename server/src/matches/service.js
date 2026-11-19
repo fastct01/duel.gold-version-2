@@ -52,6 +52,7 @@ export class MatchService {
     this.progressAt = new Map();
     this.readyConn = new Map(); // `${matchId}:${seat}` -> connection id that said ready
     this.pendingFlags = new Set();
+    this.tables = new Map(); // matchId -> { g, engine, state, seats: userId[], startAt } for table games being played
   }
 
   /* run one operation under the process-wide lock */
@@ -100,8 +101,23 @@ export class MatchService {
       await this.#voidFound(m.id, "server_restart", []);
     }
     for (const m of await this.db.all("SELECT * FROM matches WHERE state = 'playing'")) {
-      for (const p of await this.#players(m.id)) this.busy.set(p.user_id, { kind: "match", id: m.id });
-      this.#arm(`deadline:${m.id}`, Math.max(0, m.submit_deadline - this.now()), () => this.#deadline(m.id));
+      const ps = await this.#players(m.id);
+      for (const p of ps) this.busy.set(p.user_id, { kind: "match", id: m.id });
+      let deadlineAt = m.submit_deadline;
+      const g = this.catalog.get(m.game);
+      if (g && g.table) {
+        if (!m.table_state) { await this.#settle(m.id); continue; } // nothing to resume: void, everyone refunded
+        /* the table picks up where it was; every clock moves on by the time the server was down */
+        const state = JSON.parse(m.table_state);
+        const down = Math.max(0, this.now() - (state.savedAt || this.now()));
+        if (down) g.table.engine.shift(state, down);
+        deadlineAt += down;
+        if (down) await this.db.run("UPDATE matches SET submit_deadline = ? WHERE id = ?", deadlineAt, m.id);
+        const t = { g, engine: g.table.engine, state, seats: ps.map((p) => p.user_id), startAt: m.start_at, left: new Set(ps.filter((p) => p.forfeited).map((p) => p.seat)) };
+        this.tables.set(m.id, t);
+        this.#armTable(m.id, t);
+      }
+      this.#arm(`deadline:${m.id}`, Math.max(0, deadlineAt - this.now()), () => this.#deadline(m.id));
     }
     if (this.busy.size) this.log.info("recovered running matches", { players: this.busy.size });
   }
@@ -200,6 +216,12 @@ export class MatchService {
 
   #ticketRow(id) { return this.db.get("SELECT * FROM tickets WHERE id = ?", id); }
 
+  /* most players a lobby for this game can hold: the server limit, or less for a game made for fewer (chess: 2) */
+  #maxFor(gameId) {
+    const g = this.catalog.get(gameId);
+    return Math.min(this.cfg.match.lobbyMaxPlayers, (g && g.maxPlayers) || Infinity);
+  }
+
   /* in-memory form of a ticket row */
   #ticketOf(r) {
     return { id: r.id, userId: r.user_id, game: r.game, stake: big(r.stake), code: r.code, lobbyCode: r.lobby_code, rating: r.rating, at: r.created_at };
@@ -235,7 +257,7 @@ export class MatchService {
       ...(state === "open" ? {} : { closedReason: state === "matched" ? "matched" : row.state }),
       createdAt: row.created_at, expiresAt: row.created_at + this.cfg.match.lobbyTtlMs,
       ...(state === "matched" && row.match_id != null ? { matchId: row.match_id } : {}),
-      minPlayers: LOBBY_MIN_PLAYERS, maxPlayers: this.cfg.match.lobbyMaxPlayers, playerCount: count,
+      minPlayers: LOBBY_MIN_PLAYERS, maxPlayers: this.#maxFor(row.game), playerCount: count,
       ...(mine ? { role: mine.user_id === row.user_id ? "host" : "guest" } : {}),
       players: members.map((m) => ({
         name: m.display_name, host: m.ticket_id === row.id,
@@ -336,7 +358,7 @@ export class MatchService {
       const row = await this.#lobbyRow(code);
       if (!row) throw new AppError("LOBBY_NOT_FOUND", "This invite link is not valid.", 404);
       if (row.user_id === userId) throw conflict("LOBBY_OWN", "This is your own lobby. Send the invite link to a friend.");
-      const max = this.cfg.match.lobbyMaxPlayers;
+      const max = this.#maxFor(row.game);
       const members = await this.#lobbyMembers(row);
       if ((row.state === "queued" || row.state === "matched") && members.some((m) => m.user_id === userId)) throw conflict("LOBBY_ALREADY_IN", "You are already in this lobby.");
       if (row.state === "matched" && members.length >= max) throw conflict("LOBBY_FULL", "This lobby is full.", { maxPlayers: max });
@@ -462,6 +484,15 @@ export class MatchService {
         if (ps.every((p) => p.ready_at != null)) await this.#start(m.id);
         return { matchId: m.id, state: (await this.db.get("SELECT state FROM matches WHERE id = ?", m.id)).state };
       }
+      if (m.state === "playing" && this.tables.has(m.id)) {
+        // a table game has no secret seed: any tab may (re)join and gets the table as it is now
+        const t = this.tables.get(m.id);
+        if (connId != null) {
+          this.hub.notify(userId, this.#startMessage(m, false), { conn: connId });
+          this.hub.notify(userId, this.#tableMessage(m.id, t, seat), { conn: connId });
+        }
+        return { matchId: m.id, state: "playing", delivered: true };
+      }
       if (m.state === "playing") {
         // a player whose seed never reached a socket may ask once more, as long as the game is still running
         const p = (await this.#players(m.id))[seat];
@@ -476,11 +507,13 @@ export class MatchService {
   }
 
   #startMessage(m, withSeed) {
-    return { type: "match.start", matchId: m.id, game: m.game, startAt: m.start_at, submitDeadline: m.submit_deadline, serverNow: this.now(), seed: withSeed ? m.seed : null };
+    const table = !!(this.catalog.get(m.game) || {}).table;
+    return { type: "match.start", matchId: m.id, game: m.game, startAt: m.start_at, submitDeadline: m.submit_deadline, serverNow: this.now(), seed: withSeed && !table ? m.seed : null, ...(table ? { table: true } : {}) };
   }
 
   async #start(matchId) {
     const g = this.catalog.get((await this.db.get("SELECT game FROM matches WHERE id = ?", matchId)).game);
+    if (g.table) return this.#startTable(matchId, g);
     const seed = crypto.randomInt(100000, 1_000_000_000);
     const startAt = this.now() + this.cfg.match.countdownMs;
     const window = Math.round(g.maxMs * this.cfg.match.durationScale * this.cfg.match.durationFactor);
@@ -511,10 +544,95 @@ export class MatchService {
     return true;
   }
 
+  /* ------------------------------------------------------------ table games (src/tables) */
+
+  /* everyone is ready: the server sets up the table (colours, the first deal) and plays it out from here */
+  async #startTable(matchId, g) {
+    const ps = await this.#players(matchId);
+    const startAt = this.now() + this.cfg.match.countdownMs;
+    const engine = g.table.engine;
+    const state = engine.create({ n: ps.length, now: startAt, randInt: crypto.randomInt, opts: (this.cfg.tables || {})[g.table.optsKey] || {} });
+    state.savedAt = this.now();
+    const deadline = startAt + g.maxMs + this.cfg.match.graceMs;
+    const started = (await this.db.run("UPDATE matches SET state = 'playing', start_at = ?, submit_deadline = ?, table_state = ? WHERE id = ? AND state = 'found'",
+      startAt, deadline, JSON.stringify(state), matchId)).changes;
+    if (!started) return;
+    this.#disarm(`ready:${matchId}`);
+    const t = { g, engine, state, seats: ps.map((p) => p.user_id), startAt, left: new Set() }; // left: seats that forfeited
+    this.tables.set(matchId, t);
+    this.#arm(`deadline:${matchId}`, deadline - this.now(), () => this.#deadline(matchId));
+    this.#armTable(matchId, t);
+    const m = await this.db.get("SELECT * FROM matches WHERE id = ?", matchId);
+    this.log.info("table started", { matchId, game: m.game, players: ps.length, startAt });
+    for (const p of ps) {
+      this.readyConn.delete(`${matchId}:${p.seat}`);
+      this.hub.notify(p.user_id, this.#startMessage(m, false));
+      this.hub.notify(p.user_id, this.#tableMessage(matchId, t, p.seat));
+    }
+  }
+
+  #tableMessage(matchId, t, seat) {
+    return { type: "match.table", matchId, serverNow: this.now(), table: t.engine.view(t.state, seat, this.now()) };
+  }
+
+  /* the table's own clock: the next timeout or the next hand */
+  #armTable(matchId, t) {
+    const at = t.engine.deadline(t.state);
+    if (at == null) return this.#disarm(`table:${matchId}`);
+    this.#arm(`table:${matchId}`, Math.max(0, at - this.now()) + 5, async () => {
+      const cur = this.tables.get(matchId);
+      if (!cur) return;
+      cur.engine.onTimer(cur.state, this.now());
+      await this.#tableChanged(matchId, cur);
+    });
+  }
+
+  /* after every change: store the state, then either settle (the game is over) or tell every seat and re-arm the clock */
+  async #tableChanged(matchId, t) {
+    t.state.savedAt = this.now();
+    await this.db.run("UPDATE matches SET table_state = ? WHERE id = ? AND state = 'playing'", JSON.stringify(t.state), matchId);
+    const r = t.engine.result(t.state);
+    if (r) return this.#finishTable(matchId, t, r);
+    this.#armTable(matchId, t);
+    for (const [seat, userId] of t.seats.entries()) this.hub.notify(userId, this.#tableMessage(matchId, t, seat));
+  }
+
+  /* the game is decided: its result becomes each player's score, and the usual settlement moves the money */
+  async #finishTable(matchId, t, r) {
+    this.tables.delete(matchId);
+    this.#disarm(`table:${matchId}`);
+    const now = this.now();
+    for (const p of await this.#players(matchId)) {
+      if (!p.forfeited) await this.db.run("UPDATE match_players SET score = ?, submitted_at = ? WHERE match_id = ? AND seat = ?", r.scores[p.seat], now, matchId, p.seat);
+    }
+    await this.#settle(matchId, r.reason);
+  }
+
+  /* a move, a bet, a draw offer… The engine checks it against the rules; nothing else is trusted from the client. */
+  act(userId, matchId, action) {
+    return this.#op(async () => {
+      const id = Number(matchId);
+      const t = Number.isSafeInteger(id) ? this.tables.get(id) : null;
+      if (!t) {
+        await this.#matchFor(userId, matchId); // not yours → 404, yours but over → 409
+        throw conflict("MATCH_NOT_PLAYING", "This match is not being played.");
+      }
+      const seat = t.seats.indexOf(userId);
+      if (seat < 0) throw notFound("No such match.");
+      if (this.now() < t.startAt) throw conflict("TOO_EARLY", "The match has not started yet.");
+      if (!action || typeof action !== "object" || typeof action.type !== "string") throw bad("BAD_ACTION", "Say what you want to do.");
+      if (t.left.has(seat)) throw conflict("FORFEITED", "You left this match.");
+      t.engine.act(t.state, seat, action, this.now());
+      await this.#tableChanged(id, t);
+      return { matchId: id, ok: true };
+    });
+  }
+
   /* ------------------------------------------------------------ playing */
 
   /* live score for the other players' race bars. Display only; never used for settlement, so no lock. */
   async progress(userId, matchId, score) {
+    if (this.tables.has(Number(matchId))) return;
     const m = await this.#matchFor(userId, matchId);
     if (m.state !== "playing" || this.now() < m.start_at || !Number.isFinite(score)) return;
     const seat = await this.#seat(m, userId);
@@ -531,6 +649,7 @@ export class MatchService {
     return this.#op(async () => {
       const m = await this.#matchFor(userId, matchId);
       if (m.state !== "playing") throw conflict("MATCH_NOT_PLAYING", "This match is not being played.");
+      if (this.tables.has(m.id)) throw conflict("TABLE_GAME", "This game is played move by move; there is no score to send.");
       const seat = await this.#seat(m, userId);
       const now = this.now();
       if (now < m.start_at - 250) throw conflict("TOO_EARLY", "The match has not started yet.");
@@ -560,7 +679,13 @@ export class MatchService {
       if (m.state !== "playing") throw conflict("MATCH_OVER", "This match is over.");
       if ((await this.#players(m.id))[seat].forfeited) return { matchId: m.id, state: "playing" }; // already out; the match goes on without them
       await this.db.run("UPDATE match_players SET forfeited = 1 WHERE match_id = ? AND seat = ?", m.id, seat);
-      await this.#settleIfDone(m.id);
+      const t = this.tables.get(m.id);
+      if (t) {
+        // a table game: the player leaves the table (chess: resigns; poker: folds and is out), the rest play on
+        t.left.add(seat);
+        t.engine.forfeit(t.state, seat, this.now());
+        await this.#tableChanged(m.id, t);
+      } else await this.#settleIfDone(m.id);
       const state = (await this.db.get("SELECT state FROM matches WHERE id = ?", m.id)).state;
       // the match goes on: tell the others who dropped out (when it ended instead, they get match.result)
       if (state === "playing") this.#tellOthers(await this.#players(m.id), seat, { type: "match.opponent_forfeited", matchId: m.id, seat });
@@ -581,7 +706,12 @@ export class MatchService {
     for (const p of ps) if (p.seat !== exceptSeat) this.hub.notify(p.user_id, msg);
   }
 
-  #deadline(matchId) {
+  async #deadline(matchId) {
+    const t = this.tables.get(matchId);
+    if (t) { // the hard cap on a table game: it is decided as it stands
+      t.engine.finishNow(t.state);
+      return this.#tableChanged(matchId, t);
+    }
     return this.#settle(matchId);
   }
 
@@ -635,13 +765,17 @@ export class MatchService {
   /* Decide the result (standings.js), move the money, rate the players: one transaction, compare-and-set on the state.
      Money: a win pays the winners an equal share each of pot − fee (integer division); the fee and the wei that did not
      divide go to the house, so the entries always sum to zero. A draw or a void match refunds every stake, no fee. */
-  async #settle(matchId) {
+  async #settle(matchId, tableReason = null) {
     const settled = await this.db.tx(async () => {
       const m = await this.db.get("SELECT * FROM matches WHERE id = ? FOR UPDATE", matchId);
       if (!m || m.state !== "playing") return false; // somebody else already settled it
       const ps = await this.#players(matchId);
       const stake = big(m.stake), pot = big(m.pot);
-      const { outcome, why, winners } = decide(ps);
+      const decided = decide(ps);
+      const { outcome, winners } = decided;
+      // a table game says why it ended (checkmate, last player with chips…); a forfeit that leaves one player stays "forfeit"
+      const why = tableReason && decided.why !== "forfeit" && outcome !== "void" ? tableReason : decided.why;
+      const isTable = !!(this.catalog.get(m.game) || {}).table;
       const won = new Set(winners);
 
       // ---- money
@@ -667,7 +801,7 @@ export class MatchService {
                                best = CASE WHEN CAST(? AS DOUBLE PRECISION) IS NULL THEN best
                                            WHEN best IS NULL OR CAST(? AS DOUBLE PRECISION) > best THEN CAST(? AS DOUBLE PRECISION) ELSE best END,
                                updated_at = ?
-                             WHERE user_id = ? AND game = ?`, after[seat], p.score, p.score, p.score, this.now(), p.user_id, m.game);
+                             WHERE user_id = ? AND game = ?`, after[seat], ...Array(3).fill(isTable ? null : p.score), this.now(), p.user_id, m.game);
         }
       }
 
@@ -698,7 +832,7 @@ export class MatchService {
       if (b && b.kind === "match" && b.id === matchId) this.busy.delete(p.user_id);
       this.readyConn.delete(`${matchId}:${p.seat}`);
       this.progressAt.delete(`${matchId}:${p.seat}`);
-      const v = await this.matchView(matchId, p.user_id);
+      const v = await this.matchView(matchId, p.user_id, { table: true });
       this.hub.notify(p.user_id, { type: v.state === "void" ? "match.void" : "match.result", match: v });
       this.hub.notify(p.user_id, { type: "wallet.updated", reason: "match-settled", matchId });
     }
@@ -755,7 +889,7 @@ export class MatchService {
 
   /* One match as seen by one of its players. `opponent` is kept for 1v1 clients (the first other player by seat);
      `players` lists everybody by seat. Scores of the others, ratingAfter, payout and place are revealed once the match is over. */
-  async matchView(matchId, viewerId) {
+  async matchView(matchId, viewerId, { table = false } = {}) {
     const m = await this.db.get("SELECT * FROM matches WHERE id = ?", matchId);
     const ps = await this.#players(matchId);
     const me = ps.find((p) => p.user_id === viewerId);
@@ -769,7 +903,8 @@ export class MatchService {
     const result = !final ? null : m.outcome === "void" ? "void" : m.outcome === "draw" ? "draw" : place(me) === 1 ? "win" : "loss";
     return {
       id: m.id, state: m.state, result, reason: m.reason,
-      game: { id: m.game, name: g ? g.name : m.game, scoreLabel: g ? g.scoreLabel : "score", maxSeconds: g ? Math.round(g.maxMs / 1000) : null },
+      game: { id: m.game, name: g ? g.name : m.game, scoreLabel: g ? g.scoreLabel : "score", maxSeconds: g ? Math.round(g.maxMs / 1000) : null, kind: g ? g.kind : "race" },
+      ...(table && g && g.table ? { table: this.#tableView(m, me.seat) } : {}),
       stake: m.stake, pot: m.pot, fee: m.fee, winnerPayout: toStr(payout), private: !!m.code,
       readyDeadline: m.ready_deadline, startAt: m.start_at, submitDeadline: m.submit_deadline, settledAt: m.settled_at,
       seed: final ? m.seed : undefined, // revealed only afterwards, so anyone involved can replay and audit
@@ -790,6 +925,15 @@ export class MatchService {
     };
   }
 
+  /* a table game as one seat sees it: live from memory while it is played, from the stored state afterwards (null before) */
+  #tableView(m, seat) {
+    const live = this.tables.get(m.id);
+    if (live) return live.engine.view(live.state, seat, this.now());
+    if (!m.table_state) return null;
+    const g = this.catalog.get(m.game);
+    return g.table.engine.view(JSON.parse(m.table_state), seat, this.now());
+  }
+
   /* what a (re)connecting client needs to pick up where it left off. Never contains a seed. */
   async sync(userId) {
     const b = this.busy.get(userId);
@@ -798,7 +942,7 @@ export class MatchService {
       const row = await this.#ticketRow(b.id);
       return { active: row ? { kind: "lobby", lobby: await this.#lobbyView(row, userId) } : null };
     }
-    return { active: { kind: "match", match: await this.matchView(b.id, userId) } };
+    return { active: { kind: "match", match: await this.matchView(b.id, userId, { table: true }) } };
   }
 
   active(userId) { return this.busy.get(userId) || null; }
@@ -824,6 +968,6 @@ export class MatchService {
 
   async get(userId, matchId) {
     const m = await this.#matchFor(userId, matchId);
-    return this.matchView(m.id, userId);
+    return this.matchView(m.id, userId, { table: true });
   }
 }

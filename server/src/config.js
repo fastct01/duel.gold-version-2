@@ -164,6 +164,9 @@ export function loadConfig(env = process.env, overrides = {}) {
       publicUrl: String(env.PUBLIC_URL || (production ? `https://${env.PUBLIC_DOMAIN || "localhost"}` : "")).replace(/\/+$/, ""),
     },
 
+    /* Table games (src/tables): per-game timings, merged over each engine's DEFAULTS. Tests shorten them. */
+    tables: { chess: {}, poker: {} },
+
     /* Email accounts through Supabase Auth (src/supabaseAuth.js) when both are set: the project URL
        (https://<ref>.supabase.co) and its secret key (Project Settings → API Keys: sb_secret_… or the legacy service_role).
        Server-only: the key never reaches the page. */

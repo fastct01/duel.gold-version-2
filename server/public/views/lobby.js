@@ -189,11 +189,13 @@ function selectedHTML(ctx) {
       <div class="lb-meters">${h.meter("Skill", g.skill, "skill")}${h.meter("Luck", g.luck, "luck")}</div>
       <h2 class="lb-howp-h">How to play</h2>
       <ol class="lb-howp-rules">${(g.rules || []).map((x) => `<li>${esc(nbUnits(x))}</li>`).join("")}</ol>
-      <p class="lb-hint">Everyone in the match gets the exact same seeded challenge, so the better play wins.</p>
+      ${g.kind === "table"
+        ? `<p class="lb-hint">The server deals and referees every move, so nobody can see or do what the rules forbid.</p>`
+        : `<p class="lb-hint">Everyone in the match gets the exact same seeded challenge, so the better play wins.</p>
       <div class="lb-howp-act">
         <button type="button" class="lb-btn gold" data-act="try-game" data-game="${esc(g.id)}" id="tryBtn">Try out</button>
         <span class="lb-hint">Practice against a bot in the Games tab. Free, no stake, no rating.</span>
-      </div>
+      </div>`}
     </div>
   </div>`;
 }
@@ -209,10 +211,10 @@ function aboutHTML(ctx, g) {
       ${c.overview ? `<p class="lb-about-p">${esc(nbUnits(c.overview))}</p>` : ""}
       ${c.goal ? `<p class="lb-about-p"><b>Goal.</b> ${esc(nbUnits(c.goal))}</p>` : ""}
       ${length ? `<p class="lb-hint">Length: ${esc(nbUnits(length))}</p>` : ""}
-      <div class="lb-about-act">
+      ${g.kind === "table" ? "" : `<div class="lb-about-act">
         <button type="button" class="lb-btn gold" data-act="try-game" data-game="${esc(g.id)}" id="aboutTryBtn">Try out</button>
         <span class="lb-hint">Practice against a bot. Free, no stake, no rating.</span>
-      </div>
+      </div>`}
     </div>`;
 }
 
@@ -229,7 +231,8 @@ export function calcHTML(ctx) {
   const si = stakeInfo(ctx), cfg = S.cfg;
   if (S.pick.stake === "0") return `<p class="lb-terms">Free play · no money moves · still rated</p>`;
   if (si.wei == null) return `<p class="lb-terms">Enter a stake between ${eth(cfg.stake.min)} and ${eth(cfg.stake.max)} ${h.esc(sym())}</p>`;
-  const max = (cfg.match && Number(cfg.match.lobbyMaxPlayers)) || 10;
+  const sel = S.games.find((g) => g.id === S.pick.game);
+  const max = Math.min((cfg.match && Number(cfg.match.lobbyMaxPlayers)) || 10, (sel && Number(sel.maxPlayers)) || Infinity);
   return `<p class="lb-terms">Every player stakes this. With 2 players: pot <b class="dg-mono">${eth(si.pot)}</b> · winner gets <b class="dg-mono win">${eth(si.payout)} ${h.esc(sym())}</b> · the pot grows with each player, up to ${max} · ${cfg.feeBps / 100}% fee · ${h.real() ? `real ${h.esc(sym())} on ${h.esc(h.chainName())}, held in escrow until the match is decided` : "test network, no real money"}${si.outOfRange ? ` <span class="lb-warn">Stakes run from ${eth(cfg.stake.min)} to ${eth(cfg.stake.max)}.</span>` : ""}</p>`;
 }
 

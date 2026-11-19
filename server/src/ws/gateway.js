@@ -165,6 +165,8 @@ export class Gateway {
       case "match.progress": await m.progress(uid, msg.matchId, msg.score); return {};
       case "match.submit": return m.submit(uid, msg.matchId, { score: msg.score, detail: msg.detail });
       case "match.forfeit": return m.forfeit(uid, msg.matchId);
+      case "match.act": return m.act(uid, msg.matchId, msg.action); // table games (chess, poker): one move or bet
+
       default: throw new AppError("UNKNOWN_TYPE", `Unknown message type "${msg.type}".`, 400);
     }
   }

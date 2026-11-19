@@ -4,6 +4,7 @@
    All markup uses .mx-* classes styled in /play/match.css (gold-style design rules: serif display headlines, uppercase tracked labels,
    hairline rules, 2–4px corners, one solid-gold primary action per view). Views are pure; playBar()/patchLobby() patch the DOM in place. Invite-only: there is no queue or matchmaking screen. */
 import { icon, avatar, esc } from "../ui.js";
+import { tableBoard, tableReason } from "./table.js";
 
 /* why a match ended, as a sentence. `ps` = playersOf(match); `shared` = more than one player holds first place. */
 const REASONS = (m, ps = [], shared = false) => {
@@ -454,7 +455,8 @@ export const views = {
     const leaders = ps.filter((p) => Number(p.place) === 1).length; // players sharing first place
     const shared = m.result === "win" && leaders > 1;
     const label = shared ? "Shared win" : { win: "Victory", loss: "Defeat", draw: "Draw", void: "Match cancelled" }[m.result] || m.result;
-    const why = REASONS(m, ps, shared)[m.reason] || "";
+    const isTable = m.game && m.game.kind === "table";
+    const why = isTable ? tableReason(m, ps) : REASONS(m, ps, shared)[m.reason] || "";
     const lab = m.game.scoreLabel;
     const hasRating = you.ratingAfter != null && m.result !== "void";
     const delta = hasRating ? Number(you.ratingAfter) - Number(you.ratingBefore) : 0;
@@ -473,7 +475,8 @@ export const views = {
     if (hasRating) rows.push(`<div class="mx-row"><dt>Rating</dt><dd><span class="mx-amt">${esc(you.ratingBefore)}</span><i class="mx-arrow" aria-hidden="true"></i><span class="sr-only"> to </span><span class="mx-amt">${esc(you.ratingAfter)}</span>${delta ? ` <small class="mx-delta ${delta > 0 ? "up" : "down"}">${delta > 0 ? "+" : "−"}${Math.abs(delta)}</small>` : ""}</dd></div>`);
     /* the scoreboard: two big scores for a duel, a ranked list for a bigger lobby */
     let board = "";
-    if (showScores && n === 2) board = `<div class="mx-a-main mx-score" role="group" aria-label="Final score">
+    if (isTable) board = m.result === "void" ? "" : tableBoard(m, ps, h);
+    else if (showScores && n === 2) board = `<div class="mx-a-main mx-score" role="group" aria-label="Final score">
           <div class="mx-sl you ${yn > on ? "lead" : ""}">${ava(S.me.address, 36, "you")}<span class="mx-k">You</span><b class="mx-big">${you.score == null ? "–" : esc(you.score)}</b><span class="mx-k">${esc(lab)}</span></div>
           <div class="mx-sl opp ${on > yn ? "lead" : ""}">${ava(opp.address || opp.name, 36, "opp")}<span class="mx-k mx-oname" title="${esc(opp.name)}">${esc(opp.name)}</span><b class="mx-big">${opp.score == null ? "–" : esc(opp.score)}</b><span class="mx-k">${esc(lab)}</span></div>
         </div>`;
@@ -578,11 +581,16 @@ export function playBar(ctx) {
   if (fa && fa.dataset.mode !== mode) { // only touch the buttons when the mode changes, so a click is never lost to a re-render
     fa.dataset.mode = mode;
     const staked = S.match && String(S.match.stake) !== "0";
+    const gid = S.match && S.match.game && S.match.game.id;
+    /* chess: resign; poker: leave the table; any other game: forfeit */
+    const w = gid === "chess" ? { btn: "Resign", ask: staked ? "Resign and lose your stake?" : "Resign this game?", yes: "Yes, resign", done: "You resigned" }
+      : gid === "poker" ? { btn: "Leave table", ask: staked ? "Leave the table and lose your stake?" : "Leave the table?", yes: "Yes, leave", done: "You left the table" }
+      : { btn: "Forfeit", ask: staked ? "Forfeit and lose your stake?" : "Forfeit this match?", yes: "Yes, forfeit", done: "You forfeited" };
     fa.innerHTML = S.forfeited
-      ? `<span class="mx-k" role="status">You forfeited</span>`
+      ? `<span class="mx-k" role="status">${w.done}</span>`
       : S.confirmForfeit
-      ? `<span class="mx-confirm" role="alertdialog" aria-label="Confirm forfeit"><span class="mx-confirm-t">${staked ? "Forfeit and lose your stake?" : "Forfeit this match?"}</span><span class="mx-confirm-b"><button class="mx-btn danger sm" data-act="forfeit-yes" id="forfeitYes">Yes, forfeit</button><button class="mx-btn quiet sm" data-act="forfeit-no">Keep playing</button></span></span>`
-      : `<button class="mx-btn danger sm" data-act="forfeit" id="forfeitBtn">Forfeit</button>`;
+      ? `<span class="mx-confirm" role="alertdialog" aria-label="Confirm"><span class="mx-confirm-t">${w.ask}</span><span class="mx-confirm-b"><button class="mx-btn danger sm" data-act="forfeit-yes" id="forfeitYes">${w.yes}</button><button class="mx-btn quiet sm" data-act="forfeit-no">Keep playing</button></span></span>`
+      : `<button class="mx-btn danger sm" data-act="forfeit" id="forfeitBtn">${w.btn}</button>`;
     if (mode === "confirm") { const y = $("#forfeitYes"); if (y) y.focus({ preventScroll: true }); }
   }
   const seats = S.seats || {};
@@ -602,10 +610,12 @@ export function playBar(ctx) {
   };
   const you = $("#laneYou");
   if (you) paint(you, S.myScore, { finished: S.submitted, forfeited: S.forfeited });
-  const stage = $("#stage"); if (stage && stage.hidden !== !!S.forfeited) stage.hidden = !!S.forfeited; // my game stopped: no frozen board left on screen
+  const tableGame = !!(S.match && S.match.game && S.match.game.kind === "table"); // a table can still be watched after leaving it
+  const stage = $("#stage"); if (stage && !tableGame && stage.hidden !== !!S.forfeited) stage.hidden = !!S.forfeited; // my game stopped: no frozen board left on screen
   for (const l of lanes) paint(l, Number((seats[l.dataset.seat] || {}).score) || 0, seats[l.dataset.seat] || {});
   const note = $("#playNote");
-  if (note && S.match) {
+  if (note && S.match && tableGame) { const t = S.forfeited ? "You left. The game goes on for the others; you will see the result when it ends." : ""; if (note.textContent !== t) note.textContent = t; }
+  else if (note && S.match) {
     const ps = playersOf(S.match, S.me).filter((p) => !p.you), many = ps.length > 1;
     const live = ps.filter((p) => !(seats[p.seat] || {}).finished && !(seats[p.seat] || {}).forfeited);
     const done = ps.filter((p) => (seats[p.seat] || {}).finished), out = ps.filter((p) => (seats[p.seat] || {}).forfeited);
@@ -624,5 +634,7 @@ export function countdown(ctx, ms) {
   if (!(ms > 0)) return "";
   const n = Math.ceil(ms / 1000);
   const elapsed = Math.round(n * 1000 - ms);
-  return `<div class="mx-cdn" style="--ph:-${elapsed}ms"><span class="mx-cdnum" key="${n}">${n}</span><i class="mx-cdrule" aria-hidden="true"></i></div><p class="mx-cdt">Get ready. Everyone gets the same challenge.</p>`;
+  const m = ctx.S.match, gid = m && m.game && m.game.id;
+  const line = gid === "chess" ? (ctx.S.table && ctx.S.table.color === "w" ? "Get ready. You play White and move first." : "Get ready. You play Black.") : gid === "poker" ? "Get ready. Shuffling the first deck." : "Get ready. Everyone gets the same challenge.";
+  return `<div class="mx-cdn" style="--ph:-${elapsed}ms"><span class="mx-cdnum" key="${n}">${n}</span><i class="mx-cdrule" aria-hidden="true"></i></div><p class="mx-cdt">${line}</p>`;
 }

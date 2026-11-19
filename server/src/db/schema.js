@@ -229,4 +229,9 @@ export const MIGRATIONS = [
   `
   ALTER TABLE users ADD COLUMN auth_id TEXT UNIQUE;
   `,
+
+  /* 3 — table games (src/tables): the server-held state of a chess or poker match, as JSON. Never sent to anyone as is. */
+  `
+  ALTER TABLE matches ADD COLUMN table_state TEXT;
+  `,
 ];

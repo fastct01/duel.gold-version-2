@@ -197,6 +197,23 @@ Money: `splitPot(pot)` gives the payout and the fee; each of the *k* winners get
 Ratings are **pairwise Elo**: every pair is rated with `delta()` (K = 24) from their relative finish (higher score beats lower, equal = 0.5, a forfeited or score-less player loses to anyone with a score, two of those draw), and a player's change is the sum over opponents divided by `N - 1`, rounded half away from zero. For N = 2 this is exactly the 1v1 formula (±12 at equal ratings). For N > 2 the rounding can leave the total of rating changes a point or two off zero. Per-player `payout`, `rating_after`, wins/losses/draws (winners and co-winners a win, everyone else a loss, an all-tie a draw) and the daily net used by the loss limit are recorded for every seat.
 - Only **race** games (14 of 22) are playable person-vs-person. The 8 **versus** games embed an AI opponent in the client; a human-vs-human version needs a server-side rules referee per game.
 
+### Table games: chess and poker
+
+Chess and Texas Hold'em are played out by the server itself (`src/tables/`), not on each player's device: the server holds
+the board or the deck, checks every move or bet against the rules, runs the clocks, and sends each player only their own view
+(`match.table` over the WebSocket; moves go back as `match.act`). A modified client can neither make an illegal move nor see
+another player's cards. The lobby, escrow, ready check, fee, payouts and ratings are the same as for race games: when the game
+ends, its result becomes each player's score and the usual settlement runs.
+
+- **Chess**: 2 players, 5 minutes + 3 seconds a move, colours drawn at random. Checkmate or the opponent's flag wins; stalemate,
+  repetition, the 50-move rule, insufficient material and agreed draws refund both stakes. Resign = forfeit.
+- **Poker**: no-limit hold'em for 2 to 9 players, 1,500 chips each (table chips, never money), blinds up every 3 minutes, 25 s
+  to act (then check or fold). The last player with chips wins the pot. Every hand is a fresh Fisher–Yates shuffle driven by
+  `crypto.randomInt`; the deck's `sha256(deck + ":" + salt)` is shown before the deal and the deck and salt are revealed after
+  the hand, so players can check the cards were fixed in advance ("Shuffle check" under the table).
+- The table state is stored with the match after every action, so a restart resumes the game with the clocks paused for the
+  downtime. Timings can be changed through `config.tables` (tests shorten them).
+
 ### How lobbies work (invite-only play)
 
 There is **no public matchmaking**: no queue, no random opponent, no list or search of players or lobbies, and no endpoint that takes a player id. Players meet through invite lobbies of **2 to 10 players** (`LOBBY_MAX_PLAYERS`, default 10, allowed 2-10), and the only way into a lobby is its code:

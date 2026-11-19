@@ -348,6 +348,54 @@ export const GAME_COPY = {
       "Shuffle when you are stuck: seeing the words in a new order can reveal a link.",
     ],
   },
+  chess: {
+    tagline: "Classical chess against a friend, refereed by the server.",
+    overview: "A full game of chess with 5 minutes on each clock and 3 seconds added after every move. Colours are drawn at random. The server holds the game: it checks every move against the rules and keeps both clocks, so neither player can make an illegal move or stop the clock.",
+    goal: "Checkmate wins the pot, minus the fee. Running out of time loses, unless your opponent has nothing left to mate with. Stalemate, threefold repetition, the 50-move rule, insufficient material and an agreed draw are draws, and a draw returns both stakes.",
+    length: "Up to about 25 minutes",
+    scoring: [
+      "A win takes the pot minus the fee, a loss loses your stake, and a draw returns both stakes.",
+      "Your clock runs only while it is your move, and each move adds 3 seconds to it.",
+      "A move that arrives after your clock reached zero does not count: the flag has already fallen.",
+      "Resigning loses the game at once.",
+    ],
+    controls: [
+      "Tap or click one of your pieces, then a highlighted square. You can also drag the piece.",
+      "A dot marks an empty square you can move to, a ring marks a capture.",
+      "When a pawn reaches the last rank, pick the piece it becomes.",
+      "Keyboard: arrow keys move around the board, Enter or Space picks up and puts down, Escape cancels.",
+      "Offer a draw from the panel beside the board. Your opponent can accept or decline; making a move also declines it.",
+    ],
+    tips: [
+      "With 3 seconds per move, a fast, simple move is often worth more than a slow, perfect one.",
+      "Under 20 seconds the clock turns red and shows tenths.",
+      "If you lose the connection, open PlayVault again: the game and both clocks carry on where they were.",
+    ],
+  },
+  poker: {
+    tagline: "No-limit hold'em for 2 to 9 friends. The last player with chips takes the pot.",
+    overview: "A sit-and-go of no-limit Texas Hold'em. Everyone starts with 1,500 chips that are only for this table, and the blinds go up every 3 minutes, so every game finishes. The server deals every hand from a freshly shuffled deck and checks every bet. You only ever receive your own two cards; other hands are shown only when they go to a showdown.",
+    goal: "Be the last player with chips. The winner takes the whole pot of stakes, minus the fee. Everyone else loses their stake.",
+    length: "About 15 to 40 minutes, depending on the number of players",
+    scoring: [
+      "Blinds start at 10/20 and go up every 3 minutes: 15/30, 25/50, 50/100 and on.",
+      "The smallest raise is the size of the last raise; you may always go all-in.",
+      "A player who is all-in can only win the part of the pot they covered. Side pots go to the best hand among the players in them.",
+      "Split pots are shared equally; a leftover chip goes to the first winner left of the dealer.",
+      "Several players out in the same hand: the one who started the hand with more chips places higher.",
+    ],
+    controls: [
+      "Fold, Check or Call with one tap. To bet or raise, drag the slider, type an amount, or use Min, ½ pot, Pot or All-in, then press the gold button.",
+      "You have 25 seconds to act. If the time runs out you check when you can, otherwise you fold.",
+      "Miss two turns in a row and you are marked away, with only 4 seconds per turn until you act again.",
+      "Leave table gives up your seat for good; the rest play on.",
+    ],
+    tips: [
+      "Open Shuffle check under the table to see each deck's fingerprint before the deal, and to check the full deck once the hand is over.",
+      "Short-handed, hands are wider: with two players, any ace is a strong hand.",
+      "Watch the blind level: when it rises, waiting for a premium hand gets expensive.",
+    ],
+  },
 };
 
 export const copyFor = (id) => GAME_COPY[id] || null;

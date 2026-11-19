@@ -46,7 +46,7 @@ test("staking is refused unless it is allowed: age, loss limit, funds, range, ga
   await assert.rejects(host(p, { stake: "-5" }), { code: "BAD_AMOUNT" });
   await assert.rejects(host(p, { stake: "abc" }), { code: "BAD_AMOUNT" });
   await assert.rejects(host(p, { game: "nope" }), { code: "UNKNOWN_GAME" });
-  await assert.rejects(host(p, { game: "chess" }), { code: "GAME_NOT_PVP" });
+  await assert.rejects(host(p, { game: "four" }), { code: "GAME_NOT_PVP" });
   assert.equal((await p.bal()), 100n * mETH);
 });
 

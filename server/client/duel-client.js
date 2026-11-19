@@ -176,6 +176,8 @@ export class DuelClient {
   progress(matchId, score) { this.send("match.progress", { matchId, score }); }
   submit(matchId, score, detail) { return this.request("match.submit", { matchId, score, detail }); }
   forfeit(matchId) { return this.request("match.forfeit", { matchId }); }
+  /* table games (chess, poker): one move, bet or draw offer; the new table arrives as a match.table event */
+  act(matchId, action) { return this.request("match.act", { matchId, action }); }
   sync() { return this.request("sync"); }
 
   close() {

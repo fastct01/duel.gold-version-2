@@ -8,6 +8,7 @@ import * as practice from "/play/views/practice.js";
 import * as celebrate from "/play/views/celebrate.js";
 import * as gamelobby from "/play/views/gamelobby.js";
 import * as age from "/play/views/age.js";
+import * as table from "/play/views/table.js";
 
 const { ethers, DG } = window;
 const $ = (s, r = document) => r.querySelector(s);
@@ -45,6 +46,8 @@ const S = {
   history: null,   // GET /v1/matches?limit=30
   ui: {},          // free-form view state owned by the view modules (filters, open panels, …)
   practice: null,  // local practice game vs a bot in the Games tab (views/practice.js)
+  table: null,     // a table game being played (chess, poker): the server's latest view for me (match.table), see views/table.js
+  tableAt: 0,      // server time that view was made at (the clocks run on from there)
   depositing: null, // amount (test ETH, local chain only) of a deposit on its way in; Deposit buttons show "Depositing…" and stay disabled
 };
 
@@ -145,9 +148,13 @@ function renderTop() {
 
 /* the play view builds its frame once; afterwards only small pieces are updated so the game's DOM is never rebuilt */
 function renderPlay() {
-  if (!$("#stage")) $("#main").innerHTML = matchUI.playFrame(ctx);
+  const isTable = isTableMatch(S.match);
+  if (!$("#stage")) $("#main").innerHTML = isTable ? table.tableFrame(ctx) : matchUI.playFrame(ctx);
   updatePlayBar();
+  if (isTable && S.table) table.renderTable(app);
 }
+/* chess and poker: the server plays them out move by move (views/table.js), there is no seed and no score to send */
+const isTableMatch = (m) => !!(m && m.game && m.game.kind === "table");
 function updatePlayBar() { matchUI.playBar(ctx); }
 
 /* switch page (lobby tabs). Leaves matches alone: during a match the nav only changes S.tab for afterwards.
@@ -442,6 +449,7 @@ function enterMatch(match) {
   if (S.match && S.match.id === match.id && ["found", "play"].includes(S.view)) return;
   clearInvite(); dropLobby();
   S.match = match; S.result = null; S.error = ""; S.busy = false; S.view = "found";
+  S.table = null; S.optimistic = null; S.chessSel = null; S.chessFocus = null;
   initMatchState(match);
   render(true); refreshMe();
 }
@@ -459,7 +467,10 @@ function applyActive(active) {
   if (active.match.state === "found") { initMatchState(active.match); S.view = "found"; }
   else {
     S.forfeited = !!(matchUI.playersOf(active.match, S.me).find((p) => p.you) || {}).forfeited; // reloaded after forfeiting a match that is still going
-    if (S.view !== "play") S.view = "orphan";
+    if (isTableMatch(active.match) && active.match.table) { // a table game picks up where it was, in any tab
+      S.table = active.match.table; S.tableAt = S.client ? S.client.serverNow() : Date.now();
+      if (S.view !== "play") { S.view = "play"; const mm = $("#main"); if (mm) mm.innerHTML = ""; }
+    } else if (S.view !== "play") S.view = "orphan";
   }
 }
 
@@ -508,6 +519,7 @@ function wire(c) {
   c.on("match.found", (m) => enterMatch(m.match));
   c.on("match.opponent_ready", (m) => { if (seatEvent(m, (s) => { s.ready = true; }) && S.view === "found" && !matchUI.patchFound(ctx)) render(true); });
   c.on("match.start", (m) => onStart(m));
+  c.on("match.table", (m) => onTable(m));
   c.on("match.opponent_progress", (m) => { if (seatEvent(m, (s) => { s.score = m.score; }) && S.view === "play") updatePlayBar(); });
   c.on("match.opponent_finished", (m) => { if (seatEvent(m, (s) => { s.finished = true; }) && S.view === "play") updatePlayBar(); });
   c.on("match.opponent_forfeited", (m) => { if (seatEvent(m, (s) => { s.forfeited = true; }) && S.view === "play") updatePlayBar(); });
@@ -527,6 +539,17 @@ async function reconnect(c, attempt = 0) {
 function onStart(m) {
   if (!S.match || S.match.id !== m.matchId) return;
   S.startInfo = m;
+  if (m.table) { // a table game: the board arrives as match.table; show the 3-2-1 over it
+    if (S.view !== "play") { S.view = "play"; document.getElementById("main").innerHTML = ""; render(true); }
+    const tick = () => {
+      const left = m.startAt - S.client.serverNow();
+      const cd = $("#countdown");
+      if (cd) cd.innerHTML = matchUI.countdown(ctx, left);
+      if (left > 0 && S.view === "play") setTimeout(tick, 100);
+    };
+    tick();
+    return;
+  }
   if (m.seed == null) { S.view = "orphan"; render(true); return; } // the challenge went to another tab
   S.view = "play";
   document.getElementById("main").innerHTML = ""; // fresh frame for this match
@@ -538,6 +561,15 @@ function onStart(m) {
     if (left > 0) setTimeout(tick, 100); else startGame(m.seed);
   };
   tick();
+}
+
+/* the server's table after every move, bet, timeout or new hand (only my own view: my cards, my legal moves) */
+function onTable(m) {
+  if (!S.match || String(m.matchId) !== String(S.match.id)) return;
+  S.table = m.table; S.tableAt = m.serverNow || S.client.serverNow();
+  if (S.view !== "play") { S.view = "play"; $("#main").innerHTML = ""; render(true); return; }
+  if (!$("#stage")) return render(true);
+  table.renderTable(app);
 }
 
 function startGame(seed) {
@@ -581,6 +613,7 @@ function afterForfeit(r) {
 
 function onEnded(match) {
   if (S.handle) { try { S.handle.abort(); } catch { /* already over */ } S.handle = null; }
+  S.table = null; S.optimistic = null; S.chessSel = null; S.chessFocus = null; S.tablePending = false;
   S.result = match; S.match = null; S.view = "result"; S.confirmForfeit = false; S.forfeited = false;
   render(true);
   refreshMe();
@@ -935,7 +968,7 @@ async function loadPacks(games) {
       : cfg.chain ? "PlayVault · invite-only duels (test network)" : "PlayVault · invite-only skill duels";
     S.games = list.games.filter((g) => g.pvp);
     await loadPacks(S.games);
-    S.games = S.games.filter((g) => DG.getGame(g.id)); // only games whose code actually loaded
+    S.games = S.games.filter((g) => g.kind === "table" || DG.getGame(g.id)); // only games whose code actually loaded (table games need none)
     S.pick.game = defaultGame();
   } catch (e) {
     $("#main").innerHTML = `<section class="dg-box"><h2 class="dg-h">Cannot reach the server</h2><p class="lede">${esc(e.message)}</p></section>`;

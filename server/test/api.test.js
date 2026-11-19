@@ -29,9 +29,10 @@ test("public endpoints describe the platform without needing a session", async (
   assert.match(cfg.notice, /Test network only/);
 
   const { games } = (await raw(h, "GET", "/v1/games")).json;
-  assert.equal(games.length, 23);
-  assert.equal(games.filter((g) => g.pvp).length, 14);
+  assert.equal(games.length, 24);
+  assert.equal(games.filter((g) => g.pvp).length, 16, "14 race games + the 2 table games (chess, poker)");
   assert.ok(games.filter((g) => g.kind === "versus").every((g) => !g.pvp), "versus games are not offered for PvP yet");
+  assert.deepEqual(games.filter((g) => g.kind === "table").map((g) => g.id).sort(), ["chess", "poker"]);
   const reaction = games.find((g) => g.id === "reaction");
   assert.equal(reaction.maxSeconds, 30);
   assert.ok(!("raw" in reaction) && !("bot" in reaction), "no internals leak into the catalog");

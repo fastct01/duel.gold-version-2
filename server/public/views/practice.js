@@ -187,6 +187,8 @@ export const actions = {
   /* "Try out" from a game's description: open the practice screen in the Games tab */
   "try-game"(el, app) {
     const { S } = app;
+    const g = S.games.find((x) => x.id === (el.dataset.game || S.pick.game));
+    if (g && g.kind === "table") return app.toast(`${g.name} is played against people only. Invite a friend to a free lobby to try it.`, "gold");
     stop(S);
     S.practice = { game: el.dataset.game || S.pick.game, level: S.ui.prLevel || "normal", phase: "ready", error: "" };
     app.go("games");

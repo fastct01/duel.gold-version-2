@@ -10,6 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import { TABLE_GAMES } from "../tables/index.js";
 
 const noop = () => {};
 const domStub = () => new Proxy(function () {}, {
@@ -58,11 +59,13 @@ export class Catalog {
       id: g.id, name: g.name, category: g.category, kind: g.kind, pack: g.pack, blurb: g.blurb,
       skill: g.skill, luck: g.luck, cashEligible: g.cashEligible, duration: g.duration, scoreLabel: g.scoreLabel,
       pvp: g.pvp, maxSeconds: Math.round(g.maxMs / 1000), rules: g.rules,
+      ...(g.table ? { minPlayers: g.minPlayers, maxPlayers: g.maxPlayers } : {}),
     };
   }
 
   /* Top-skill bot score for this seed, or null if unavailable. Used only to flag implausible results for review. */
   botCeiling(game, seed) {
+    if (!game.raw || typeof game.raw.bot !== "function") return null; // table games have no bot
     const key = `${game.id}:${seed}`;
     if (this.botCache.has(key)) return this.botCache.get(key);
     let score = null;
@@ -84,7 +87,17 @@ export class Catalog {
   }
 }
 
-export function loadCatalog({ gamesDir, log }) {
+/* catalog entries for the table games; maxMs is the hard cap on a match (see tables/index.js) */
+export function tableEntries(tableOpts = {}) {
+  return TABLE_GAMES.map((t) => ({
+    id: t.id, name: t.name, category: t.category, kind: "table", pack: "", blurb: t.blurb, skill: t.skill, luck: t.luck,
+    cashEligible: t.cashEligible, duration: t.duration, scoreLabel: t.scoreLabel, rules: t.rules.slice(), pvp: true,
+    maxMs: t.engine.capMs(t.maxPlayers, tableOpts[t.optsKey]), minPlayers: t.minPlayers, maxPlayers: t.maxPlayers,
+    table: t, raw: null,
+  }));
+}
+
+export function loadCatalog({ gamesDir, log, tableOpts = {} }) {
   const ctx = sandbox();
   const files = ["core/sdk.js"];
   const gameDir = path.join(gamesDir, "games");
@@ -108,6 +121,12 @@ export function loadCatalog({ gamesDir, log }) {
     maxMs: Math.round(parseDurationSeconds(def.duration) * 1000),
     raw: def,
   }));
+  /* table games (src/tables): played out by the server itself. One with the id of a browser pack's game replaces it
+     (the pack's chess plays against a computer in the browser; this one is player against player). */
+  for (const t of tableEntries(tableOpts)) {
+    const i = games.findIndex((g) => g.id === t.id);
+    if (i >= 0) games.splice(i, 1, t); else games.push(t);
+  }
   for (const e of DG.loadErrors || []) log.warn("game did not register", { error: e });
   log.info("game catalog loaded", { games: games.length, pvp: games.filter((g) => g.pvp).length });
   return new Catalog(games, DG);

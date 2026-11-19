@@ -95,7 +95,7 @@ function aboutBar(ctx, g, t) {
   return `<section class="gl-quick" aria-label="About ${esc(g.name)}">
     <div class="gl-quick-acts">
       <button type="button" class="gl-btn quiet gl-about-btn" data-act="gl-about" id="glAboutBtn" aria-expanded="${open}" aria-controls="glAboutPanel">About${icon("chevron")}</button>
-      <button type="button" class="gl-btn" data-act="try-game" data-game="${esc(g.id)}" id="glTry">Try out${icon("arrow")}</button>
+      ${g.kind === "table" ? "" : `<button type="button" class="gl-btn" data-act="try-game" data-game="${esc(g.id)}" id="glTry">Try out${icon("arrow")}</button>`}
     </div>
     <div class="gl-about-panel" id="glAboutPanel" role="region" aria-labelledby="glAboutBtn"${open ? "" : " hidden"}>
       ${t.overview ? `<p class="gl-p">${esc(nbu(t.overview))}</p>` : ""}
@@ -141,7 +141,7 @@ function inviteCard(ctx, g) {
     <ol class="gl-steps">
       <li>Create a lobby for ${esc(g.name)}</li>
       <li>Send the invite link or 8-character code</li>
-      <li>Friends check the terms and join, up to 10 players</li>
+      <li>${Number(g.maxPlayers) === 2 ? "Your friend checks the terms and joins; the game starts at once" : `Friends check the terms and join, up to ${Math.min(Number(g.maxPlayers) || 10, (S.cfg && S.cfg.match && Number(S.cfg.match.lobbyMaxPlayers)) || 10)} players`}</li>
       <li>You start the match when everyone is in</li>
     </ol>
     <div class="gl-inv-set">
@@ -168,6 +168,7 @@ function inviteCard(ctx, g) {
    A secondary action (gold outline): the page's solid gold button is Create lobby. */
 function practiceCard(ctx, g) {
   const { S, h } = ctx; const { esc } = h;
+  if (g.kind === "table") return ""; // chess and poker are played against people only
   const lvl = S.ui.prLevel || "normal";
   const chip = (id, name) => `<button type="button" class="gl-chip" data-act="pr-level" data-level="${id}" aria-pressed="${lvl === id}">${name}</button>`;
   return `<section class="gl-sec gl-prac" aria-labelledby="glPracH"><div class="gl-sec-in">
