@@ -43,11 +43,9 @@ body[data-view=signin] .top-brand{padding-left:max(var(--pad-x),calc((100vw - 12
 /* network badge: a small hairline tag next to the wordmark. Real money gets the gold frame; a test network stays stone. */
 .top-net{flex:0 1 auto;min-width:0;margin-right:auto;display:flex;align-items:center;overflow:hidden}
 .top-net:empty{display:none}
-.net-tag{display:inline-flex;align-items:center;gap:8px;min-height:26px;padding:0 10px;border:1px solid var(--hair-strong);border-radius:var(--radius-1);
+.net-tag{display:inline-flex;align-items:center;gap:8px;min-height:26px;padding:0 10px;border:0;border-radius:var(--radius-1);
   font:500 11px/1 var(--font-body);letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400);white-space:nowrap;cursor:default}
-.net-tag i{width:6px;height:6px;flex:none;background:var(--stone-400)}
-.net-tag.real{border-color:var(--hair-gold);color:var(--gold-300)}
-.net-tag.real i{background:var(--gold-500)}
+.net-tag.real{color:var(--gold-300)}
 .net-tag .nt-short{display:none}
 
 /* Join: a quiet text link with an underline reveal */
@@ -188,10 +186,10 @@ input[type=checkbox]{accent-color:var(--gold-500);width:20px;height:20px;flex:no
 .notice.warn{border-left-color:var(--danger)}
 .notice.warn .ico{color:var(--danger)}
 /* result labels: small bordered tags in the outcome colours, no fill */
-.rpill{display:inline-flex;align-items:center;gap:6px;border-radius:var(--radius-1);padding:5px 10px;font:500 11px/1 var(--font-body);letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--hair-strong);background:transparent;color:var(--stone-400);white-space:nowrap}
-.rpill.win{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 50%,transparent)}
-.rpill.loss{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 55%,transparent)}
-.rpill.draw,.rpill.void{color:var(--gold-300);border-color:var(--hair-gold)}
+.rpill{display:inline-flex;align-items:center;gap:6px;border-radius:var(--radius-1);padding:5px 10px;font:500 11px/1 var(--font-body);letter-spacing:.12em;text-transform:uppercase;border:0;background:transparent;color:var(--stone-400);white-space:nowrap}
+.rpill.win{color:var(--ok)}
+.rpill.loss{color:var(--danger)}
+.rpill.draw,.rpill.void{color:var(--gold-300)}
 /* skeletons: flat blocks that breathe, no gradient sweep */
 .skel{display:block;border-radius:var(--radius-1);background:var(--ink-800);animation:dgBreathe 1.8s ease-in-out infinite}
 @keyframes dgBreathe{50%{opacity:.5}}
@@ -323,7 +321,6 @@ body[data-view=signin] #main{max-width:1280px;margin-left:auto;margin-right:auto
 /* the short network name (the full one stays in the sr-only text and the title) once the bar gets busy */
 @media(max-width:1099px){.net-tag .nt-long{display:none}.net-tag .nt-short{display:inline}}
 @media(max-width:640px){.net-tag{padding:0 7px;gap:6px;min-height:24px;font-size:10px;letter-spacing:.1em}.top-net{margin-left:10px}}
-@media(max-width:400px){.net-tag i{display:none}}
 @media(max-width:440px){#topFaucet{display:none}}
 @media(max-width:400px){
   .top-brand,body[data-view=signin] .top-brand,body[data-view=play] .top-brand{font-size:22px;padding-left:max(16px,env(safe-area-inset-left,0px))}

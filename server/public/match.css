@@ -223,7 +223,7 @@ body[data-view=play] #main{max-width:min(1280px,100%);padding-top:calc(var(--top
 .mx-pr .mx-ava .ava{width:32px;height:32px}
 .mx-pname{min-width:0;font-size:var(--fs-16);line-height:1.35;color:var(--ivory-100);overflow-wrap:anywhere}
 .mx-ptags{display:inline-flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:var(--sp-4) var(--sp-8)}
-.mx-pr .lb-chip-s.you{border-color:var(--gold-500);color:var(--gold-500)}
+.mx-pr .lb-chip-s.you{color:var(--gold-500)}
 .mx-prate{margin-left:var(--sp-8);font-size:var(--fs-14);color:var(--stone-400);font-variant-numeric:lining-nums tabular-nums}
 .mx-pr .mx-ready{margin-top:0;white-space:nowrap}
 .mx-potline b{font-weight:500;color:var(--ivory-100);font-variant-numeric:lining-nums tabular-nums}

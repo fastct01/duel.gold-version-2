@@ -96,5 +96,5 @@ export function netBadge(S) {
     : net === "local" ? (/local/i.test(name) ? name : `${name} local`)
     : (/test/i.test(name) ? name : `${name} testnet`);
   const short = net === "mainnet" ? "Mainnet" : net === "local" ? "Local" : "Testnet";
-  return `<span class="net-tag${c.realMoney ? " real" : ""}" id="netTag"><i aria-hidden="true"></i><span class="sr-only">Network: ${esc(long)}</span><span class="nt-long" aria-hidden="true">${esc(long)}</span><span class="nt-short" aria-hidden="true">${esc(short)}</span></span>`;
+  return `<span class="net-tag${c.realMoney ? " real" : ""}" id="netTag"><span class="sr-only">Network: ${esc(long)}</span><span class="nt-long" aria-hidden="true">${esc(long)}</span><span class="nt-short" aria-hidden="true">${esc(short)}</span></span>`;
 }

@@ -446,7 +446,7 @@ export const views = {
     </li>`;
     return `<div class="lb-tour">
       <header class="lb-tour-head" aria-labelledby="lbTour">
-        <p class="lb-status"><i aria-hidden="true"></i>Upcoming</p>
+        <p class="lb-status">Upcoming</p>
         <h1 class="lb-title lb-title-xl" id="lbTour">Tournaments</h1>
         <p class="lb-lede">Tournaments for groups of friends are on the way. One person sets it up, shares a single invite link, and everyone who joins plays the same seeded rounds until one winner is left.</p>
       </header>

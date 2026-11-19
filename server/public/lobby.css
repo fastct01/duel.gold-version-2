@@ -53,7 +53,7 @@
   text-decoration:underline;text-decoration-color:transparent;text-decoration-thickness:1px;text-underline-offset:.55em}
 .lb-link-btn:hover,.lb-how:hover,.lb-surprise:hover{color:var(--gold-300);text-decoration-color:currentColor}
 .lb-card-head .lb-link-btn{min-height:var(--lb-hit);margin:-12px 0}
-.lb-chip-s{padding:4px 10px;border:1px solid var(--hair-strong);border-radius:var(--radius-1);font-size:11px;font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400);white-space:nowrap}
+.lb-chip-s{padding:4px 10px;border:0;border-radius:var(--radius-1);font-size:11px;font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400);white-space:nowrap}
 
 /* chips: stake amounts, categories, practice levels. Selected = gold hairline + gold text */
 .lb-chip,.lb-cat{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:var(--lb-hit);padding:0 16px;border-radius:var(--radius-1);background:transparent;
@@ -207,9 +207,9 @@
 .lb-wallet .lb-row{display:grid;justify-items:start;gap:var(--sp-4)}
 .lb-wallet .lb-btn{width:100%}
 .lb-pills{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.lb-pill{width:32px;height:32px;border-radius:var(--radius-1);display:grid;place-items:center;font-size:var(--fs-12);font-weight:600;letter-spacing:.06em;background:none;border:1px solid var(--hair-strong);color:var(--stone-400)}
-.lb-pill.win{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 55%,transparent)}
-.lb-pill.loss{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 55%,transparent)}
+.lb-pill{width:32px;height:32px;border-radius:var(--radius-1);display:grid;place-items:center;font-size:var(--fs-12);font-weight:600;letter-spacing:.06em;background:none;border:0;color:var(--stone-400)}
+.lb-pill.win{color:var(--ok)}
+.lb-pill.loss{color:var(--danger)}
 .lb-streak{margin-left:var(--sp-8);font-size:11px;font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
 .lb-streak.win{color:var(--ok)}
 .lb-form-list{list-style:none;margin:0;padding:0}
@@ -292,10 +292,8 @@
 .lb-tour-meta{margin:0;font-size:var(--fs-12);font-weight:500;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--stone-400)}
 .lb-tour-p{margin:var(--sp-4) 0 0;max-width:56ch;font-size:var(--fs-16);line-height:1.65;color:var(--lb-text2);text-wrap:pretty}
 /* status tags: gold hairline, gold text, a faint gold wash. "Upcoming" (the page) carries the one pulse; "Coming soon" (each format) a clock */
-.lb-status,.lb-soon{display:inline-flex;align-items:center;gap:8px;justify-self:start;margin:0;padding:5px 12px;border:1px solid var(--hair-gold);border-radius:var(--radius-1);
-  background:var(--gold-soft);font-family:var(--font-body);font-size:11px;font-weight:600;line-height:1.3;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--gold-300);white-space:nowrap}
-.lb-status i{width:7px;height:7px;flex:none;background:var(--gold-500);animation:lbSoonPulse 2.4s var(--ease) infinite}
-@keyframes lbSoonPulse{0%,100%{opacity:1}50%{opacity:.25}}
+.lb-status,.lb-soon{display:inline-flex;align-items:center;gap:8px;justify-self:start;margin:0;padding:5px 0;border:0;border-radius:var(--radius-1);
+  background:none;font-family:var(--font-body);font-size:11px;font-weight:600;line-height:1.3;letter-spacing:var(--label-track);text-transform:uppercase;color:var(--gold-300);white-space:nowrap}
 .lb-soon{grid-column:2;margin-top:var(--sp-8)}
 .lb-soon .ico{width:14px;height:14px;flex:none;stroke-width:1.6;color:var(--gold-500)}
 .lb-tour-cta{display:grid;gap:var(--sp-16);justify-items:start;align-content:start}
